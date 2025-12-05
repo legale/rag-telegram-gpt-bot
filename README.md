@@ -27,6 +27,143 @@ A RAG-based chatbot designed to act as an IT union lawyer. It ingests Telegram c
 3.  **Models**:
     Create a `models.txt` file with your preferred model name (e.g., `openai/gpt-3.5-turbo` or `anthropic/claude-3-opus`).
 
+## Quick Start
+
+### Complete Setup: From Zero to Telegram Bot
+
+This guide walks you through the entire process of setting up the bot, creating the database from Telegram chat history, and deploying it as a Telegram bot.
+
+#### Step 1: Initial Setup
+
+1. **Clone and Install**:
+   ```bash
+   git clone git@github.com:legale/rag-telegram-gpt-bot.git
+   cd rag-telegram-gpt-bot
+   poetry install
+   ```
+
+2. **Configure Credentials**:
+   ```bash
+   cp .env.example .env
+   ```
+   
+   Edit `.env` and add:
+   - `TELEGRAM_API_ID` and `TELEGRAM_API_HASH` from [my.telegram.org](https://my.telegram.org)
+   - `OPENROUTER_API_KEY` from [OpenRouter](https://openrouter.ai)
+   - `TELEGRAM_BOT_TOKEN` from [@BotFather](https://t.me/BotFather)
+
+3. **Configure Model**:
+   ```bash
+   echo "openai/gpt-3.5-turbo" > models.txt
+   ```
+
+#### Step 2: Create Database from Telegram Chat
+
+1. **Dump Chat History**:
+   ```bash
+   # List available chats
+   poetry run python src/ingestion/telegram.py list_chan
+   
+   # Dump messages from your chat (replace with actual chat name)
+   poetry run python src/ingestion/telegram.py dump_chan "Your Chat Name" \
+     --limit 10000 \
+     --output telegram_dump.json
+   ```
+
+2. **Ingest Data into Database**:
+   ```bash
+   # Create database and vector embeddings
+   poetry run python src/ingestion/pipeline.py telegram_dump.json --clear
+   
+   # This will:
+   # - Parse 10,000 messages
+   # - Create chunks with 20% overlap
+   # - Generate vector embeddings (ChromaDB)
+   # - Store in SQLite database
+   ```
+
+3. **Verify Database**:
+   ```bash
+   # Test with CLI
+   poetry run ./src/bot/cli.py -vv
+   
+   # Ask a question to verify retrieval works
+   # You: Что обсуждали в чате?
+   ```
+
+#### Step 3: Deploy Telegram Bot
+
+1. **Create Bot with BotFather**:
+   - Open Telegram and talk to [@BotFather](https://t.me/BotFather)
+   - Send `/newbot` and follow instructions
+   - Save the bot token to `.env` as `TELEGRAM_BOT_TOKEN`
+
+2. **Setup Server (requires domain with SSL)**:
+   ```bash
+   # Install nginx if not already installed
+   sudo apt install nginx certbot python3-certbot-nginx
+   
+   # Get SSL certificate
+   sudo certbot --nginx -d yourdomain.com
+   
+   # Copy nginx config
+   sudo cp nginx/telegram-bot.conf /etc/nginx/sites-available/legale-bot
+   
+   # Edit config and change:
+   # - server_name to your domain
+   # - SSL certificate paths (certbot creates them automatically)
+   sudo nano /etc/nginx/sites-available/legale-bot
+   
+   # Enable site
+   sudo ln -s /etc/nginx/sites-available/legale-bot /etc/nginx/sites-enabled/
+   sudo nginx -t
+   sudo systemctl reload nginx
+   ```
+
+3. **Register Webhook**:
+   ```bash
+   poetry run python src/bot/tgbot.py register \
+     --url https://yourdomain.com/webhook \
+     --token YOUR_BOT_TOKEN
+   ```
+
+4. **Start Bot Service**:
+   ```bash
+   # Option A: Foreground (for testing)
+   poetry run python src/bot/tgbot.py run -vv
+   
+   # Option B: Systemd service (production)
+   sudo cp systemd/legale-bot.service /etc/systemd/system/
+   # Edit service file and update paths/user
+   sudo nano /etc/systemd/system/legale-bot.service
+   sudo systemctl daemon-reload
+   sudo systemctl start legale-bot
+   sudo systemctl enable legale-bot
+   ```
+
+5. **Add Bot to Chat**:
+   - Add your bot to the Telegram chat
+   - Send a message: "Привет!"
+   - Bot should respond with context from chat history
+
+#### Step 4: Verify Everything Works
+
+```bash
+# Check bot service status
+sudo systemctl status legale-bot
+
+# View logs
+sudo journalctl -u legale-bot -f
+
+# Test webhook health
+curl https://yourdomain.com/health
+
+# Test in Telegram
+# Send: "Что обсуждали в чате на прошлой неделе?"
+```
+
+---
+
 ## Usage
 
 ### 1. Dump Chat History
