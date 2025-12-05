@@ -32,19 +32,20 @@ class LegaleBot:
         # Simple in-memory history for the current session
         self.chat_history: List[Dict[str, str]] = []
 
-    def chat(self, user_input: str) -> str:
+    def chat(self, user_input: str, n_results: int = 5) -> str:
         """
         Process a user message and return the bot's response.
         
         Args:
             user_input: The user's message.
+            n_results: Number of context chunks to retrieve.
             
         Returns:
             The bot's response.
         """
         # 1. Retrieve Context
-        print("Retrieving context...")
-        context_chunks = self.retrieval_service.retrieve(user_input)
+        print(f"Retrieving context ({n_results} chunks)...")
+        context_chunks = self.retrieval_service.retrieve(user_input, n_results=n_results)
         
         # 2. Construct Prompt
         # Convert internal history format to what PromptEngine expects if needed

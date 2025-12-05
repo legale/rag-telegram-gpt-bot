@@ -74,3 +74,50 @@ Create a chatbot that acts as an IT union lawyer, using a RAG (Retrieval-Augment
 - [ ] **Evaluation & Verification**:
     - Create a set of "golden" questions and answers.
     - Implement an evaluation script to check retrieval quality.
+
+### Phase 4: Telegram Bot Integration (Webhook + Daemon)
+- [ ] **Daemon Architecture**:
+    - [ ] Design persistent memory architecture (keep DB/VectorStore loaded)
+    - [ ] Choose web framework (FastAPI + uvicorn)
+    - [ ] Design logging strategy (syslog for daemon, stdout for foreground)
+    - [ ] Plan graceful shutdown handling
+- [ ] **Telegram Bot Implementation**:
+    - [ ] Implement `src/bot/tgbot.py` main module
+    - [ ] Create FastAPI app with `/webhook` endpoint
+    - [ ] Implement Telegram update parser
+    - [ ] Add message handler (text messages → LegaleBot.chat())
+    - [ ] Add `/start` and `/help` commands
+    - [ ] Implement persistent LegaleBot instance (singleton pattern)
+- [ ] **CLI Utilities**:
+    - [ ] Implement `register` command (webhook registration)
+    - [ ] Implement `delete` command (webhook deletion)
+    - [ ] Implement `run` command (foreground mode with -v/-vv/-vvv)
+    - [ ] Implement `daemon` command (background mode)
+    - [ ] Add argument parsing with `argparse`
+- [ ] **Daemonization**:
+    - [ ] Implement daemon mode using `python-daemon` or systemd
+    - [ ] Configure syslog logging for daemon mode
+    - [ ] Implement PID file management
+    - [ ] Add signal handlers (SIGTERM, SIGINT for graceful shutdown)
+- [ ] **Nginx Integration**:
+    - [ ] Create nginx config template (`nginx/telegram-bot.conf`)
+    - [ ] Document SSL/TLS requirements
+    - [ ] Document reverse proxy setup
+    - [ ] Add health check endpoint (`/health`)
+- [ ] **Systemd Service**:
+    - [ ] Create systemd service file (`systemd/legale-bot.service`)
+    - [ ] Document service installation steps
+    - [ ] Document service management commands
+- [ ] **Configuration & Documentation**:
+    - [ ] Add `TELEGRAM_BOT_TOKEN` to `.env.example`
+    - [ ] Update `README.md` with Telegram bot setup instructions
+    - [ ] Update `pyproject.toml` with new dependencies
+    - [ ] Document webhook registration process
+- [ ] **Testing & Verification**:
+    - [ ] Write unit tests for webhook handler
+    - [ ] Write integration tests for daemon startup/shutdown
+    - [ ] Test foreground mode with verbosity levels
+    - [ ] Test daemon mode with syslog
+    - [ ] Performance test (10 rapid messages)
+    - [ ] Test graceful shutdown
+    - [ ] Verify persistent memory (no DB reload on requests)

@@ -1,0 +1,35 @@
+[Unit]
+Description=Legale Bot Telegram Webhook Daemon
+Documentation=https://github.com/legale/rag-telegram-gpt-bot
+After=network.target
+
+[Service]
+Type=simple
+User=legale-bot
+Group=legale-bot
+WorkingDirectory=/home/legale-bot/legale-bot
+
+# Environment
+Environment="PATH=/home/legale-bot/.local/bin:/usr/local/bin:/usr/bin:/bin"
+
+# Command to run
+ExecStart=/usr/bin/env poetry run python src/bot/tgbot.py run --port 8000
+
+# Restart policy
+Restart=on-failure
+RestartSec=10s
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/home/legale-bot/legale-bot
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=legale-bot
+
+[Install]
+WantedBy=multi-user.target

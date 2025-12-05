@@ -48,6 +48,7 @@ def main():
     
     parser = argparse.ArgumentParser(description="Legale Bot CLI")
     parser.add_argument("-v", "--verbose", action="count", default=0, help="Increase verbosity level (-v, -vv, -vvv)")
+    parser.add_argument("--chunks", type=int, default=5, help="Number of context chunks to retrieve (default: 5)")
     args = parser.parse_args()
 
     # Read model from models.txt
@@ -60,7 +61,7 @@ def main():
     except FileNotFoundError:
         print("Warning: models.txt not found, using default model.")
 
-    print(f"Initializing Legale Bot with model: {model_name} (Verbosity: {args.verbose})...")
+    print(f"Initializing Legale Bot with model: {model_name} (Verbosity: {args.verbose}, Chunks: {args.chunks})...")
     try:
         bot = LegaleBot(model_name=model_name, verbosity=args.verbose)
         print("Bot ready! Type 'exit' or 'quit' to stop.")
@@ -73,12 +74,13 @@ def main():
         try:
             user_input = input("You: ")
             if user_input.lower() in ['exit', 'quit']:
+                print("Goodbye!")
                 break
             
             if not user_input.strip():
                 continue
                 
-            response = bot.chat(user_input)
+            response = bot.chat(user_input, n_results=args.chunks)
             print(f"Bot: {response}")
             print("-" * 50)
             

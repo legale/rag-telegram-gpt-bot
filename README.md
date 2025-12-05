@@ -54,4 +54,93 @@ poetry run ./src/bot/cli.py
 poetry run ./src/bot/cli.py -v   # Basic info
 poetry run ./src/bot/cli.py -vv  # Retrieval details
 poetry run ./src/bot/cli.py -vvv # Full LLM logs
+
+# Adjust number of context chunks:
+poetry run ./src/bot/cli.py --chunks 10
 ```
+
+### 4. Telegram Bot (Webhook)
+
+#### Prerequisites
+- Domain with SSL certificate (use Let's Encrypt/certbot)
+- Nginx installed
+- Bot token from [@BotFather](https://t.me/BotFather)
+
+#### Setup
+
+1. **Create Bot**:
+   ```bash
+   # Talk to @BotFather on Telegram
+   # Use /newbot command
+   # Save the token
+   ```
+
+2. **Configure Environment**:
+   Add to `.env`:
+   ```
+   TELEGRAM_BOT_TOKEN=your_bot_token_here
+   ```
+
+3. **Configure Nginx**:
+   ```bash
+   # Copy config template
+   sudo cp nginx/telegram-bot.conf /etc/nginx/sites-available/legale-bot
+   
+   # Edit the file and change:
+   # - server_name to your domain
+   # - SSL certificate paths
+   
+   # Enable site
+   sudo ln -s /etc/nginx/sites-available/legale-bot /etc/nginx/sites-enabled/
+   sudo nginx -t
+   sudo systemctl reload nginx
+   ```
+
+4. **Register Webhook**:
+   ```bash
+   poetry run python src/bot/tgbot.py register \
+     --url https://yourdomain.com/webhook \
+     --token YOUR_BOT_TOKEN
+   ```
+
+#### Running
+
+**Foreground (for testing)**:
+```bash
+# Basic
+poetry run python src/bot/tgbot.py run
+
+# With verbosity
+poetry run python src/bot/tgbot.py run -vv
+
+# Custom port
+poetry run python src/bot/tgbot.py run --port 8080
+```
+
+**As Systemd Service (production)**:
+```bash
+# Install service
+sudo cp systemd/legale-bot.service /etc/systemd/system/
+sudo systemctl daemon-reload
+
+# Start service
+sudo systemctl start legale-bot
+sudo systemctl enable legale-bot
+
+# Check status
+sudo systemctl status legale-bot
+
+# View logs
+sudo journalctl -u legale-bot -f
+```
+
+#### Management
+
+```bash
+# Delete webhook
+poetry run python src/bot/tgbot.py delete
+
+# Check health
+curl https://yourdomain.com/health
+```
+
