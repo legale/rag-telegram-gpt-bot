@@ -1,0 +1,23 @@
+[project]
+name = "legale-bot"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Ruslan Isaev",email = "legale.legale@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pytest (>=9.0.1,<10.0.0)",
+    "chromadb (>=1.3.5,<2.0.0)",
+    "sqlalchemy (>=2.0.44,<3.0.0)",
+    "openai (>=2.9.0,<3.0.0)",
+    "python-dotenv (>=1.2.1,<2.0.0)",
+    "tiktoken (>=0.12.0,<0.13.0)",
+    "telethon (>=1.42.0,<2.0.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
