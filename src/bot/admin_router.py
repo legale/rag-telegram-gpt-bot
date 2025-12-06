@@ -1,0 +1,126 @@
+"""
+Admin command router for Legale Bot.
+Routes /admin commands to appropriate handlers.
+"""
+
+from typing import Optional, Callable, Dict, Any
+from telegram import Update
+from telegram.ext import ContextTypes
+import logging
+
+logger = logging.getLogger("legale_admin_router")
+
+
+class AdminCommandRouter:
+    """Routes admin commands to handlers."""
+    
+    def __init__(self):
+        self.handlers: Dict[str, Callable] = {}
+        self.subcommand_handlers: Dict[str, Dict[str, Callable]] = {}
+    
+    def register(self, command: str, handler: Callable, subcommand: Optional[str] = None):
+        """
+        Register a command handler.
+        
+        Args:
+            command: Main command (e.g., 'profile')
+            handler: Handler function
+            subcommand: Optional subcommand (e.g., 'list')
+        """
+        if subcommand:
+            if command not in self.subcommand_handlers:
+                self.subcommand_handlers[command] = {}
+            self.subcommand_handlers[command][subcommand] = handler
+        else:
+            self.handlers[command] = handler
+    
+    async def route(self, update: Update, context: ContextTypes.DEFAULT_TYPE, admin_manager) -> str:
+        """
+        Route admin command to appropriate handler.
+        
+        Args:
+            update: Telegram update
+            context: Bot context
+            admin_manager: AdminManager instance
+        
+        Returns:
+            Response message
+        """
+        message = update.message
+        text = message.text
+        
+        # Check if user is admin
+        user_id = message.from_user.id
+        if not admin_manager or not admin_manager.is_admin(user_id):
+            logger.warning(f"Unauthorized admin command attempt from user {user_id}")
+            return "❌ Эта команда доступна только администратору."
+        
+        # Parse command
+        parts = text.split()
+        
+        # /admin without arguments - show main menu
+        if len(parts) == 1:
+            return self._main_menu()
+        
+        command = parts[1]  # e.g., 'profile'
+        
+        # Check for subcommand
+        if len(parts) > 2:
+            subcommand = parts[2]  # e.g., 'list'
+            args = parts[3:]  # remaining arguments
+            
+            # Find subcommand handler
+            if command in self.subcommand_handlers:
+                if subcommand in self.subcommand_handlers[command]:
+                    handler = self.subcommand_handlers[command][subcommand]
+                    try:
+                        return await handler(update, context, admin_manager, args)
+                    except Exception as e:
+                        logger.error(f"Error in handler {command}/{subcommand}: {e}", exc_info=True)
+                        return f"❌ Ошибка при выполнении команды: {e}"
+                else:
+                    return f"❌ Неизвестная подкоманда: {subcommand}\n\nИспользуйте /admin help {command}"
+            else:
+                return f"❌ Команда '{command}' не поддерживает подкоманды."
+        else:
+            # No subcommand - check for direct handler
+            if command in self.handlers:
+                handler = self.handlers[command]
+                try:
+                    return await handler(update, context, admin_manager, [])
+                except Exception as e:
+                    logger.error(f"Error in handler {command}: {e}", exc_info=True)
+                    return f"❌ Ошибка при выполнении команды: {e}"
+            else:
+                # Command requires subcommand
+                if command in self.subcommand_handlers:
+                    subcommands = ", ".join(self.subcommand_handlers[command].keys())
+                    return f"❌ Команда '{command}' требует подкоманду.\n\nДоступные: {subcommands}"
+                else:
+                    return f"❌ Неизвестная команда: {command}\n\nИспользуйте /admin help"
+    
+    def _main_menu(self) -> str:
+        """Generate main admin menu."""
+        return (
+            "🔧 **Панель администратора**\n\n"
+            "**Управление профилями:**\n"
+            "• `/admin profile list` - список профилей\n"
+            "• `/admin profile create <name>` - создать профиль\n"
+            "• `/admin profile switch <name>` - переключить профиль\n"
+            "• `/admin profile delete <name>` - удалить профиль\n"
+            "• `/admin profile info [name]` - информация о профиле\n\n"
+            "**Загрузка данных:**\n"
+            "• `/admin ingest` - загрузить данные (отправьте JSON файл)\n"
+            "• `/admin ingest clear` - очистить данные профиля\n"
+            "• `/admin ingest status` - статус загрузки\n\n"
+            "**Статистика и мониторинг:**\n"
+            "• `/admin stats` - общая статистика\n"
+            "• `/admin health` - проверка здоровья системы\n"
+            "• `/admin logs [lines]` - просмотр логов\n\n"
+            "**Управление:**\n"
+            "• `/admin restart` - перезапустить бота\n"
+            "• `/admin reload` - перезагрузить конфигурацию\n\n"
+            "**Справка:**\n"
+            "• `/admin help` - полная справка\n"
+            "• `/admin help <command>` - справка по команде\n"
+        )

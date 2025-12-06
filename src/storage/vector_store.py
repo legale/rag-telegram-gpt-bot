@@ -5,15 +5,20 @@ from typing import List, Dict, Optional
 class VectorStore:
     """Wrapper around ChromaDB for storing and retrieving vector embeddings."""
     
-    def __init__(self, collection_name: str = "chat_chunks", persist_directory: str = "chroma_db"):
+    def __init__(self, persist_directory: str, collection_name: str = "chat_chunks"):
+        if not persist_directory:
+            raise ValueError("persist_directory must be provided")
+        self.persist_directory = persist_directory
         self.client = chromadb.PersistentClient(path=persist_directory)
         self.collection_name = collection_name
         self.collection = self.client.get_or_create_collection(name=collection_name)
 
-    def clear(self):
-        """Deletes and recreates the collection."""
+    def clear(self) -> int:
+        """Deletes and recreates the collection, returning the number of removed documents."""
+        removed = self.count()
         self.client.delete_collection(name=self.collection_name)
         self.collection = self.client.get_or_create_collection(name=self.collection_name)
+        return removed
         
     def add_documents(self, ids: List[str], documents: List[str], metadatas: Optional[List[Dict]] = None):
         """

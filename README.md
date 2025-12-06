@@ -4,280 +4,393 @@ A RAG-based chatbot designed to act as an IT union lawyer. It ingests Telegram c
 
 ## Features
 
-- **Data Ingestion**: Parses Telegram JSON dumps or fetches directly from Telegram.
-- **RAG Pipeline**: Chunks text, creates embeddings (ChromaDB), and retrieves relevant context.
-- **Bot Interface**: CLI for interacting with the bot using OpenRouter/OpenAI models.
-- **Privacy**: Sensitive data (API keys, sessions) is kept local.
-
-## Setup
-
-1.  **Install Dependencies**:
-    ```bash
-    poetry install
-    ```
-
-2.  **Configuration**:
-    Copy `.env.example` to `.env` and fill in your credentials:
-    ```bash
-    cp .env.example .env
-    ```
-    *   `TELEGRAM_API_ID` / `TELEGRAM_API_HASH`: From my.telegram.org
-    *   `OPENROUTER_API_KEY`: Your LLM API key.
-
-3.  **Models**:
-    Create a `models.txt` file with your preferred model name (e.g., `openai/gpt-3.5-turbo` or `anthropic/claude-3-opus`).
+- **Unified CLI**: Single command interface for all operations
+- **Profile Management**: Multiple bot instances with separate databases
+- **Data Ingestion**: Fetch from Telegram or import JSON dumps
+- **RAG Pipeline**: ChromaDB vector store + context retrieval
+- **Telegram Bot**: Webhook-based bot with `/model`, `/reset`, `/tokens` commands
+- **Interactive Chat**: CLI interface for testing
+- **Privacy**: All data stored locally
 
 ## Quick Start
 
-### Complete Setup: From Zero to Telegram Bot
-
-This guide walks you through the entire process of setting up the bot, creating the database from Telegram chat history, and deploying it as a Telegram bot.
-
-#### Step 1: Initial Setup
-
-1. **Clone and Install**:
-   ```bash
-   git clone git@github.com:legale/rag-telegram-gpt-bot.git
-   cd rag-telegram-gpt-bot
-   poetry install
-   ```
-
-2. **Configure Credentials**:
-   ```bash
-   cp .env.example .env
-   ```
-   
-   Edit `.env` and add:
-   - `TELEGRAM_API_ID` and `TELEGRAM_API_HASH` from [my.telegram.org](https://my.telegram.org)
-   - `OPENROUTER_API_KEY` from [OpenRouter](https://openrouter.ai)
-   - `TELEGRAM_BOT_TOKEN` from [@BotFather](https://t.me/BotFather)
-
-3. **Configure Model**:
-   ```bash
-   echo "openai/gpt-3.5-turbo" > models.txt
-   ```
-
-#### Step 2: Create Database from Telegram Chat
-
-1. **Dump Chat History**:
-   ```bash
-   # List available chats
-   poetry run python src/ingestion/telegram.py list_chan
-   
-   # Dump messages from your chat (replace with actual chat name)
-   poetry run python src/ingestion/telegram.py dump_chan "Your Chat Name" \
-     --limit 10000 \
-     --output telegram_dump.json
-   ```
-
-2. **Ingest Data into Database**:
-   ```bash
-   # Create database and vector embeddings
-   poetry run python src/ingestion/pipeline.py telegram_dump.json --clear
-   
-   # This will:
-   # - Parse 10,000 messages
-   # - Create chunks with 20% overlap
-   # - Generate vector embeddings (ChromaDB)
-   # - Store in SQLite database
-   ```
-
-3. **Verify Database**:
-   ```bash
-   # Test with CLI
-   poetry run ./src/bot/cli.py -vv
-   
-   # Ask a question to verify retrieval works
-   # You: Что обсуждали в чате?
-   ```
-
-#### Step 3: Deploy Telegram Bot
-
-1. **Create Bot with BotFather**:
-   - Open Telegram and talk to [@BotFather](https://t.me/BotFather)
-   - Send `/newbot` and follow instructions
-   - Save the bot token to `.env` as `TELEGRAM_BOT_TOKEN`
-
-2. **Setup Server (requires domain with SSL)**:
-   ```bash
-   # Install nginx if not already installed
-   sudo apt install nginx certbot python3-certbot-nginx
-   
-   # Get SSL certificate
-   sudo certbot --nginx -d yourdomain.com
-   
-   # Copy nginx config
-   sudo cp nginx/telegram-bot.conf /etc/nginx/sites-available/legale-bot
-   
-   # Edit config and change:
-   # - server_name to your domain
-   # - SSL certificate paths (certbot creates them automatically)
-   sudo nano /etc/nginx/sites-available/legale-bot
-   
-   # Enable site
-   sudo ln -s /etc/nginx/sites-available/legale-bot /etc/nginx/sites-enabled/
-   sudo nginx -t
-   sudo systemctl reload nginx
-   ```
-
-3. **Register Webhook**:
-   ```bash
-   poetry run python src/bot/tgbot.py register \
-     --url https://yourdomain.com/webhook \
-     --token YOUR_BOT_TOKEN
-   ```
-
-4. **Start Bot Service**:
-   ```bash
-   # Option A: Foreground (for testing)
-   poetry run python src/bot/tgbot.py run -vv
-   
-   # Option B: Systemd service (production)
-   sudo cp systemd/legale-bot.service /etc/systemd/system/
-   # Edit service file and update paths/user
-   sudo nano /etc/systemd/system/legale-bot.service
-   sudo systemctl daemon-reload
-   sudo systemctl start legale-bot
-   sudo systemctl enable legale-bot
-   ```
-
-5. **Add Bot to Chat**:
-   - Add your bot to the Telegram chat
-   - Send a message: "Привет!"
-   - Bot should respond with context from chat history
-
-#### Step 4: Verify Everything Works
+### 1. Installation
 
 ```bash
-# Check bot service status
-sudo systemctl status legale-bot
-
-# View logs
-sudo journalctl -u legale-bot -f
-
-# Test webhook health
-curl https://yourdomain.com/health
-
-# Test in Telegram
-# Send: "Что обсуждали в чате на прошлой неделе?"
+git clone git@github.com:legale/rag-telegram-gpt-bot.git
+cd rag-telegram-gpt-bot
+poetry install
 ```
 
----
+### 2. Configuration
 
-## Usage
-
-### 1. Dump Chat History
-To dump messages from a Telegram chat:
 ```bash
-poetry run python src/ingestion/telegram.py dump_chan "Chat Name" --limit 10000 --output telegram_dump.json
+cp .env.example .env
+# Edit .env and add your API keys
 ```
 
-### 2. Ingest Data
-Process the dump, create chunks, and store embeddings:
-```bash
-# First run or to append data
-poetry run python src/ingestion/pipeline.py telegram_dump.json
+Required keys:
+- `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` from [my.telegram.org](https://my.telegram.org)
+- `OPENROUTER_API_KEY` from [OpenRouter](https://openrouter.ai)
+- `TELEGRAM_BOT_TOKEN` from [@BotFather](https://t.me/BotFather)
+- `VOYAGE_API_KEY` for embeddings
 
-# To clear existing database and re-ingest
-poetry run python src/ingestion/pipeline.py telegram_dump.json --clear
+### 3. Create Your First Bot
+
+```bash
+# Create a profile
+poetry run python legale.py profile create mybot --set-active
+
+# Fetch Telegram data
+poetry run python legale.py telegram dump "My Chat" --limit 10000
+
+# Ingest into database
+poetry run python legale.py ingest telegram_dump_My_Chat.json
+
+# Test with interactive chat
+poetry run python legale.py chat -vv
 ```
 
-### 3. Run the Bot
-Start the interactive CLI:
+## CLI Reference
+
+The `legale.py` script provides a unified interface for all bot operations.
+
+### Profile Management
+
+Profiles allow you to manage multiple bot instances with separate databases.
+
 ```bash
-poetry run ./src/bot/cli.py
+# Create a new profile
+legale profile create <name>
+legale profile create <name> --set-active
 
-# Verbose modes for debugging:
-poetry run ./src/bot/cli.py -v   # Basic info
-poetry run ./src/bot/cli.py -vv  # Retrieval details
-poetry run ./src/bot/cli.py -vvv # Full LLM logs
+# List all profiles
+legale profile list
 
-# Adjust number of context chunks:
-poetry run ./src/bot/cli.py --chunks 10
+# Switch active profile
+legale profile switch <name>
+
+# Show profile info
+legale profile info [name]
+
+# Delete a profile
+legale profile delete <name>
 ```
 
-### 4. Telegram Bot (Webhook)
-
-#### Prerequisites
-- Domain with SSL certificate (use Let's Encrypt/certbot)
-- Nginx installed
-- Bot token from [@BotFather](https://t.me/BotFather)
-
-#### Setup
-
-1. **Create Bot**:
-   ```bash
-   # Talk to @BotFather on Telegram
-   # Use /newbot command
-   # Save the token
-   ```
-
-2. **Configure Environment**:
-   Add to `.env`:
-   ```
-   TELEGRAM_BOT_TOKEN=your_bot_token_here
-   ```
-
-3. **Configure Nginx**:
-   ```bash
-   # Copy config template
-   sudo cp nginx/telegram-bot.conf /etc/nginx/sites-available/legale-bot
-   
-   # Edit the file and change:
-   # - server_name to your domain
-   # - SSL certificate paths
-   
-   # Enable site
-   sudo ln -s /etc/nginx/sites-available/legale-bot /etc/nginx/sites-enabled/
-   sudo nginx -t
-   sudo systemctl reload nginx
-   ```
-
-4. **Register Webhook**:
-   ```bash
-   poetry run python src/bot/tgbot.py register \
-     --url https://yourdomain.com/webhook \
-     --token YOUR_BOT_TOKEN
-   ```
-
-#### Running
-
-**Foreground (for testing)**:
-```bash
-# Basic
-poetry run python src/bot/tgbot.py run
-
-# With verbosity
-poetry run python src/bot/tgbot.py run -vv
-
-# Custom port
-poetry run python src/bot/tgbot.py run --port 8080
+**Profile Structure:**
+```
+profiles/
+└── mybot/
+    ├── legale_bot.db              # SQLite database
+    ├── chroma_db/                 # Vector embeddings
+    └── telegram_session.session   # Telegram session
 ```
 
-**As Systemd Service (production)**:
+### Telegram Data Fetching
+
 ```bash
-# Install service
-sudo cp systemd/legale-bot.service /etc/systemd/system/
-sudo systemctl daemon-reload
+# List available chats
+legale telegram list
 
-# Start service
-sudo systemctl start legale-bot
-sudo systemctl enable legale-bot
+# List chat members
+legale telegram members "Chat Name"
 
-# Check status
-sudo systemctl status legale-bot
-
-# View logs
-sudo journalctl -u legale-bot -f
+# Dump chat messages
+legale telegram dump "Chat Name" --limit 10000
+legale telegram dump "Chat Name" --limit 10000 --output custom.json
+legale telegram dump "Chat Name" --profile mybot
 ```
 
-#### Management
+### Data Ingestion
 
 ```bash
+# Ingest data into current profile
+legale ingest <file.json>
+
+# Clear existing data and re-ingest
+legale ingest <file.json> --clear
+
+# Ingest into specific profile
+legale ingest <file.json> --profile mybot
+```
+
+### Interactive Chat
+
+```bash
+# Start chat session
+legale chat
+
+# With verbosity levels
+legale chat -v      # Basic info
+legale chat -vv     # Retrieval details
+legale chat -vvv    # Full LLM logs
+
+# Custom context chunks
+legale chat --chunks 10
+
+# Use specific profile
+legale chat --profile mybot
+```
+
+### Telegram Bot
+
+```bash
+# Register webhook
+legale bot register --url https://yourdomain.com/webhook
+
 # Delete webhook
-poetry run python src/bot/tgbot.py delete
+legale bot delete
 
-# Check health
-curl https://yourdomain.com/health
+# Run in foreground (testing)
+legale bot run
+legale bot run -vv --port 8080
+
+# Run as daemon (production)
+legale bot daemon
 ```
 
+**Bot Commands:**
+- `/start` - Welcome message
+- `/help` - Show available commands
+- `/reset` - Clear conversation context
+- `/tokens` - Show token usage statistics
+- `/model` - Switch to next LLM model (cycles through `models.txt`)
+- `/admin_set <password>` - Set yourself as bot administrator
+- `/admin_get` - Show admin information (admin only)
+
+## Common Workflows
+
+### Setup Development and Production Environments
+
+```bash
+# Development
+legale profile create dev --set-active
+legale telegram dump "Dev Chat" --limit 1000
+legale ingest telegram_dump_Dev_Chat.json
+legale chat -vv
+
+# Production
+legale profile create prod
+legale telegram dump "Prod Chat" --limit 10000 --profile prod
+legale ingest telegram_dump_Prod_Chat.json --profile prod
+
+# Switch between them
+legale profile switch dev
+legale profile switch prod
+```
+
+### Update Bot Data
+
+```bash
+# Fetch new messages
+legale telegram dump "Chat" --limit 10000
+
+# Clear old data and re-ingest
+legale ingest telegram_dump_Chat.json --clear
+```
+
+### Deploy Telegram Bot
+
+```bash
+# 1. Setup nginx with SSL
+sudo apt install nginx certbot python3-certbot-nginx
+sudo certbot --nginx -d yourdomain.com
+
+# 2. Copy nginx config
+sudo cp nginx/telegram-bot.conf /etc/nginx/sites-available/legale-bot
+# Edit and enable
+sudo ln -s /etc/nginx/sites-available/legale-bot /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+
+# 3. Register webhook
+legale bot register --url https://yourdomain.com/webhook
+
+# 4. Run bot
+legale bot run -vv  # Test first
+legale bot daemon   # Then run as daemon
+```
+
+## Model Management
+
+The bot supports switching between multiple LLM models at runtime.
+
+### Configure Models
+
+Edit `models.txt`:
+```
+openai/gpt-oss-20b:free
+nvidia/nemotron-nano-9b-v2:free
+cognitivecomputations/dolphin-mistral-24b-venice-edition:free
+google/gemma-3-27b-it:free
+```
+
+### Switch Models
+
+In Telegram bot, use `/model` command to cycle through available models.
+
+In CLI, models are configured via environment variables in `.env`:
+```bash
+OPENROUTER_MODEL=openai/gpt-3.5-turbo
+```
+
+## Configuration
+
+### Environment Variables (`.env`)
+
+```bash
+# Profile (managed automatically)
+ACTIVE_PROFILE=default
+
+# LLM API
+OPENROUTER_API_KEY=your_key_here
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+OPENROUTER_MODEL=openai/gpt-3.5-turbo
+
+# Token Management
+MAX_CONTEXT_TOKENS=14000
+
+# Telegram Bot
+TELEGRAM_BOT_TOKEN=your_token_here
+
+# Telegram API (for data fetching)
+TELEGRAM_API_ID=your_id_here
+TELEGRAM_API_HASH=your_hash_here
+
+# Embeddings
+VOYAGE_API_KEY=your_key_here
+
+# Bot Administration
+ADMIN_PASSWORD=your_secure_admin_password_here
+```
+
+### Bot Administration
+
+The bot supports a simple admin system for managing access.
+
+**Setup:**
+1. Set `ADMIN_PASSWORD` in your `.env` file
+2. In Telegram, send `/admin_set <your_password>` to become admin
+3. Use `/admin_get` to view current admin info
+
+**Admin File:**
+- Stored in `profiles/<profile>/admin.json`
+- Contains admin user ID, username, and name
+- File permissions set to 600 (owner read/write only)
+
+**Security Notes:**
+- Only one admin per profile
+- Password is checked against `ADMIN_PASSWORD` in `.env`
+- Failed attempts are logged
+- Admin info is profile-specific
+
+### Token Limits
+
+Adjust `MAX_CONTEXT_TOKENS` based on your model:
+- GPT-3.5-turbo (16k total): `14000`
+- GPT-4-turbo (128k total): `120000`
+- Claude-3-sonnet (200k total): `190000`
+
+## Project Structure
+
+```
+legale-bot/
+├── legale.py              # Unified CLI orchestrator
+├── models.txt             # Available LLM models
+├── profiles/              # Profile data (gitignored)
+│   └── default/
+│       ├── legale_bot.db
+│       ├── chroma_db/
+│       └── telegram_session.session
+├── src/
+│   ├── bot/
+│   │   ├── cli.py        # Interactive chat
+│   │   ├── core.py       # Bot logic
+│   │   └── tgbot.py      # Telegram webhook
+│   ├── core/
+│   │   ├── embedding.py  # Embeddings
+│   │   ├── llm.py        # LLM client
+│   │   ├── prompt.py     # Prompt engineering
+│   │   └── retrieval.py  # RAG retrieval
+│   ├── ingestion/
+│   │   ├── chunker.py    # Text chunking
+│   │   ├── parser.py     # JSON parsing
+│   │   ├── pipeline.py   # Ingestion pipeline
+│   │   └── telegram.py   # Telegram fetcher
+│   └── storage/
+│       ├── db.py         # SQLite database
+│       └── vector_store.py # ChromaDB
+└── tests/                # Test suite (87 tests, 41% coverage)
+```
+
+## Development
+
+### Running Tests
+
+```bash
+# Run all tests
+poetry run pytest
+
+# With coverage
+poetry run pytest --cov=src --cov-report=term
+
+# Specific test file
+poetry run pytest tests/test_bot_core_models.py -v
+```
+
+### Test Coverage
+
+Current coverage: **41%** (87 tests)
+- `src/bot/core.py`: **98%** ✅
+- `src/core/llm.py`: **100%** ✅
+- `src/core/embedding.py`: **100%** ✅
+
+See `map.md` for detailed test coverage improvement plan.
+
+## Troubleshooting
+
+### Check Profile Status
+
+```bash
+legale profile info
+ls -lh profiles/default/
+```
+
+### Database Issues
+
+```bash
+# Clear and re-ingest
+legale ingest data.json --clear
+
+# Check database
+sqlite3 profiles/default/legale_bot.db "SELECT COUNT(*) FROM chunks;"
+```
+
+### Telegram Session Issues
+
+```bash
+# Delete session and re-authenticate
+rm profiles/default/telegram_session.session
+legale telegram list  # Will prompt for login
+```
+
+### Bot Not Responding
+
+```bash
+# Check webhook status
+curl https://api.telegram.org/bot<TOKEN>/getWebhookInfo
+
+# Re-register webhook
+legale bot delete
+legale bot register --url https://yourdomain.com/webhook
+
+# Check logs
+legale bot run -vvv
+```
+
+## License
+
+MIT
+
+## Contributing
+
+See `map.md` for project roadmap and development guidelines.

@@ -14,7 +14,7 @@ import os
 import argparse
 import logging
 import signal
-from typing import Optional
+from typing import Optional, Dict, List
 from contextlib import asynccontextmanager
 
 # Add project root to path
@@ -30,6 +30,10 @@ import uvicorn
 from dotenv import load_dotenv
 
 from src.bot.core import LegaleBot
+from src.bot.admin import AdminManager
+from src.bot.admin_router import AdminCommandRouter
+from src.bot.admin_commands import ProfileCommands, HelpCommands, IngestCommands, StatsCommands, ControlCommands, SettingsCommands
+from src.bot.admin_tasks import TaskManager
 
 # Load environment variables
 load_dotenv()
@@ -37,6 +41,11 @@ load_dotenv()
 # Global bot instance (loaded once)
 bot_instance: Optional[LegaleBot] = None
 telegram_app: Optional[Application] = None
+admin_manager: Optional[AdminManager] = None
+admin_router: Optional[AdminCommandRouter] = None
+profile_manager = None  # Will be initialized in lifespan
+task_manager: Optional[TaskManager] = None
+ingest_commands: Optional[IngestCommands] = None
 
 # Logging setup
 logger = logging.getLogger("legale_tgbot")
@@ -76,17 +85,99 @@ async def lifespan(app: FastAPI):
     Lifespan context manager for FastAPI.
     Loads bot instance on startup, cleans up on shutdown.
     """
-    global bot_instance, telegram_app
+    global bot_instance, telegram_app, admin_manager, admin_router, profile_manager
     
     logger.info("Starting Legale Bot daemon...")
     
-    # Load bot instance
+    # Initialize profile manager
     try:
-        bot_instance = LegaleBot()
-        logger.info("Bot core loaded successfully")
+        from pathlib import Path
+        project_root = Path(__file__).parent.parent.parent
+        
+        # Import ProfileManager from legale.py
+        import sys
+        if str(project_root) not in sys.path:
+            sys.path.insert(0, str(project_root))
+        from legale import ProfileManager
+        
+        profile_manager = ProfileManager(project_root)
+        logger.info("Profile manager initialized")
+    except Exception as e:
+        logger.error(f"Failed to initialize profile manager: {e}")
+        profile_manager = None
+        raise RuntimeError("Profile manager initialization failed")
+
+    # Load bot instance with profile paths
+    try:
+        # Get profile paths
+        paths = profile_manager.get_profile_paths()
+        
+        bot_instance = LegaleBot(
+            db_url=paths['db_url'],
+            vector_db_path=str(paths['vector_db_path'])
+        )
+        logger.info(f"Bot core loaded successfully with profile: {profile_manager.get_current_profile()}")
+        logger.info(f"DB: {paths['db_url']}")
     except Exception as e:
         logger.error(f"Failed to load bot core: {e}")
         raise
+    
+    # Initialize admin manager
+    try:
+        # Get profile directory
+        profile_dir = paths['profile_dir']
+        admin_manager = AdminManager(profile_dir)
+        logger.info(f"Admin manager initialized for profile: {profile_dir}")
+    except Exception as e:
+        logger.error(f"Failed to initialize admin manager: {e}")
+        admin_manager = None
+    
+    # Initialize admin router
+    if admin_manager and profile_manager:
+        try:
+            admin_router = AdminCommandRouter()
+            task_manager = TaskManager()
+            
+            # Register profile commands
+            profile_commands = ProfileCommands(profile_manager)
+            admin_router.register('profile', profile_commands.list_profiles, 'list')
+            admin_router.register('profile', profile_commands.create_profile, 'create')
+            admin_router.register('profile', profile_commands.switch_profile, 'switch')
+            admin_router.register('profile', profile_commands.delete_profile, 'delete')
+            admin_router.register('profile', profile_commands.profile_info, 'info')
+            
+            # Register ingest commands
+            ingest_commands = IngestCommands(profile_manager, task_manager)
+            admin_router.register('ingest', ingest_commands.start_ingest)
+            admin_router.register('ingest', ingest_commands.clear_data, 'clear')
+            admin_router.register('ingest', ingest_commands.ingest_status, 'status')
+            
+            # Register stats commands
+            stats_commands = StatsCommands(profile_manager)
+            admin_router.register('stats', stats_commands.show_stats)
+            admin_router.register('health', stats_commands.health_check)
+            admin_router.register('logs', stats_commands.show_logs)
+            
+            # Register control commands
+            control_commands = ControlCommands(profile_manager)
+            admin_router.register('restart', control_commands.restart_bot)
+            
+            # Register settings commands
+            settings_commands = SettingsCommands(profile_manager)
+            admin_router.register('chat', settings_commands.manage_chats)
+            admin_router.register('frequency', settings_commands.manage_frequency)
+            
+            # Register help commands
+            help_commands = HelpCommands()
+            admin_router.register('help', help_commands.show_help)
+            
+            logger.info("Admin router initialized with profile, ingest, stats, control, settings, and help commands")
+        except Exception as e:
+            logger.error(f"Failed to initialize admin router: {e}")
+            admin_router = None
+    else:
+        logger.warning("Admin router not initialized (missing admin_manager or profile_manager)")
+        admin_router = None
     
     # Initialize Telegram application
     token = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -129,6 +220,13 @@ async def webhook(request: Request):
         
         logger.debug(f"Received update: {update.update_id}")
         
+        # Handle file upload (for ingestion)
+        if update.message and update.message.document and ingest_commands:
+            response_text = await ingest_commands.handle_file_upload(update, None, admin_manager)
+            if response_text:
+                await telegram_app.bot.send_message(chat_id=update.message.chat_id, text=response_text)
+            return Response(status_code=200)
+        
         # Handle message
         if update.message and update.message.text:
             await handle_message(update)
@@ -140,6 +238,9 @@ async def webhook(request: Request):
         return Response(status_code=500)
 
 
+# Chat message counters for frequency control
+chat_counters: Dict[int, int] = {}
+
 async def handle_message(update: Update):
     """
     Process incoming text messages.
@@ -147,10 +248,49 @@ async def handle_message(update: Update):
     message = update.message
     text = message.text
     chat_id = message.chat_id
+    user_id = message.from_user.id
     
-    logger.info(f"Message from {chat_id}: {text[:50]}...")
+    logger.info(f"Message from {chat_id} (User {user_id}): {text[:50]}...")
     
-    # Handle commands
+    # 1. Check commands
+    is_command = text.startswith('/')
+    
+    # Always allow admin commands for setup
+    if text.startswith('/admin'):
+        # Pass through to admin handlers logic below
+        pass
+    elif text == '/id':
+        await telegram_app.bot.send_message(chat_id=chat_id, text=f"Chat ID: `{chat_id}`\nUser ID: `{user_id}`", parse_mode="Markdown")
+        return
+    else:
+        # Check whitelist
+        config = admin_manager.config
+        if chat_id not in config.allowed_chats:
+            # Ignore unauthorized chats
+            logger.info(f"Ignoring message from unauthorized chat {chat_id}")
+            return
+    
+    # Check frequency (only for non-commands)
+    respond = True
+    if not is_command:
+        config = admin_manager.config
+        freq = config.response_frequency
+        
+        if freq > 1:
+            current = chat_counters.get(chat_id, 0)
+            current += 1
+            chat_counters[chat_id] = current
+            
+            # Respond every Nth message (1st, N+1, 2N+1...)
+            # Actually user asked: "if 3, respond only to every 3rd".
+            # Usually implies: 1(no), 2(no), 3(yes).
+            if current % freq != 0:
+                respond = False
+                logger.debug(f"Skipping response due to frequency (msg {current}, freq {freq})")
+            else:
+                logger.debug(f"Responding due to frequency (msg {current}, freq {freq})")
+
+    # Handle commands logic (existing)
     if text.startswith('/start'):
         response = (
             "Привет! Я Legale Bot — юрист профсоюза IT-работников.\n\n"
@@ -165,7 +305,12 @@ async def handle_message(update: Update):
             "• /start — приветствие\n"
             "• /help — эта справка\n"
             "• /reset — сбросить контекст разговора\n"
-            "• /tokens — показать использование токенов\n\n"
+            "• /tokens — показать использование токенов\n"
+            "• /model — переключить модель LLM\n"
+            "• /admin_set <пароль> — назначить себя администратором\n"
+            "• /admin_get — показать информацию об администраторе (только для админа)\n"
+            "• /admin — панель администратора (только для админа)\n"
+            "• /id — показать ID текущего чата\n\n"
             "Примеры вопросов:\n"
             "• Что случилось с точкой 840?\n"
             "• Когда Ru уходит в отпуск?\n"
@@ -196,17 +341,98 @@ async def handle_message(update: Update):
         except Exception as e:
             logger.error(f"Error getting token usage: {e}", exc_info=True)
             response = "Ошибка при получении информации о токенах."
+    elif text.startswith('/model'):
+        try:
+            response = bot_instance.switch_model()
+        except Exception as e:
+            logger.error(f"Error switching model: {e}", exc_info=True)
+            response = "Ошибка при переключении модели."
+    
+    elif text.startswith('/admin_set'):
+        # Command format: /admin_set PASSWORD
+        if not admin_manager:
+            response = "❌ Система администрирования недоступна. Установите ADMIN_PASSWORD в .env файле."
+        else:
+            parts = text.split(maxsplit=1)
+            if len(parts) < 2:
+                response = (
+                    "❌ Неверный формат команды.\\n\\n"
+                    "Использование: /admin_set <пароль>\\n\\n"
+                    "Пример: /admin_set my_secret_password"
+                )
+            else:
+                password = parts[1].strip()
+                
+                if admin_manager.verify_password(password):
+                    # Get user info from message
+                    user = message.from_user
+                    user_id = user.id
+                    username = user.username or "unknown"
+                    first_name = user.first_name or "Unknown"
+                    last_name = user.last_name
+                    
+                    try:
+                        admin_manager.set_admin(user_id, username, first_name, last_name)
+                        full_name = f"{first_name} {last_name}".strip() if last_name else first_name
+                        response = (
+                            f"✅ Вы успешно назначены администратором!\\n\\n"
+                            f"👤 Имя: {full_name}\\n"
+                            f"🆔 ID: {user_id}\\n"
+                            f"📝 Username: @{username}"
+                        )
+                        logger.info(f"Admin set: {full_name} (ID: {user_id})")
+                    except Exception as e:
+                        logger.error(f"Error setting admin: {e}", exc_info=True)
+                        response = "❌ Ошибка при назначении администратора."
+                else:
+                    response = "❌ Неверный пароль."
+                    logger.warning(f"Failed admin_set attempt from user {message.from_user.id}")
+    
+    elif text.startswith('/admin_get'):
+        if not admin_manager:
+            response = "❌ Система администрирования недоступна."
+        else:
+            # Check if requester is admin
+            requester_id = message.from_user.id
+            
+            if not admin_manager.is_admin(requester_id):
+                response = "❌ Эта команда доступна только администратору."
+                logger.warning(f"Unauthorized admin_get attempt from user {requester_id}")
+            else:
+                admin_info = admin_manager.get_admin()
+                if admin_info:
+                    response = (
+                        f"👤 Администратор бота:\\n\\n"
+                        f"Имя: {admin_info['full_name']}\\n"
+                        f"ID: {admin_info['user_id']}\\n"
+                        f"Username: @{admin_info['username']}"
+                    )
+                else:
+                    response = "❌ Администратор не назначен."
+    
+    elif text.startswith('/admin'):
+        # Admin commands
+        if not admin_router:
+            response = "❌ Админ-панель недоступна. Проверьте конфигурацию бота."
+        else:
+            try:
+                response = await admin_router.route(update, None, admin_manager)
+            except Exception as e:
+                logger.error(f"Error processing admin command: {e}", exc_info=True)
+                response = f"❌ Ошибка при выполнении админ-команды: {e}"
+    
     else:
         # Query the bot
         try:
-            response = bot_instance.chat(text)
+            response = bot_instance.chat(text, respond=respond)
         except Exception as e:
             logger.error(f"Error querying bot: {e}", exc_info=True)
-            response = "Извините, произошла ошибка при обработке вашего запроса."
+            response = f"Произошла ошибка при обработке вашего запроса. error={e}"
     
     # Send response
-    await telegram_app.bot.send_message(chat_id=chat_id, text=response)
-    logger.info(f"Response sent to {chat_id}")
+    if response:
+        await telegram_app.bot.send_message(chat_id=chat_id, text=response)
+        logger.info(f"Response sent to {chat_id}")
 
 
 def register_webhook(url: str, token: str):

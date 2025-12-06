@@ -4,7 +4,7 @@ Documentation=https://github.com/legale/rag-telegram-gpt-bot
 After=network.target
 
 [Service]
-Type=simple
+Type=forking
 User=legale-bot
 Group=legale-bot
 WorkingDirectory=/home/legale-bot/legale-bot
@@ -12,8 +12,17 @@ WorkingDirectory=/home/legale-bot/legale-bot
 # Environment
 Environment="PATH=/home/legale-bot/.local/bin:/usr/local/bin:/usr/bin:/bin"
 
-# Command to run
-ExecStart=/usr/bin/env poetry run python src/bot/tgbot.py run --port 8000
+# PID file
+PIDFile=/home/legale-bot/legale-bot/profiles/default/bot.pid
+
+# Command to run (using legale.py orchestrator)
+ExecStart=/home/legale-bot/legale-bot/legale.py bot daemon --port 8000
+ExecStop=/bin/kill -TERM $MAINPID
+
+# Kill all child processes when stopping
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
 
 # Restart policy
 Restart=on-failure

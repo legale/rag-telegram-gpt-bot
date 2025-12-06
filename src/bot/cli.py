@@ -62,8 +62,23 @@ def main():
         print("Warning: models.txt not found, using default model.")
 
     print(f"Initializing Legale Bot with model: {model_name} (Verbosity: {args.verbose}, Chunks: {args.chunks})...")
+    
+    # Get paths from environment (set by legale.py)
+    db_url = os.getenv("DATABASE_URL")
+    vector_db_path = os.getenv("VECTOR_DB_PATH")
+    
+    if not db_url or not vector_db_path:
+        print("Error: DATABASE_URL and VECTOR_DB_PATH must be set in environment.")
+        print("Please use 'legale chat' command instead of running cli.py directly.")
+        return
+
     try:
-        bot = LegaleBot(model_name=model_name, verbosity=args.verbose)
+        bot = LegaleBot(
+            db_url=db_url,
+            vector_db_path=vector_db_path,
+            model_name=model_name, 
+            verbosity=args.verbose
+        )
         print("Bot ready! Type 'exit' or 'quit' to stop.")
         print("-" * 50)
     except Exception as e:

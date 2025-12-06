@@ -1,133 +1,142 @@
 """
-Unit tests for Telegram webhook handler.
+Integration tests for Telegram Bot Webhook.
 """
 import pytest
-import json
+from fastapi.testclient import TestClient
+from unittest.mock import MagicMock, patch, AsyncMock
+import sys
+from pathlib import Path
 
+# Fix path for imports
+project_root = str(Path(__file__).parent.parent)
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
-def test_health_endpoint():
-    """Test health check endpoint returns expected structure."""
-    # This test verifies the health endpoint structure without running the server
-    expected_keys = ["status", "bot_loaded"]
+# Import app
+from src.bot.tgbot import app
+import src.bot.tgbot as tgbot_module
+
+@pytest.fixture
+def mock_deps():
+    # Create mocks
+    bot_mock = MagicMock()
+    bot_mock.chat.return_value = "Mocked Response"
     
-    # Simulate health check response
-    health_response = {
-        "status": "healthy",
-        "bot_loaded": True
-    }
+    admin_mock = MagicMock()
+    admin_mock.config = MagicMock()
+    admin_mock.config.allowed_chats = []
+    admin_mock.config.response_frequency = 1
+    admin_mock.verify_password.return_value = False
     
-    assert "status" in health_response
-    assert "bot_loaded" in health_response
-    assert health_response["status"] == "healthy"
+    tg_mock = MagicMock()
+    tg_mock.bot.send_message = AsyncMock()
+    
+    # Custom side effect for Update.de_json to return dynamic mock
+    def mock_de_json(data, bot):
+        m = MagicMock()
+        m.update_id = data.get('update_id')
+        if 'message' in data:
+            msg_data = data['message']
+            m.message.message_id = msg_data.get('message_id')
+            m.message.chat_id = msg_data['chat']['id']  # Note: helper property usually
+            m.message.chat.id = msg_data['chat']['id']
+            m.message.from_user.id = msg_data['from']['id']
+            m.message.text = msg_data.get('text')
+            
+            # Allow accessing unknown attributes as None/Mock
+        return m
 
+    # Apply patches
+    with patch.object(tgbot_module, 'bot_instance', bot_mock), \
+         patch.object(tgbot_module, 'admin_manager', admin_mock), \
+         patch.object(tgbot_module, 'telegram_app', tg_mock), \
+         patch('src.bot.tgbot.Update.de_json', side_effect=mock_de_json):
+        
+        yield {
+            'bot': bot_mock,
+            'admin': admin_mock,
+            'tg': tg_mock
+        }
 
-def test_webhook_update_structure():
-    """Test that webhook update data has expected structure."""
-    update_data = {
-        "update_id": 123456,
+@pytest.fixture
+def client(mock_deps):
+    return TestClient(app)
+
+def test_health_check(client):
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json()["status"] == "healthy"
+
+def test_webhook_message_allowed(client, mock_deps):
+    """Test standard message processing for allowed chat."""
+    # Allow the chat
+    mock_deps['admin'].config.allowed_chats = [123]
+    
+    update = {
+        "update_id": 1,
         "message": {
             "message_id": 1,
-            "date": 1234567890,
-            "chat": {
-                "id": 12345,
-                "type": "private"
-            },
-            "from": {
-                "id": 67890,
-                "is_bot": False,
-                "first_name": "Test"
-            },
-            "text": "Test question"
+            "date": 123456,
+            "chat": {"id": 123, "type": "private"},
+            "from": {"id": 1, "is_bot": False, "first_name": "Test"},
+            "text": "Hello"
         }
     }
     
-    # Verify structure
-    assert "update_id" in update_data
-    assert "message" in update_data
-    assert "text" in update_data["message"]
-    assert update_data["message"]["text"] == "Test question"
+    response = client.post("/webhook", json=update)
+    assert response.status_code == 200
+    
+    # Should call chat
+    mock_deps['bot'].chat.assert_called_with("Hello", respond=True)
+    mock_deps['tg'].bot.send_message.assert_called()
 
-
-def test_start_command_detection():
-    """Test /start command detection."""
-    message_text = "/start"
-    assert message_text.startswith("/start")
-
-
-def test_help_command_detection():
-    """Test /help command detection."""
-    message_text = "/help"
-    assert message_text.startswith("/help")
-
-
-def test_regular_message_detection():
-    """Test regular message (not a command)."""
-    message_text = "What happened with point 840?"
-    assert not message_text.startswith("/")
-
-
-def test_empty_message_handling():
-    """Test handling of empty messages."""
-    message_text = ""
-    assert message_text.strip() == ""
-
-
-def test_json_serialization():
-    """Test JSON serialization of update data."""
-    update_data = {
-        "update_id": 123456,
+def test_webhook_whitelist_block(client, mock_deps):
+    """Test blocking when chat is not in whitelist."""
+    # Setup whitelist
+    mock_deps['admin'].config.allowed_chats = [999]
+    
+    update = {
+        "update_id": 2,
         "message": {
-            "text": "Test"
+            "message_id": 2,
+            "date": 123456,
+            "chat": {"id": 123, "type": "private"}, # Blocked
+            "from": {"id": 1, "is_bot": False, "first_name": "Test"},
+            "text": "Hello"
         }
     }
     
-    # Should be serializable
-    json_str = json.dumps(update_data)
-    assert isinstance(json_str, str)
+    client.post("/webhook", json=update)
     
-    # Should be deserializable
-    parsed = json.loads(json_str)
-    assert parsed["update_id"] == 123456
+    # Should NOT call chat
+    mock_deps['bot'].chat.assert_not_called()
 
-
-def test_message_extraction():
-    """Test extracting message from update."""
-    update_data = {
-        "update_id": 123456,
+def test_webhook_frequency_limit(client, mock_deps):
+    """Test frequency limiting."""
+    mock_deps['admin'].config.response_frequency = 2
+    mock_deps['admin'].config.allowed_chats = [123] # Allow chat
+    
+    chat_id = 123
+    
+    # Reset counters
+    tgbot_module.chat_counters = {}
+    
+    update = {
+        "update_id": 3,
         "message": {
-            "message_id": 1,
-            "text": "Test question",
-            "chat": {"id": 12345}
+            "message_id": 3,
+            "date": 123456,
+            "chat": {"id": chat_id, "type": "private"},
+            "from": {"id": 1, "is_bot": False, "first_name": "Test"},
+            "text": "Msg 1"
         }
     }
     
-    message = update_data.get("message")
-    assert message is not None
-    assert message.get("text") == "Test question"
-    assert message.get("chat", {}).get("id") == 12345
-
-
-def test_no_message_in_update():
-    """Test update without message field."""
-    update_data = {
-        "update_id": 123456
-    }
+    # Message 1: 1 % 2 != 0 -> No response
+    client.post("/webhook", json=update)
+    mock_deps['bot'].chat.assert_called_with("Msg 1", respond=False)
     
-    message = update_data.get("message")
-    assert message is None
-
-
-def test_message_without_text():
-    """Test message without text field."""
-    update_data = {
-        "update_id": 123456,
-        "message": {
-            "message_id": 1,
-            "chat": {"id": 12345}
-        }
-    }
-    
-    message = update_data.get("message", {})
-    text = message.get("text")
-    assert text is None
-
+    # Message 2: 2 % 2 == 0 -> Response
+    update["message"]["text"] = "Msg 2"
+    client.post("/webhook", json=update)
+    mock_deps['bot'].chat.assert_called_with("Msg 2", respond=True)

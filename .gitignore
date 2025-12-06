@@ -9,3 +9,7 @@ chroma_db/
 *.json
 legale_bot.db
 *.session
+profiles/
+htmlcov/
+.coverage
+.pytest_cache/

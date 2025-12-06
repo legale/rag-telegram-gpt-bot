@@ -10,8 +10,11 @@ import os
 class LegaleBot:
     """Main bot class orchestrating the RAG pipeline."""
     
-    def __init__(self, db_url: str = "sqlite:///legale_bot.db", vector_db_path: str = "chroma_db", model_name: str = "openai/gpt-3.5-turbo", verbosity: int = 0):
+    def __init__(self, db_url: str, vector_db_path: str, model_name: str = "openai/gpt-3.5-turbo", verbosity: int = 0):
         # Initialize components
+        if not db_url or not vector_db_path:
+            raise ValueError("db_url and vector_db_path must be provided")
+            
         self.db = Database(db_url)
         self.vector_store = VectorStore(persist_directory=vector_db_path)
         self.verbosity = verbosity
@@ -34,6 +37,65 @@ class LegaleBot:
         
         # Token limit configuration
         self.max_context_tokens = int(os.getenv("MAX_CONTEXT_TOKENS", "14000"))
+        
+        # Model switching support
+        self.available_models = self._load_available_models()
+        self.current_model_index = 0
+        # Find initial model index
+        if model_name in self.available_models:
+            self.current_model_index = self.available_models.index(model_name)
+    
+    def _load_available_models(self) -> List[str]:
+        """
+        Load available models from models.txt file.
+        
+        Returns:
+            List of model names.
+        """
+        models_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "models.txt")
+        try:
+            with open(models_file, 'r') as f:
+                models = [line.strip() for line in f if line.strip()]
+            return models if models else ["openai/gpt-3.5-turbo"]
+        except FileNotFoundError:
+            if self.verbosity >= 1:
+                print(f"[Warning] models.txt not found at {models_file}, using default model")
+            return ["openai/gpt-3.5-turbo"]
+    
+    def switch_model(self) -> str:
+        """
+        Switch to the next model in the list (cyclic).
+        
+        Returns:
+            Message with the new model name.
+        """
+        if not self.available_models:
+            return "❌ Нет доступных моделей для переключения."
+        
+        # Move to next model (cyclic)
+        self.current_model_index = (self.current_model_index + 1) % len(self.available_models)
+        new_model = self.available_models[self.current_model_index]
+        
+        # Recreate LLM client with new model
+        self.llm_client = LLMClient(model=new_model, verbosity=self.verbosity)
+        
+        if self.verbosity >= 1:
+            print(f"[Model Switch] Changed to: {new_model}")
+        
+        return f"✅ Модель переключена на: {new_model}\n({self.current_model_index + 1}/{len(self.available_models)})"
+    
+    def get_current_model(self) -> str:
+        """
+        Get current model information.
+        
+        Returns:
+            Current model name and position in the list.
+        """
+        if not self.available_models:
+            return "❌ Нет доступных моделей."
+        
+        current_model = self.available_models[self.current_model_index]
+        return f"🤖 Текущая модель: {current_model}\n({self.current_model_index + 1}/{len(self.available_models)})"
         
     def reset_context(self) -> str:
         """
@@ -87,16 +149,18 @@ class LegaleBot:
             "percentage": round(percentage, 2)
         }
 
-    def chat(self, user_input: str, n_results: int = 3) -> str:
+    def chat(self, user_input: str, n_results: int = 3, respond: bool = True) -> str:
         """
         Process a user message and return the bot's response.
         
         Args:
             user_input: The user's message.
             n_results: Number of context chunks to retrieve.
+            respond: Whether to generate a response (default: True).
+                     If False, message is only added to history.
             
         Returns:
-            The bot's response.
+            The bot's response or empty string if respond=False.
         """
         # Check token usage and auto-reset if needed
         auto_reset_warning = ""
@@ -107,6 +171,14 @@ class LegaleBot:
                 auto_reset_warning = "⚠️ Контекст был автоматически сброшен из-за достижения лимита токенов.\n\n"
                 if self.verbosity >= 1:
                     print(f"[Auto-reset] Token limit reached: {token_usage['current_tokens']}/{self.max_context_tokens}")
+        
+        # If not responding, just add to history and return
+        if not respond:
+            self.chat_history.append({"role": "user", "content": user_input})
+            # We don't add assistant response since there is none
+            # But wait, if we don't add response, history will be User, User, User...
+            # This is fine for many models, they treat it as monologue or multi-part message.
+            return ""
         
         # 1. Retrieve Context
         print(f"Retrieving context ({n_results} chunks)...")

@@ -1,5 +1,6 @@
 import sys
 import os
+from typing import Optional
 
 # Add project root to sys.path to allow imports from src
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -15,13 +16,32 @@ import uuid
 import json
 
 class IngestionPipeline:
-    def __init__(self, db_url: str = "sqlite:///legale_bot.db", vector_db_path: str = "chroma_db"):
+    def __init__(self, db_url: str, vector_db_path: str):
         self.parser = ChatParser()
         self.chunker = TextChunker()
         self.db = Database(db_url)
         self.vector_store = VectorStore(persist_directory=vector_db_path)
+    
+    def _clear_data(self):
+        """Clears SQL and vector storage with verbose output."""
+        print("Clearing existing data...")
+        db_before = self.db.count_chunks()
+        print(f"SQL database ({self.db.db_url}): {db_before} chunks before cleanup.")
+        removed_db = self.db.clear()
+        db_after = self.db.count_chunks()
+        print(f"Removed {removed_db} chunks from SQL database. Remaining: {db_after}.")
         
-    def run(self, file_path: str, clear_existing: bool = False):
+        vector_before = self.vector_store.count()
+        print(
+            f"Vector store ({self.vector_store.persist_directory}, collection '{self.vector_store.collection_name}'): "
+            f"{vector_before} embeddings before cleanup."
+        )
+        removed_vectors = self.vector_store.clear()
+        vector_after = self.vector_store.count()
+        print(f"Removed {removed_vectors} embeddings from vector store. Remaining: {vector_after}.")
+        print("Data cleared.")
+        
+    def run(self, file_path: Optional[str] = None, clear_existing: bool = False):
         """
         Runs the ingestion pipeline.
         
@@ -29,13 +49,15 @@ class IngestionPipeline:
             file_path: Path to the chat dump file.
             clear_existing: Whether to clear existing data before ingestion.
         """
-        print(f"Starting ingestion for {file_path}...")
-        
         if clear_existing:
-            print("Clearing existing data...")
-            self.db.clear()
-            self.vector_store.clear()
-            print("Data cleared.")
+            self._clear_data()
+            if not file_path:
+                return
+        
+        if not file_path:
+            raise ValueError("file_path must be provided when not running a cleanup-only command.")
+        
+        print(f"Starting ingestion for {file_path}...")
 
         # 1. Parse
         messages = self.parser.parse_file(file_path)
@@ -90,7 +112,7 @@ if __name__ == "__main__":
     import argparse
     
     parser = argparse.ArgumentParser(description="Ingest chat dump into database and vector store.")
-    parser.add_argument("file", help="Path to the chat dump file (JSON or text)")
+    parser.add_argument("file", nargs="?", help="Path to the chat dump file (JSON or text)")
     parser.add_argument("--clear", action="store_true", help="Clear existing data before ingestion")
     
     if len(sys.argv) == 1:
@@ -98,6 +120,9 @@ if __name__ == "__main__":
         sys.exit(1)
         
     args = parser.parse_args()
+    
+    if not args.file and not args.clear:
+        parser.error("Please provide a chat dump file or specify --clear for cleanup.")
     
     pipeline = IngestionPipeline()
     pipeline.run(args.file, clear_existing=args.clear)
