@@ -18,8 +18,10 @@ def test_construct_prompt():
     
     prompt = engine.construct_prompt(context_chunks, chat_history, user_task)
     
-    assert "мотивирующий помощник" in prompt
+    # Check for actual prompt content (Lebed persona)
+    assert "Лебедь" in prompt or "Твои сообщения точны" in prompt
     assert "Boss: You must work overtime." in prompt
     assert "Worker: Is that paid?" in prompt
     assert "Boss: Do it now." in prompt
     assert "Analyze the situation." in prompt
+

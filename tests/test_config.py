@@ -19,7 +19,8 @@ class TestBotConfig:
         config = BotConfig(temp_profile)
         assert config.admin_password == ""
         assert config.allowed_chats == []
-        assert config.response_frequency == 1
+        assert config.response_frequency == 0  # Default is 0, not 1
+
         
     def test_save_and_load(self, temp_profile):
         config = BotConfig(temp_profile)

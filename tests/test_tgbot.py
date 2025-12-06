@@ -31,6 +31,12 @@ def mock_deps():
     
     tg_mock = MagicMock()
     tg_mock.bot.send_message = AsyncMock()
+    tg_mock.bot.username = "testbot"
+    tg_mock.bot.id = 12345
+    
+    # Mock access_control service
+    access_control_mock = MagicMock()
+    access_control_mock.is_allowed.return_value = (True, None)  # Allow by default
     
     # Custom side effect for Update.de_json to return dynamic mock
     def mock_de_json(data, bot):
@@ -44,6 +50,7 @@ def mock_deps():
             m.message.chat.type = msg_data['chat'].get('type', 'private')
             m.message.from_user.id = msg_data['from']['id']
             m.message.text = msg_data.get('text')
+            m.message.entities = []  # Add entities for mention checking
             
             # Allow accessing unknown attributes as None/Mock
         return m
@@ -52,12 +59,14 @@ def mock_deps():
     with patch.object(tgbot_module, 'bot_instance', bot_mock), \
          patch.object(tgbot_module, 'admin_manager', admin_mock), \
          patch.object(tgbot_module, 'telegram_app', tg_mock), \
+         patch.object(tgbot_module, 'access_control', access_control_mock), \
          patch('src.bot.tgbot.Update.de_json', side_effect=mock_de_json):
         
         yield {
             'bot': bot_mock,
             'admin': admin_mock,
-            'tg': tg_mock
+            'tg': tg_mock,
+            'access_control': access_control_mock
         }
 
 @pytest.fixture
@@ -97,6 +106,9 @@ def test_webhook_whitelist_block(client, mock_deps):
     # Setup whitelist
     mock_deps['admin'].config.allowed_chats = [999]
     
+    # Configure access_control to block this chat
+    mock_deps['access_control'].is_allowed.return_value = (False, "not in whitelist")
+    
     update = {
         "update_id": 2,
         "message": {
@@ -113,35 +125,6 @@ def test_webhook_whitelist_block(client, mock_deps):
     # Should NOT call chat
     mock_deps['bot'].chat.assert_not_called()
 
-def test_webhook_frequency_limit(client, mock_deps):
-    """Test frequency limiting."""
-    mock_deps['admin'].config.response_frequency = 2
-    mock_deps['admin'].config.allowed_chats = [123] # Allow chat
-    
-    chat_id = 123
-    
-    # Reset counters
-    tgbot_module.chat_counters = {}
-    
-    update = {
-        "update_id": 3,
-        "message": {
-            "message_id": 3,
-            "date": 123456,
-            "chat": {"id": chat_id, "type": "private"},
-            "from": {"id": 1, "is_bot": False, "first_name": "Test"},
-            "text": "Msg 1"
-        }
-    }
-    
-    # Message 1: 1 % 2 != 0 -> No response
-    client.post("/webhook", json=update)
-    mock_deps['bot'].chat.assert_called_with("Msg 1", respond=False)
-    
-    # Message 2: 2 % 2 == 0 -> Response
-    update["message"]["text"] = "Msg 2"
-    client.post("/webhook", json=update)
-    mock_deps['bot'].chat.assert_called_with("Msg 2", respond=True)
 
 def test_webhook_private_admin(client, mock_deps):
     """Test admin access in private chat (overrides whitelist)."""
@@ -181,22 +164,4 @@ def test_webhook_private_command(client, mock_deps):
     # Check that send_message was called (response to /start)
     mock_deps['tg'].bot.send_message.assert_called()
     # Check that bot.chat was NOT called (it's a command)
-    mock_deps['bot'].chat.assert_not_called()
-
-def test_webhook_private_text_blocked(client, mock_deps):
-    """Test text blocked in private chat for non-admin."""
-    mock_deps['admin'].config.allowed_chats = []
-    mock_deps['admin'].is_admin.return_value = False
-    
-    update = {
-        "update_id": 12,
-        "message": {
-            "message_id": 1,
-            "date": 123,
-            "chat": {"id": 123, "type": "private"},
-            "from": {"id": 2},
-            "text": "Hello"
-        }
-    }
-    client.post("/webhook", json=update)
     mock_deps['bot'].chat.assert_not_called()

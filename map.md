@@ -1247,3 +1247,229 @@ legale bot run
 - [ ] Real-time progress updates
 - [ ] Full audit trail of admin actions
 - [ ] No need to use CLI for common operations
+
+### Phase 11: Test Coverage Improvement
+**Status: PLANNED**
+**Current Coverage: 58% (120 tests passing)**
+**Target Coverage: 80%+**
+
+**Goal**: Improve test coverage for modules below 80%, focusing on critical business logic and user-facing functionality.
+
+#### 11.1 Critical Priority Modules (0-35% coverage)
+
+- [ ] **`src/bot/tgbot.py`** - 30% coverage (376 lines, 263 uncovered)
+    - [ ] Test `MessageHandler` class methods
+    - [ ] Test `handle_message()` function
+    - [ ] Test `/id` command
+    - [ ] Test `is_bot_mentioned()` function
+    - [ ] Test webhook error handling
+    - [ ] Test lifespan startup/shutdown
+    - [ ] Test `init_runtime_for_current_profile()`
+    - [ ] Test `reload_for_current_profile()`
+    - [ ] **Target: 70%+**
+
+- [ ] **`src/bot/utils/access_control.py`** - 25% coverage (36 lines, 27 uncovered)
+    - [ ] Test `is_admin()` method
+    - [ ] Test `is_allowed()` with different scenarios
+    - [ ] Test `check_admin_access()` method
+    - [ ] Test `get_access_denial_message()` method
+    - [ ] Test private chat logic
+    - [ ] Test group chat logic
+    - [ ] Test command vs text message logic
+    - [ ] **Target: 90%+**
+
+- [ ] **`src/bot/utils/frequency_controller.py`** - 35% coverage (31 lines, 20 uncovered)
+    - [ ] Test `should_respond()` with different frequencies
+    - [ ] Test mention detection logic
+    - [ ] Test counter increment
+    - [ ] Test `reset_counter()` method
+    - [ ] Test `get_counter()` method
+    - [ ] Test private vs group chat behavior
+    - [ ] **Target: 90%+**
+
+- [ ] **`src/ingestion/telegram.py`** - 0% coverage (134 lines, 134 uncovered)
+    - [ ] Test `TelegramFetcher` initialization
+    - [ ] Test `fetch_messages()` method
+    - [ ] Test session handling
+    - [ ] Test error handling (auth, network)
+    - [ ] Test message filtering
+    - [ ] Test pagination
+    - [ ] **Target: 70%+**
+
+#### 11.2 High Priority Modules (49-62% coverage)
+
+- [ ] **`src/bot/admin_commands.py`** - 61% coverage (372 lines, 145 uncovered)
+    - [ ] Test `ProfileCommands.list_profiles()` edge cases
+    - [ ] Test `ProfileCommands.profile_info()` method
+    - [ ] Test `IngestCommands.start_ingest()` method
+    - [ ] Test `IngestCommands.clear_data()` method
+    - [ ] Test `IngestCommands.handle_file_upload()` error cases
+    - [ ] Test `SettingsCommands.manage_chats()` remove command
+    - [ ] Test `SettingsCommands.manage_frequency()` edge cases
+    - [ ] Test `ControlCommands.restart_bot()` with callback
+    - [ ] **Target: 80%+**
+
+- [ ] **`src/bot/cli.py`** - 62% coverage (74 lines, 28 uncovered)
+    - [ ] Test `main()` function with different arguments
+    - [ ] Test error handling for missing files
+    - [ ] Test verbosity levels
+    - [ ] Test chunks parameter
+    - [ ] **Target: 80%+**
+
+- [ ] **`src/ingestion/pipeline.py`** - 59% coverage (92 lines, 38 uncovered)
+    - [ ] Test `IngestionPipeline` initialization
+    - [ ] Test `ingest()` method with real data
+    - [ ] Test `_clear_data()` method
+    - [ ] Test error handling
+    - [ ] Test batch processing
+    - [ ] **Target: 80%+**
+
+- [ ] **`src/storage/db.py`** - 60% coverage (35 lines, 14 uncovered)
+    - [ ] Test `Database` initialization
+    - [ ] Test `add_chunk()` method
+    - [ ] Test `get_chunk()` method
+    - [ ] Test `get_chunks()` method
+    - [ ] Test error handling
+    - [ ] **Target: 85%+**
+
+- [ ] **`src/core/embedding.py`** - 53% coverage (88 lines, 41 uncovered)
+    - [ ] Test local embedding mode
+    - [ ] Test API embedding mode
+    - [ ] Test batch processing
+    - [ ] Test caching
+    - [ ] Test error handling
+    - [ ] **Target: 80%+**
+
+- [ ] **`src/bot/utils/database_stats.py`** - 49% coverage (82 lines, 42 uncovered)
+    - [ ] Test `get_chunk_count()` with empty DB
+    - [ ] Test `get_database_size()` with missing file
+    - [ ] Test `get_date_range()` method
+    - [ ] Test `get_vector_store_size()` method
+    - [ ] Test `check_database_health()` method
+    - [ ] Test `get_database_stats()` comprehensive method
+    - [ ] Test `get_vector_store_stats()` method
+    - [ ] **Target: 80%+**
+
+#### 11.3 Medium Priority Modules (68-78% coverage)
+
+- [ ] **`src/bot/utils/command_validator.py`** - 68% coverage (62 lines, 20 uncovered)
+    - [ ] Test `validate_args_count()` edge cases
+    - [ ] Test `validate_profile_name()` with invalid names
+    - [ ] Test `validate_integer()` boundary conditions
+    - [ ] Test `validate_chat_id()` with invalid IDs
+    - [ ] Test `validate_log_lines()` edge cases
+    - [ ] **Target: 85%+**
+
+- [ ] **`src/ingestion/parser.py`** - 70% coverage (30 lines, 9 uncovered)
+    - [ ] Test `parse_file()` with malformed JSON
+    - [ ] Test `parse_file()` with missing fields
+    - [ ] Test `parse_file()` with different message types
+    - [ ] **Target: 85%+**
+
+- [ ] **`src/storage/vector_store.py`** - 75% coverage (48 lines, 12 uncovered)
+    - [ ] Test `add_documents_with_embeddings()` with large batches
+    - [ ] Test `clear()` method
+    - [ ] Test `query()` with empty query
+    - [ ] Test error handling
+    - [ ] **Target: 85%+**
+
+- [ ] **`src/bot/utils/health_checker.py`** - 76% coverage (80 lines, 19 uncovered)
+    - [ ] Test `check_database()` with corrupted DB
+    - [ ] Test `check_vector_store()` with missing store
+    - [ ] Test `check_memory()` edge cases
+    - [ ] Test `check_disk()` edge cases
+    - [ ] Test `format_health_report()` with all checks
+    - [ ] **Target: 90%+**
+
+- [ ] **`src/core/prompt.py`** - 76% coverage (25 lines, 6 uncovered)
+    - [ ] Test `construct_prompt()` with max_context_chars limit
+    - [ ] Test truncation logic
+    - [ ] Test empty context/history
+    - [ ] **Target: 90%+**
+
+- [ ] **`src/bot/utils/response_formatter.py`** - 78% coverage (46 lines, 10 uncovered)
+    - [ ] Test `format_warning_message()` method
+    - [ ] Test `format_info_message()` with details
+    - [ ] Test `create_progress_bar()` edge cases
+    - [ ] Test `format_number()` with large numbers
+    - [ ] **Target: 90%+**
+
+#### 11.4 Test Infrastructure Improvements
+
+- [ ] **Test Utilities** (`tests/utils.py`):
+    - [ ] Create `MockTelegramUpdate` factory
+    - [ ] Create `MockAdminManager` factory
+    - [ ] Create `MockProfileManager` factory
+    - [ ] Create `TempDatabase` context manager
+    - [ ] Create `TempVectorStore` context manager
+    - [ ] Create sample data fixtures
+
+- [ ] **Integration Tests** (`tests/integration/`):
+    - [ ] End-to-end ingestion test
+    - [ ] End-to-end query test
+    - [ ] Profile switching test
+    - [ ] Admin command workflow tests
+
+- [ ] **CI/CD Integration**:
+    - [ ] Add coverage reporting to CI
+    - [ ] Set minimum coverage threshold (75%)
+    - [ ] Add coverage badge to README
+    - [ ] Fail CI if coverage drops below threshold
+
+#### 11.5 Implementation Strategy
+
+**Week 1: Critical Modules (0-35%)**
+- Day 1-2: `src/bot/tgbot.py` (30% → 70%)
+- Day 3: `src/bot/utils/access_control.py` (25% → 90%)
+- Day 4: `src/bot/utils/frequency_controller.py` (35% → 90%)
+- Day 5: `src/ingestion/telegram.py` (0% → 70%)
+
+**Week 2: High Priority Modules (49-62%)**
+- Day 1-2: `src/bot/admin_commands.py` (61% → 80%)
+- Day 3: `src/bot/cli.py` (62% → 80%)
+- Day 4: `src/ingestion/pipeline.py` (59% → 80%)
+- Day 5: `src/storage/db.py` (60% → 85%)
+
+**Week 3: Medium Priority + Infrastructure**
+- Day 1: `src/core/embedding.py` (53% → 80%)
+- Day 2: `src/bot/utils/database_stats.py` (49% → 80%)
+- Day 3-4: Medium priority modules (68-78% → 85-90%)
+- Day 5: Test infrastructure and integration tests
+
+#### 11.6 Coverage Milestones
+
+- [ ] **Milestone 1**: Critical modules to 70%+ (Week 1)
+- [ ] **Milestone 2**: High priority modules to 80%+ (Week 2)
+- [ ] **Milestone 3**: Medium priority modules to 85%+ (Week 3)
+- [ ] **Milestone 4**: Overall coverage to 75%+ (End of Week 3)
+- [ ] **Milestone 5**: Overall coverage to 80%+ (Stretch goal)
+
+#### 11.7 Success Metrics
+
+**Quantitative:**
+- [ ] Overall coverage: 58% → 80%+ (+22%)
+- [ ] Modules with 80%+ coverage: 7/27 → 20/27 (74%)
+- [ ] Total tests: 120 → 250+ (+108%)
+- [ ] Critical modules (tgbot, access_control, frequency_controller): 30% → 80%+
+
+**Qualitative:**
+- [ ] All critical business logic covered
+- [ ] Edge cases and error paths tested
+- [ ] Integration tests for key workflows
+- [ ] CI/CD coverage enforcement
+- [ ] Improved code confidence and maintainability
+
+#### 11.8 Current Status Summary
+
+**Modules by Coverage:**
+- **100% (5 modules)**: `llm.py`, `utils/__init__.py`, `__init__.py` files
+- **90%+ (3 modules)**: `admin.py` (93%), `admin_router.py` (91%), `config.py` (96%), `core.py` (94%), `chunker.py` (93%)
+- **80-89% (2 modules)**: `retrieval.py` (83%), `admin_tasks.py` (88%)
+- **70-79% (5 modules)**: `health_checker.py` (76%), `prompt.py` (76%), `vector_store.py` (75%), `response_formatter.py` (78%), `parser.py` (70%)
+- **60-69% (3 modules)**: `admin_commands.py` (61%), `cli.py` (62%), `command_validator.py` (68%), `db.py` (60%)
+- **50-59% (2 modules)**: `embedding.py` (53%), `pipeline.py` (59%)
+- **Below 50% (7 modules)**: `tgbot.py` (30%), `database_stats.py` (49%), `frequency_controller.py` (35%), `access_control.py` (25%), `telegram.py` (0%)
+
+**Total:** 27 modules, 17 below 80% coverage
+
+
