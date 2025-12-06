@@ -703,10 +703,12 @@ class StatsCommands:
                 checks.append(("🤖 LLM API ключ", f"❌ Ошибка: {e}"))
             
             # Embedding API check
+            # Uses same key as LLM currently (OpenRouter/OpenAI)
             try:
                 import os
-                voyage_key = os.getenv("VOYAGE_API_KEY")
-                if voyage_key:
+                # Check environment variables used by EmbeddingClient
+                emb_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
+                if emb_key:
                     checks.append(("🔤 Embedding API ключ", "✅ Установлен"))
                 else:
                     checks.append(("🔤 Embedding API ключ", "❌ Не установлен"))
