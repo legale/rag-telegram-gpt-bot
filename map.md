@@ -763,11 +763,22 @@ legale bot run
         - [x] 1 = Respond to every message
         - [x] n > 1 = Respond to every Nth message
     - [x] Silent processing (add to context without response)
-        - [ ] Active profile
-        - [ ] Model settings
-        - [ ] Token limits
-        - [ ] API endpoints
-        - [ ] (Hide sensitive data)
+
+### Phase 9: Testing & Stabilization
+
+#### 9.1 Test Suite Improvements ✅
+- [x] Fix existing test failures
+- [x] Improve mocking for admin commands
+- [x] Add tests for new admin features (profiles, config, ingestion)
+- [x] Ensure all tests pass
+
+#### 9.2 Code Coverage Increase 🔄
+- [x] Cover admin router (85%)
+- [x] Cover admin tasks (88%)
+- [x] Cover CLI (62%)
+- [ ] Increase coverage for `tgbot.py` (>50%)
+- [ ] Increase coverage for `ingestion/telegram.py` (>50%)
+- [ ] Overall coverage > 60%
     
     - [ ] `/admin config set <key> <value>` - Update config
         - [ ] Update environment variables
