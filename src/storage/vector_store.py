@@ -1,56 +1,106 @@
+# src/storage/vector_store.py
+
+from typing import List, Optional, Dict, Any
 import chromadb
-from chromadb.config import Settings
-from typing import List, Dict, Optional
+
+from src.core.embedding import EmbeddingClient
+
 
 class VectorStore:
-    """Wrapper around ChromaDB for storing and retrieving vector embeddings."""
-    
-    def __init__(self, persist_directory: str, collection_name: str = "chat_chunks"):
-        if not persist_directory:
-            raise ValueError("persist_directory must be provided")
+    def __init__(
+        self,
+        persist_directory: str,
+        collection_name: str = "default",
+        max_batch_size: int = 5000,
+        embedding_client: Optional[EmbeddingClient] = None,
+    ):
+        """
+        vector store without internal chroma embedder
+        expects precomputed embeddings for stored docs
+        and uses the same embedding client for queries
+        """
         self.persist_directory = persist_directory
-        self.client = chromadb.PersistentClient(path=persist_directory)
         self.collection_name = collection_name
-        self.collection = self.client.get_or_create_collection(name=collection_name)
+        self.client = chromadb.PersistentClient(path=persist_directory)
+        self.collection = self.client.get_or_create_collection(
+            name=collection_name,
+            embedding_function=None,  # embeddings always provided explicitly
+        )
+        # chroma limit is around 5461, keep some margin
+        self.max_batch_size = max_batch_size
+        self.embedding_client = embedding_client or EmbeddingClient()
+
+    def add_documents_with_embeddings(
+        self,
+        ids: List[str],
+        documents: List[str],
+        embeddings: List[List[float]],
+        metadatas: Optional[List[Dict[str, Any]]] = None,
+        show_progress: bool = True,
+    ) -> None:
+        """
+        add documents using precomputed embeddings
+        ids, documents, embeddings must be aligned
+        """
+        total = len(documents)
+        if total == 0:
+            return
+
+        if not (len(ids) == len(documents) == len(embeddings)):
+            raise ValueError("ids, documents, embeddings must have same length")
+
+        if metadatas is None:
+            metadatas = [None] * total
+        elif len(metadatas) != total:
+            raise ValueError("metadatas must match documents length")
+
+        batch_size = self.max_batch_size
+        added = 0
+
+        for start in range(0, total, batch_size):
+            end = min(start + batch_size, total)
+
+            batch_ids = ids[start:end]
+            batch_docs = documents[start:end]
+            batch_meta = metadatas[start:end]
+            batch_embs = embeddings[start:end]
+
+            self.collection.add(
+                ids=batch_ids,
+                documents=batch_docs,
+                metadatas=batch_meta,
+                embeddings=batch_embs,
+            )
+
+            added = end
+            if show_progress:
+                pct = added * 100 // total
+                print(f"\rvector_store: added {added}/{total} documents ({pct}%)", end="", flush=True)
+
+        if show_progress and total > 0:
+            print()
+
+    def count(self) -> int:
+        """how many objects in collection"""
+        return self.collection.count()
 
     def clear(self) -> int:
-        """Deletes and recreates the collection, returning the number of removed documents."""
-        removed = self.count()
-        self.client.delete_collection(name=self.collection_name)
-        self.collection = self.client.get_or_create_collection(name=self.collection_name)
-        return removed
-        
-    def add_documents(self, ids: List[str], documents: List[str], metadatas: Optional[List[Dict]] = None):
+        """clear collection, return how many were removed"""
+        before = self.collection.count()
+        self.collection.delete(where={})
+        after = self.collection.count()
+        return before - after
+
+    def query(self, query_texts: List[str], n_results: int = 3) -> Dict[str, Any]:
         """
-        Adds documents to the vector store.
-        
-        Args:
-            ids: List of unique identifiers for the documents.
-            documents: List of text content to be embedded and stored.
-            metadatas: Optional list of metadata dictionaries for each document.
+        compute query embeddings with the same embedding client
+        and pass them to chroma as query_embeddings
         """
-        self.collection.add(
-            ids=ids,
-            documents=documents,
-            metadatas=metadatas
-        )
-        
-    def query(self, query_text: str, n_results: int = 5) -> Dict:
-        """
-        Queries the vector store for similar documents.
-        
-        Args:
-            query_text: The query text.
-            n_results: Number of results to return.
-            
-        Returns:
-            Dictionary containing query results (ids, distances, metadatas, documents).
-        """
+        if not query_texts:
+            return {"ids": [], "documents": [], "distances": []}
+
+        query_embs = self.embedding_client.get_embeddings(query_texts)
         return self.collection.query(
-            query_texts=[query_text],
-            n_results=n_results
+            query_embeddings=query_embs,
+            n_results=n_results,
         )
-        
-    def count(self) -> int:
-        """Returns the number of documents in the collection."""
-        return self.collection.count()

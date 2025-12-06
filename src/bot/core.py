@@ -110,123 +110,95 @@ class LegaleBot:
     def get_token_usage(self) -> Dict[str, int]:
         """
         Get current token usage statistics.
-        
-        Returns:
-            Dictionary with token usage info.
         """
-        # Build current messages to count tokens
         if not self.chat_history:
             return {
                 "current_tokens": 0,
                 "max_tokens": self.max_context_tokens,
-                "percentage": 0.0
+                "percentage": 0.0,
             }
-        
-        # Simulate what would be sent to LLM
+
+        # берем последние N сообщений как в chat()
         history_for_prompt = []
         for msg in self.chat_history[-5:]:
-            sender = "User" if msg['role'] == 'user' else "Bot"
-            history_for_prompt.append({"sender": sender, "content": msg['content']})
-        
-        # Create a sample prompt to estimate tokens
+            sender = "User" if msg["role"] == "user" else "Bot"
+            history_for_prompt.append(
+                {"sender": sender, "content": msg["content"]}
+            )
+
+        # делаем системный промпт без реального task, только для оценки объема контекста
         system_prompt = self.prompt_engine.construct_prompt(
             context_chunks=[],
             chat_history=history_for_prompt,
-            user_task="sample"
+            user_task="",
         )
-        
+
+        # считаем так же, как реально вызываем модель: system + пустой user
         messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": system_prompt}
+            {"role": "user", "content": ""},
         ]
-        
+
         current_tokens = self.llm_client.count_tokens(messages)
-        percentage = (current_tokens / self.max_context_tokens) * 100
-        
+        percentage = (current_tokens / self.max_context_tokens) * 100 if self.max_context_tokens > 0 else 0.0
+
         return {
             "current_tokens": current_tokens,
             "max_tokens": self.max_context_tokens,
-            "percentage": round(percentage, 2)
+            "percentage": round(percentage, 2),
         }
 
     def chat(self, user_input: str, n_results: int = 3, respond: bool = True) -> str:
         """
         Process a user message and return the bot's response.
-        
-        Args:
-            user_input: The user's message.
-            n_results: Number of context chunks to retrieve.
-            respond: Whether to generate a response (default: True).
-                     If False, message is only added to history.
-            
-        Returns:
-            The bot's response or empty string if respond=False.
         """
-        # Check token usage and auto-reset if needed
         auto_reset_warning = ""
         if self.chat_history:
             token_usage = self.get_token_usage()
+            # можно сбрасывать не по 100%, а, например, по 0.8 * лимита
             if token_usage["current_tokens"] >= self.max_context_tokens:
                 self.reset_context()
-                auto_reset_warning = "⚠️ Контекст был автоматически сброшен из-за достижения лимита токенов.\n\n"
+                auto_reset_warning = (
+                    "⚠️ Контекст был автоматически сброшен из-за достижения лимита токенов.\n\n"
+                )
                 if self.verbosity >= 1:
-                    print(f"[Auto-reset] Token limit reached: {token_usage['current_tokens']}/{self.max_context_tokens}")
-        
-        # If not responding, just add to history and return
+                    print(
+                        f"[Auto-reset] Token limit reached: "
+                        f"{token_usage['current_tokens']}/{self.max_context_tokens}"
+                    )
+
         if not respond:
             self.chat_history.append({"role": "user", "content": user_input})
-            # We don't add assistant response since there is none
-            # But wait, if we don't add response, history will be User, User, User...
-            # This is fine for many models, they treat it as monologue or multi-part message.
             return ""
-        
-        # 1. Retrieve Context
+
         print(f"Retrieving context ({n_results} chunks)...")
-        context_chunks = self.retrieval_service.retrieve(user_input, n_results=n_results)
-        
-        # 2. Construct Prompt
-        # Convert internal history format to what PromptEngine expects if needed
-        # PromptEngine expects [{'sender': '...', 'content': '...'}]
-        # Our internal history is [{'role': 'user/assistant', 'content': '...'}]
-        
+        context_chunks = self.retrieval_service.retrieve(
+            user_input, n_results=n_results
+        )
+
         history_for_prompt = []
-        for msg in self.chat_history[-5:]: # Last 5 messages
-            sender = "User" if msg['role'] == 'user' else "Bot"
-            history_for_prompt.append({"sender": sender, "content": msg['content']})
-            
-        # Add current user input to history for prompt context (optional, or just pass as task)
-        # The prompt engine treats user_task as the immediate instruction.
-        
+        for msg in self.chat_history[-5:]:
+            sender = "User" if msg["role"] == "user" else "Bot"
+            history_for_prompt.append(
+                {"sender": sender, "content": msg["content"]}
+            )
+
+        # системный промпт: контекст + история + инструкции, но без дублирования user_input
         system_prompt = self.prompt_engine.construct_prompt(
             context_chunks=context_chunks,
             chat_history=history_for_prompt,
-            user_task=user_input
+            user_task=user_input,
         )
-        
-        # 3. Call LLM
+
         print("Querying LLM...")
         messages = [
             {"role": "system", "content": system_prompt},
-            # We don't necessarily need to pass the full history here again if it's already in the system prompt,
-            # but standard chat models expect a conversation history.
-            # However, our "System Prompt" already includes the "Context" and "History" from the RAG perspective.
-            # So we can just send the system prompt and maybe the user message again?
-            # Or just the system prompt as a single instruction?
-            # Let's try sending just the system prompt as the 'user' message or 'system' message.
-            # Actually, usually:
-            # System: You are... Here is context...
-            # User: <query>
-            
-            # But our PromptEngine puts the query inside the system prompt template under {task}.
-            # So we can just send one message.
-            {"role": "user", "content": system_prompt} 
+            {"role": "user", "content": user_input},
         ]
-        
+
         response = self.llm_client.complete(messages)
-        
-        # 4. Update History
+
         self.chat_history.append({"role": "user", "content": user_input})
         self.chat_history.append({"role": "assistant", "content": response})
-        
-        # Prepend auto-reset warning if context was reset
+
         return auto_reset_warning + response

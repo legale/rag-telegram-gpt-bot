@@ -34,6 +34,7 @@ from src.bot.admin import AdminManager
 from src.bot.admin_router import AdminCommandRouter
 from src.bot.admin_commands import ProfileCommands, HelpCommands, IngestCommands, StatsCommands, ControlCommands, SettingsCommands
 from src.bot.admin_tasks import TaskManager
+from src.bot.utils import AccessControlService, FrequencyController
 
 # Load environment variables
 load_dotenv()
@@ -47,8 +48,283 @@ profile_manager = None  # Will be initialized in lifespan
 task_manager: Optional[TaskManager] = None
 ingest_commands: Optional[IngestCommands] = None
 
+# Access control and frequency controller
+access_control: Optional[AccessControlService] = None
+frequency_controller: FrequencyController = FrequencyController()
+
 # Logging setup
 logger = logging.getLogger("legale_tgbot")
+
+# Chat message counters for frequency control (deprecated - now in FrequencyController)
+chat_counters: Dict[int, int] = {}
+
+
+class MessageHandler:
+    """Handles message routing and command processing."""
+    
+    def __init__(self, bot_instance, admin_manager, admin_router):
+        self.bot = bot_instance
+        self.admin_manager = admin_manager
+        self.admin_router = admin_router
+    
+    async def handle_start_command(self) -> str:
+        """Handle /start command."""
+        return (
+            "Привет!\n\n"
+            "Используйте /help для справки."
+        )
+    
+    async def handle_help_command(self) -> str:
+        """Handle /help command."""
+        return (
+            "Я анализирую историю чата и отвечаю на вопросы.\n\n"
+            "Доступные команды:\n"
+            "• /start — приветствие\n"
+            "• /help — эта справка\n"
+            "• /reset — сбросить контекст разговора\n"
+            "• /tokens — показать использование токенов\n"
+            "• /model — переключить модель LLM\n"
+            "• /admin_set <пароль> — назначить себя администратором\n"
+            "• /admin_get — показать информацию об администраторе (только для админа)\n"
+            "• /admin — панель администратора (только для админа)\n"
+            "• /id — показать ID текущего чата\n\n"
+            "Просто напишите свой вопрос!"
+        )
+    
+    async def handle_reset_command(self) -> str:
+        """Handle /reset command."""
+        try:
+            return self.bot.reset_context()
+        except Exception as e:
+            logger.error(f"Error resetting context: {e}", exc_info=True)
+            return "Ошибка при сбросе контекста."
+    
+    async def handle_tokens_command(self) -> str:
+        """Handle /tokens command."""
+        try:
+            usage = self.bot.get_token_usage()
+            response = (
+                f"📊 Использование токенов:\n\n"
+                f"Текущее: {usage['current_tokens']:,}\n"
+                f"Максимум: {usage['max_tokens']:,}\n"
+                f"Использовано: {usage['percentage']}%\n\n"
+            )
+            if usage["percentage"] > 80:
+                response += "⚠️ Приближаетесь к лимиту! Используйте /reset для сброса."
+            elif usage["percentage"] > 50:
+                response += "ℹ️ Контекст заполнен наполовину."
+            else:
+                response += "✅ Достаточно места для разговора."
+            return response
+        except Exception as e:
+            logger.error(f"Error getting token usage: {e}", exc_info=True)
+            return "Ошибка при получении информации о токенах."
+    
+    async def handle_model_command(self) -> str:
+        """Handle /model command."""
+        try:
+            return self.bot.switch_model()
+        except Exception as e:
+            logger.error(f"Error switching model: {e}", exc_info=True)
+            return "Ошибка при переключении модели."
+    
+    async def handle_admin_set_command(self, text: str, message) -> str:
+        """Handle /admin_set command."""
+        if not self.admin_manager:
+            return "❌ Система администрирования недоступна. Установите ADMIN_PASSWORD в .env файле."
+        
+        parts = text.split(maxsplit=1)
+        if len(parts) < 2:
+            return (
+                "❌ Неверный формат команды.\n\n"
+                "Использование: /admin_set <пароль>\n\n"
+                "Пример: /admin_set my_secret_password"
+            )
+        
+        password = parts[1].strip()
+        
+        if self.admin_manager.verify_password(password):
+            user = message.from_user
+            user_id = user.id
+            username = user.username or "unknown"
+            first_name = user.first_name or "Unknown"
+            last_name = user.last_name
+            
+            try:
+                self.admin_manager.set_admin(user_id, username, first_name, last_name)
+                full_name = f"{first_name} {last_name}".strip() if last_name else first_name
+                logger.info(f"Admin set: {full_name} (ID: {user_id})")
+                return (
+                    f"✅ Вы успешно назначены администратором!\n\n"
+                    f"👤 Имя: {full_name}\n"
+                    f"🆔 ID: {user_id}\n"
+                    f"📝 Username: @{username}"
+                )
+            except Exception as e:
+                logger.error(f"Error setting admin: {e}", exc_info=True)
+                return "❌ Ошибка при назначении администратора."
+        else:
+            logger.warning(f"Failed admin_set attempt from user {message.from_user.id}")
+            return "❌ Неверный пароль."
+    
+    async def handle_admin_get_command(self, user_id: int) -> str:
+        """Handle /admin_get command."""
+        if not self.admin_manager:
+            return "❌ Система администрирования недоступна."
+        
+        if not self.admin_manager.is_admin(user_id):
+            logger.warning(f"Unauthorized admin_get attempt from user {user_id}")
+            return "❌ Эта команда доступна только администратору."
+        
+        admin_info = self.admin_manager.get_admin()
+        if admin_info:
+            return (
+                f"👤 Администратор бота:\n\n"
+                f"Имя: {admin_info['full_name']}\n"
+                f"ID: {admin_info['user_id']}\n"
+                f"Username: @{admin_info['username']}"
+            )
+        else:
+            return "❌ Администратор не назначен."
+    
+    async def handle_admin_command(self, update: Update) -> str:
+        """Handle /admin command."""
+        if not self.admin_router:
+            return "❌ Админ-панель недоступна. Проверьте конфигурацию бота."
+        
+        try:
+            return await self.admin_router.route(update, None, self.admin_manager)
+        except Exception as e:
+            logger.error(f"Error processing admin command: {e}", exc_info=True)
+            return f"❌ Ошибка при выполнении админ-команды: {e}"
+    
+    async def handle_user_query(self, text: str, respond: bool) -> str:
+        """Handle regular user query to bot."""
+        try:
+            return self.bot.chat(text, respond=respond)
+        except Exception as e:
+            logger.error(f"Error querying bot: {e}", exc_info=True)
+            return f"Произошла ошибка при обработке вашего запроса. error={e}"
+    
+    async def route_command(self, text: str, update: Update) -> str:
+        """Route command to appropriate handler."""
+        message = update.message
+        user_id = message.from_user.id
+        
+        if text.startswith("/start"):
+            return await self.handle_start_command()
+        elif text.startswith("/help"):
+            return await self.handle_help_command()
+        elif text.startswith("/reset"):
+            return await self.handle_reset_command()
+        elif text.startswith("/tokens"):
+            return await self.handle_tokens_command()
+        elif text.startswith("/model"):
+            return await self.handle_model_command()
+        elif text.startswith("/admin_set"):
+            return await self.handle_admin_set_command(text, message)
+        elif text.startswith("/admin_get"):
+            return await self.handle_admin_get_command(user_id)
+        elif text.startswith("/admin"):
+            return await self.handle_admin_command(update)
+        else:
+            return None  # Not a recognized command
+
+
+# инициализация рантайма под текущий профиль
+async def init_runtime_for_current_profile():
+    """
+    создать/переинициализировать bot_instance, admin_manager, admin_router и связанные команды
+    под текущий активный профиль profile_manager
+    """
+    global bot_instance, admin_manager, admin_router, task_manager, ingest_commands
+
+    if profile_manager is None:
+        raise RuntimeError("profile_manager is not initialized")
+
+    # получаем пути для текущего профиля (использует ACTIVE_PROFILE из .env)
+    paths = profile_manager.get_profile_paths()
+
+    # пересоздаем core
+    bot_instance = LegaleBot(
+        db_url=paths["db_url"],
+        vector_db_path=str(paths["vector_db_path"])
+    )
+    logger.warning(
+        "Bot core (LegaleBot) initialized with profile=%s db_url=%s vector=%s",
+        profile_manager.get_current_profile(),
+        paths["db_url"],
+        paths["vector_db_path"],
+    )
+
+    # пересоздаем admin_manager
+    profile_dir = paths["profile_dir"]
+    admin_manager_local = AdminManager(profile_dir)
+    logger.info("Admin manager initialized for profile_dir=%s", profile_dir)
+
+    # пересоздаем admin_router и все команды
+    admin_router_local = AdminCommandRouter()
+    task_manager_local = TaskManager()
+
+    # profile commands
+    profile_commands = ProfileCommands(profile_manager)
+    admin_router_local.register("profile", profile_commands.list_profiles, "list")
+    admin_router_local.register("profile", profile_commands.create_profile, "create")
+    admin_router_local.register("profile", profile_commands.switch_profile, "switch")
+    admin_router_local.register("profile", profile_commands.delete_profile, "delete")
+    admin_router_local.register("profile", profile_commands.profile_info, "info")
+
+    # ingest commands
+    ingest_commands_local = IngestCommands(profile_manager, task_manager_local)
+    admin_router_local.register("ingest", ingest_commands_local.start_ingest)
+    admin_router_local.register("ingest", ingest_commands_local.clear_data, "clear")
+    admin_router_local.register("ingest", ingest_commands_local.ingest_status, "status")
+
+    # stats commands
+    stats_commands = StatsCommands(profile_manager)
+    admin_router_local.register("stats", stats_commands.show_stats)
+    admin_router_local.register("health", stats_commands.health_check)
+    admin_router_local.register("logs", stats_commands.show_logs)
+
+    # control commands – сюда прокидываем колбэк hot-reload
+    control_commands = ControlCommands(profile_manager, reload_callback=reload_for_current_profile)
+    admin_router_local.register("restart", control_commands.restart_bot)
+
+    # settings commands
+    settings_commands = SettingsCommands(profile_manager)
+    admin_router_local.register("chat", settings_commands.manage_chats)
+    admin_router_local.register("allowed", settings_commands.manage_chats)
+    admin_router_local.register("frequency", settings_commands.manage_frequency)
+
+    # help commands
+    help_commands = HelpCommands()
+    admin_router_local.register("help", help_commands.show_help)
+
+    logger.info("Admin router initialized with all admin commands")
+
+    # только после успешного создания всех локальных объектов – публикуем их в глобальные
+    admin_manager = admin_manager_local
+    admin_router = admin_router_local
+    task_manager = task_manager_local
+    ingest_commands = ingest_commands_local
+
+    return paths
+
+
+# hot-reload рантайма под активный профиль (используется /admin restart)
+async def reload_for_current_profile():
+    """
+    hot-reload рантайма под активный профиль (используется /admin restart)
+    """
+    logger.warning("Hot reload requested for active profile...")
+    paths = await init_runtime_for_current_profile()
+    logger.warning(
+        "Hot reload completed: profile=%s db=%s vector=%s",
+        profile_manager.get_current_profile(),
+        paths["db_path"],
+        paths["vector_db_path"],
+    )
+    return paths
 
 
 def setup_logging(verbosity: int = 0, use_syslog: bool = False):
@@ -85,7 +361,7 @@ async def lifespan(app: FastAPI):
     Lifespan context manager for FastAPI.
     Loads bot instance on startup, cleans up on shutdown.
     """
-    global bot_instance, telegram_app, admin_manager, admin_router, profile_manager
+    global bot_instance, telegram_app, admin_manager, admin_router, profile_manager, task_manager, ingest_commands, access_control
     
     logger.info("Starting Legale Bot daemon...")
     
@@ -107,78 +383,12 @@ async def lifespan(app: FastAPI):
         profile_manager = None
         raise RuntimeError("Profile manager initialization failed")
 
-    # Load bot instance with profile paths
+    # инициализация рантайма под активный профиль
     try:
-        # Get profile paths
-        paths = profile_manager.get_profile_paths()
-        
-        bot_instance = LegaleBot(
-            db_url=paths['db_url'],
-            vector_db_path=str(paths['vector_db_path'])
-        )
-        logger.info(f"Bot core loaded successfully with profile: {profile_manager.get_current_profile()}")
-        logger.info(f"DB: {paths['db_url']}")
+        await init_runtime_for_current_profile()
     except Exception as e:
-        logger.error(f"Failed to load bot core: {e}")
+        logger.error(f"Failed to initialize runtime: {e}")
         raise
-    
-    # Initialize admin manager
-    try:
-        # Get profile directory
-        profile_dir = paths['profile_dir']
-        admin_manager = AdminManager(profile_dir)
-        logger.info(f"Admin manager initialized for profile: {profile_dir}")
-    except Exception as e:
-        logger.error(f"Failed to initialize admin manager: {e}")
-        admin_manager = None
-    
-    # Initialize admin router
-    if admin_manager and profile_manager:
-        try:
-            admin_router = AdminCommandRouter()
-            task_manager = TaskManager()
-            
-            # Register profile commands
-            profile_commands = ProfileCommands(profile_manager)
-            admin_router.register('profile', profile_commands.list_profiles, 'list')
-            admin_router.register('profile', profile_commands.create_profile, 'create')
-            admin_router.register('profile', profile_commands.switch_profile, 'switch')
-            admin_router.register('profile', profile_commands.delete_profile, 'delete')
-            admin_router.register('profile', profile_commands.profile_info, 'info')
-            
-            # Register ingest commands
-            ingest_commands = IngestCommands(profile_manager, task_manager)
-            admin_router.register('ingest', ingest_commands.start_ingest)
-            admin_router.register('ingest', ingest_commands.clear_data, 'clear')
-            admin_router.register('ingest', ingest_commands.ingest_status, 'status')
-            
-            # Register stats commands
-            stats_commands = StatsCommands(profile_manager)
-            admin_router.register('stats', stats_commands.show_stats)
-            admin_router.register('health', stats_commands.health_check)
-            admin_router.register('logs', stats_commands.show_logs)
-            
-            # Register control commands
-            control_commands = ControlCommands(profile_manager)
-            admin_router.register('restart', control_commands.restart_bot)
-            
-            # Register settings commands
-            settings_commands = SettingsCommands(profile_manager)
-            admin_router.register('chat', settings_commands.manage_chats)
-            admin_router.register('allowed', settings_commands.manage_chats)
-            admin_router.register('frequency', settings_commands.manage_frequency)
-            
-            # Register help commands
-            help_commands = HelpCommands()
-            admin_router.register('help', help_commands.show_help)
-            
-            logger.info("Admin router initialized with profile, ingest, stats, control, settings, and help commands")
-        except Exception as e:
-            logger.error(f"Failed to initialize admin router: {e}")
-            admin_router = None
-    else:
-        logger.warning("Admin router not initialized (missing admin_manager or profile_manager)")
-        admin_router = None
     
     # Initialize Telegram application
     token = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -189,6 +399,13 @@ async def lifespan(app: FastAPI):
     telegram_app = Application.builder().token(token).build()
     await telegram_app.initialize()
     logger.info("Telegram application initialized")
+    
+    # Initialize access control service
+    if admin_manager:
+        access_control = AccessControlService(admin_manager)
+        logger.info("Access control service initialized")
+    else:
+        logger.warning("Access control not initialized - admin_manager is None")
     
     yield
     
@@ -242,213 +459,103 @@ async def webhook(request: Request):
 # Chat message counters for frequency control
 chat_counters: Dict[int, int] = {}
 
+
+def is_bot_mentioned(message, bot_username: str, bot_id: int) -> bool:
+    """
+    check if bot is mentioned in message (by @username or text_mention)
+    """
+    text = message.text or ""
+    entities = message.entities or []
+    if not entities:
+        return False
+
+    for ent in entities:
+        try:
+            if ent.type == "mention":
+                mention_text = text[ent.offset: ent.offset + ent.length]
+                if bot_username and mention_text.lower() == f"@{bot_username}":
+                    return True
+            elif ent.type == "text_mention" and ent.user and ent.user.id == bot_id:
+                return True
+        except Exception:
+            continue
+
+    return False
+
+
 async def handle_message(update: Update):
     """
     Process incoming text messages.
+    
+    Simplified version using MessageHandler and utility classes.
     """
     message = update.message
     text = message.text
     chat_id = message.chat_id
     user_id = message.from_user.id
-    
-    logger.info(f"Message from {chat_id} (User {user_id}): {text[:50]}...")
-    
-    # 1. Check commands
-    is_command = text.startswith('/')
-    
-    # Always allow admin commands for setup
-    if text.startswith('/admin'):
-        # Pass through to admin handlers logic below
-        pass
-    elif text == '/id':
-        await telegram_app.bot.send_message(chat_id=chat_id, text=f"Chat ID: `{chat_id}`\nUser ID: `{user_id}`", parse_mode="Markdown")
-        return
-    else:
-        # Access Control Logic
-        config = admin_manager.config
-        is_allowed = False
-        
-        # 1. Whitelist Check
-        if chat_id in config.allowed_chats:
-            is_allowed = True
-            
-        # 2. Admin Check (Admins always allowed)
-        if admin_manager and admin_manager.is_admin(user_id):
-            is_allowed = True
-            
-        # 3. Private Chat Command Check
-        # Allow commands in private chats even if unauthorized (to allow /admin_set, /help, etc)
-        # message.chat.type can be 'private', 'group', 'supergroup', 'channel'
-        is_private = (message.chat.type == 'private')
-        if is_private and is_command:
-            is_allowed = True
-            
-        if not is_allowed:
-            # Ignore unauthorized
-            # Use debug level to avoid spamming logs with ignored messages
-            logger.debug(f"Ignoring message from unauthorized chat {chat_id} (User {user_id})")
-            return
-    
-    # Check frequency (only for non-commands)
-    respond = True
-    if not is_command:
-        config = admin_manager.config
-        freq = config.response_frequency
-        
-        if freq > 1:
-            current = chat_counters.get(chat_id, 0)
-            current += 1
-            chat_counters[chat_id] = current
-            
-            # Respond every Nth message (1st, N+1, 2N+1...)
-            # Actually user asked: "if 3, respond only to every 3rd".
-            # Usually implies: 1(no), 2(no), 3(yes).
-            if current % freq != 0:
-                respond = False
-                logger.debug(f"Skipping response due to frequency (msg {current}, freq {freq})")
-            else:
-                logger.debug(f"Responding due to frequency (msg {current}, freq {freq})")
 
-    # Handle commands logic (existing)
-    if text.startswith('/start'):
-        response = (
-            "Привет! Я Legale Bot — юрист профсоюза IT-работников.\n\n"
-            "Задавайте вопросы о ваших правах, рабочих ситуациях, "
-            "и я постараюсь помочь на основе истории чата.\n\n"
-            "Используйте /help для справки."
+    logger.info(f"Message from {chat_id} (User {user_id}): {text[:50]}...")
+
+    is_command = text.startswith("/")
+    is_private = (message.chat.type == "private")
+
+    # /id always responds, bypassing other logic
+    if text == "/id":
+        await telegram_app.bot.send_message(
+            chat_id=chat_id,
+            text=f"Chat ID: `{chat_id}`\nUser ID: `{user_id}`",
+            parse_mode="Markdown",
         )
-    elif text.startswith('/help'):
-        response = (
-            "Я анализирую историю чата и отвечаю на вопросы.\n\n"
-            "Доступные команды:\n"
-            "• /start — приветствие\n"
-            "• /help — эта справка\n"
-            "• /reset — сбросить контекст разговора\n"
-            "• /tokens — показать использование токенов\n"
-            "• /model — переключить модель LLM\n"
-            "• /admin_set <пароль> — назначить себя администратором\n"
-            "• /admin_get — показать информацию об администраторе (только для админа)\n"
-            "• /admin — панель администратора (только для админа)\n"
-            "• /id — показать ID текущего чата\n\n"
-            "Примеры вопросов:\n"
-            "• Что случилось с точкой 840?\n"
-            "• Когда Ru уходит в отпуск?\n"
-            "• Какие были проблемы с сетью?\n\n"
-            "Просто напишите свой вопрос!"
-        )
-    elif text.startswith('/reset'):
-        try:
-            response = bot_instance.reset_context()
-        except Exception as e:
-            logger.error(f"Error resetting context: {e}", exc_info=True)
-            response = "Ошибка при сбросе контекста."
-    elif text.startswith('/tokens'):
-        try:
-            usage = bot_instance.get_token_usage()
-            response = (
-                f"📊 Использование токенов:\n\n"
-                f"Текущее: {usage['current_tokens']:,}\n"
-                f"Максимум: {usage['max_tokens']:,}\n"
-                f"Использовано: {usage['percentage']}%\n\n"
-            )
-            if usage['percentage'] > 80:
-                response += "⚠️ Приближаетесь к лимиту! Используйте /reset для сброса."
-            elif usage['percentage'] > 50:
-                response += "ℹ️ Контекст заполнен наполовину."
-            else:
-                response += "✅ Достаточно места для разговора."
-        except Exception as e:
-            logger.error(f"Error getting token usage: {e}", exc_info=True)
-            response = "Ошибка при получении информации о токенах."
-    elif text.startswith('/model'):
-        try:
-            response = bot_instance.switch_model()
-        except Exception as e:
-            logger.error(f"Error switching model: {e}", exc_info=True)
-            response = "Ошибка при переключении модели."
+        return
+
+    # admin_manager is required
+    if not admin_manager:
+        logger.error("admin_manager is not initialized, dropping message")
+        return
+
+    # Check access using AccessControlService
+    if not access_control:
+        logger.error("access_control is not initialized")
+        return
     
-    elif text.startswith('/admin_set'):
-        # Command format: /admin_set PASSWORD
-        if not admin_manager:
-            response = "❌ Система администрирования недоступна. Установите ADMIN_PASSWORD в .env файле."
-        else:
-            parts = text.split(maxsplit=1)
-            if len(parts) < 2:
-                response = (
-                    "❌ Неверный формат команды.\\n\\n"
-                    "Использование: /admin_set <пароль>\\n\\n"
-                    "Пример: /admin_set my_secret_password"
-                )
-            else:
-                password = parts[1].strip()
-                
-                if admin_manager.verify_password(password):
-                    # Get user info from message
-                    user = message.from_user
-                    user_id = user.id
-                    username = user.username or "unknown"
-                    first_name = user.first_name or "Unknown"
-                    last_name = user.last_name
-                    
-                    try:
-                        admin_manager.set_admin(user_id, username, first_name, last_name)
-                        full_name = f"{first_name} {last_name}".strip() if last_name else first_name
-                        response = (
-                            f"✅ Вы успешно назначены администратором!\\n\\n"
-                            f"👤 Имя: {full_name}\\n"
-                            f"🆔 ID: {user_id}\\n"
-                            f"📝 Username: @{username}"
-                        )
-                        logger.info(f"Admin set: {full_name} (ID: {user_id})")
-                    except Exception as e:
-                        logger.error(f"Error setting admin: {e}", exc_info=True)
-                        response = "❌ Ошибка при назначении администратора."
-                else:
-                    response = "❌ Неверный пароль."
-                    logger.warning(f"Failed admin_set attempt from user {message.from_user.id}")
+    is_allowed, denial_reason = access_control.is_allowed(
+        user_id=user_id,
+        chat_id=chat_id,
+        is_private=is_private,
+        is_command=is_command
+    )
     
-    elif text.startswith('/admin_get'):
-        if not admin_manager:
-            response = "❌ Система администрирования недоступна."
-        else:
-            # Check if requester is admin
-            requester_id = message.from_user.id
-            
-            if not admin_manager.is_admin(requester_id):
-                response = "❌ Эта команда доступна только администратору."
-                logger.warning(f"Unauthorized admin_get attempt from user {requester_id}")
-            else:
-                admin_info = admin_manager.get_admin()
-                if admin_info:
-                    response = (
-                        f"👤 Администратор бота:\\n\\n"
-                        f"Имя: {admin_info['full_name']}\\n"
-                        f"ID: {admin_info['user_id']}\\n"
-                        f"Username: @{admin_info['username']}"
-                    )
-                else:
-                    response = "❌ Администратор не назначен."
+    if not is_allowed:
+        # Access denied - silently ignore or log
+        return
+
+    # Determine if bot should respond using FrequencyController
+    config = admin_manager.config
+    bot_username = (telegram_app.bot.username or "").lower()
+    bot_id = telegram_app.bot.id
+    has_mention = is_bot_mentioned(message, bot_username, bot_id)
     
-    elif text.startswith('/admin'):
-        # Admin commands
-        if not admin_router:
-            response = "❌ Админ-панель недоступна. Проверьте конфигурацию бота."
-        else:
-            try:
-                response = await admin_router.route(update, None, admin_manager)
-            except Exception as e:
-                logger.error(f"Error processing admin command: {e}", exc_info=True)
-                response = f"❌ Ошибка при выполнении админ-команды: {e}"
+    respond, reason = frequency_controller.should_respond(
+        chat_id=chat_id,
+        frequency=config.response_frequency or 0,
+        has_mention=has_mention,
+        is_command=is_command,
+        is_private=is_private
+    )
+
+    # Route message to appropriate handler
+    handler = MessageHandler(bot_instance, admin_manager, admin_router)
     
+    if is_command:
+        response = await handler.route_command(text, update)
+        if response is None:
+            # Not a recognized command, treat as regular query
+            response = await handler.handle_user_query(text, respond)
     else:
-        # Query the bot
-        try:
-            response = bot_instance.chat(text, respond=respond)
-        except Exception as e:
-            logger.error(f"Error querying bot: {e}", exc_info=True)
-            response = f"Произошла ошибка при обработке вашего запроса. error={e}"
-    
-    # Send response
+        # Regular user query
+        response = await handler.handle_user_query(text, respond)
+
+    # Send response if available
     if response:
         await telegram_app.bot.send_message(chat_id=chat_id, text=response)
         logger.info(f"Response sent to {chat_id}")

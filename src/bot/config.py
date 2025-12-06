@@ -27,7 +27,7 @@ class BotConfig:
         defaults = {
             "admin_password": "",
             "allowed_chats": [],
-            "response_frequency": 1
+            "response_frequency": 0
         }
         
         if not self.config_file.exists():
@@ -83,7 +83,7 @@ class BotConfig:
 
     @property
     def response_frequency(self) -> int:
-        return self.data.get("response_frequency", 1)
+        return self.data.get("response_frequency", 0)
         
     @response_frequency.setter
     def response_frequency(self, value: int):

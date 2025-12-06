@@ -3,7 +3,7 @@ Admin command router for Legale Bot.
 Routes /admin commands to appropriate handlers.
 """
 
-from typing import Optional, Callable, Dict, Any
+from typing import Optional, Callable, Dict, Any, Tuple, List
 from telegram import Update
 from telegram.ext import ContextTypes
 import logging
@@ -34,6 +34,107 @@ class AdminCommandRouter:
         else:
             self.handlers[command] = handler
     
+    def _check_admin_access(self, admin_manager, user_id: int) -> Tuple[bool, Optional[str]]:
+        """
+        Check if user has admin access.
+        
+        Returns:
+            Tuple of (is_admin, error_message)
+        """
+        if not admin_manager or not admin_manager.is_admin(user_id):
+            logger.warning(f"Unauthorized admin command attempt from user {user_id}")
+            return False, "❌ Эта команда доступна только администратору."
+        return True, None
+    
+    def _parse_command(self, text: str) -> Tuple[Optional[str], Optional[str], List[str]]:
+        """
+        Parse admin command text.
+        
+        Returns:
+            Tuple of (command, subcommand, args)
+        """
+        parts = text.split()
+        
+        if len(parts) == 1:
+            return None, None, []
+        
+        command = parts[1]
+        
+        if len(parts) > 2:
+            subcommand = parts[2]
+            args = parts[3:]
+            return command, subcommand, args
+        
+        return command, None, []
+    
+    async def _execute_handler(self, handler: Callable, update: Update, 
+                               context: ContextTypes.DEFAULT_TYPE, 
+                               admin_manager, args: List[str], 
+                               command_name: str) -> str:
+        """
+        Execute a command handler with error handling.
+        
+        Args:
+            handler: Handler function to execute
+            update: Telegram update
+            context: Bot context
+            admin_manager: AdminManager instance
+            args: Command arguments
+            command_name: Name of command for error logging
+        
+        Returns:
+            Response message
+        """
+        try:
+            return await handler(update, context, admin_manager, args)
+        except Exception as e:
+            logger.error(f"Error in handler {command_name}: {e}", exc_info=True)
+            return f"❌ Ошибка при выполнении команды: {e}"
+    
+    async def _route_with_subcommand(self, command: str, subcommand: str, 
+                                     args: List[str], update: Update,
+                                     context: ContextTypes.DEFAULT_TYPE,
+                                     admin_manager) -> str:
+        """Route command with subcommand."""
+        # Try to find subcommand handler
+        if command in self.subcommand_handlers and subcommand in self.subcommand_handlers[command]:
+            handler = self.subcommand_handlers[command][subcommand]
+            return await self._execute_handler(
+                handler, update, context, admin_manager, args, f"{command}/{subcommand}"
+            )
+        
+        # Fallback: try direct handler with all args
+        if command in self.handlers:
+            handler = self.handlers[command]
+            full_args = [subcommand] + args
+            return await self._execute_handler(
+                handler, update, context, admin_manager, full_args, command
+            )
+        
+        # Command exists but subcommand is invalid
+        if command in self.subcommand_handlers:
+            return f"❌ Неизвестная подкоманда: {subcommand}\n\nИспользуйте /admin help {command}"
+        
+        return f"❌ Команда '{command}' не найдена."
+    
+    async def _route_without_subcommand(self, command: str, update: Update,
+                                        context: ContextTypes.DEFAULT_TYPE,
+                                        admin_manager) -> str:
+        """Route command without subcommand."""
+        # Try direct handler
+        if command in self.handlers:
+            handler = self.handlers[command]
+            return await self._execute_handler(
+                handler, update, context, admin_manager, [], command
+            )
+        
+        # Command requires subcommand
+        if command in self.subcommand_handlers:
+            subcommands = ", ".join(self.subcommand_handlers[command].keys())
+            return f"❌ Команда '{command}' требует подкоманду.\n\nДоступные: {subcommands}"
+        
+        return f"❌ Неизвестная команда: {command}\n\nИспользуйте /admin help"
+    
     async def route(self, update: Update, context: ContextTypes.DEFAULT_TYPE, admin_manager) -> str:
         """
         Route admin command to appropriate handler.
@@ -47,70 +148,29 @@ class AdminCommandRouter:
             Response message
         """
         message = update.message
-        text = message.text
-        
-        # Check if user is admin
         user_id = message.from_user.id
-        if not admin_manager or not admin_manager.is_admin(user_id):
-            logger.warning(f"Unauthorized admin command attempt from user {user_id}")
-            return "❌ Эта команда доступна только администратору."
+        
+        # Check admin access
+        is_admin, error = self._check_admin_access(admin_manager, user_id)
+        if not is_admin:
+            return error
         
         # Parse command
-        parts = text.split()
+        command, subcommand, args = self._parse_command(message.text)
         
-        # /admin without arguments - show main menu
-        if len(parts) == 1:
+        # No command - show main menu
+        if command is None:
             return self._main_menu()
         
-        command = parts[1]  # e.g., 'profile'
-        
-        # Check for subcommand
-        if len(parts) > 2:
-            subcommand = parts[2]  # e.g., 'list'
-            args = parts[3:]  # remaining arguments
-            
-            # Find subcommand handler
-            # Find subcommand handler
-            if command in self.subcommand_handlers and subcommand in self.subcommand_handlers[command]:
-                handler = self.subcommand_handlers[command][subcommand]
-                try:
-                    return await handler(update, context, admin_manager, args)
-                except Exception as e:
-                    logger.error(f"Error in handler {command}/{subcommand}: {e}", exc_info=True)
-                    return f"❌ Ошибка при выполнении команды: {e}"
-            else:
-                # Check for direct handler accepting arguments (fallback)
-                if command in self.handlers:
-                    handler = self.handlers[command]
-                    try:
-                        # Pass all parts after command as args (including what looked like subcommand)
-                        full_args = parts[2:]
-                        return await handler(update, context, admin_manager, full_args)
-                    except Exception as e:
-                        logger.error(f"Error in handler {command}: {e}", exc_info=True)
-                        return f"❌ Ошибка при выполнении команды: {e}"
-                
-                # Check if it was a valid command in subcommands list
-                elif command in self.subcommand_handlers:
-                    return f"❌ Неизвестная подкоманда: {subcommand}\n\nИспользуйте /admin help {command}"
-                else:
-                    return f"❌ Команда '{command}' не найдена."
+        # Route based on presence of subcommand
+        if subcommand:
+            return await self._route_with_subcommand(
+                command, subcommand, args, update, context, admin_manager
+            )
         else:
-            # No subcommand - check for direct handler
-            if command in self.handlers:
-                handler = self.handlers[command]
-                try:
-                    return await handler(update, context, admin_manager, [])
-                except Exception as e:
-                    logger.error(f"Error in handler {command}: {e}", exc_info=True)
-                    return f"❌ Ошибка при выполнении команды: {e}"
-            else:
-                # Command requires subcommand
-                if command in self.subcommand_handlers:
-                    subcommands = ", ".join(self.subcommand_handlers[command].keys())
-                    return f"❌ Команда '{command}' требует подкоманду.\n\nДоступные: {subcommands}"
-                else:
-                    return f"❌ Неизвестная команда: {command}\n\nИспользуйте /admin help"
+            return await self._route_without_subcommand(
+                command, update, context, admin_manager
+            )
     
     def _main_menu(self) -> str:
         """Generate main admin menu."""

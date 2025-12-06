@@ -10,91 +10,130 @@ from pathlib import Path
 import os
 import logging
 
+from src.bot.utils import (
+    ResponseFormatter,
+    DatabaseStatsService,
+    CommandValidator,
+    HealthChecker,
+)
+
 logger = logging.getLogger("legale_admin_commands")
 
 
-class ProfileCommands:
-    """Handlers for profile management commands."""
+class BaseAdminCommand:
+    """Base class for admin command handlers with common utilities."""
     
     def __init__(self, profile_manager):
         """
-        Initialize ProfileCommands.
+        Initialize BaseAdminCommand.
         
         Args:
             profile_manager: ProfileManager instance
         """
         self.profile_manager = profile_manager
+        self.formatter = ResponseFormatter()
+        self.validator = CommandValidator()
+        self.db_stats = DatabaseStatsService()
+    
+    async def handle_error(self, error: Exception, context: str) -> str:
+        """
+        Unified error handling for admin commands.
+        
+        Args:
+            error: Exception that occurred
+            context: Context description (e.g., operation name)
+            
+        Returns:
+            Formatted error message
+        """
+        logger.error(f"Error in {context}: {error}", exc_info=True)
+        return self.formatter.format_error_message(str(error), context)
+    
+    def get_profile_paths(self, profile_name: str = None):
+        """
+        Get paths for a profile with validation.
+        
+        Args:
+            profile_name: Profile name (None = current profile)
+            
+        Returns:
+            Dictionary with profile paths
+        """
+        if profile_name:
+            return self.profile_manager.get_profile_paths(profile_name)
+        return self.profile_manager.get_profile_paths()
+    
+    def validate_profile_exists(self, profile_name: str) -> tuple[bool, str]:
+        """
+        Validate that a profile exists.
+        
+        Args:
+            profile_name: Profile name to check
+            
+        Returns:
+            Tuple of (exists, error_message)
+        """
+        profile_dir = self.profile_manager.get_profile_dir(profile_name)
+        if not profile_dir.exists():
+            return False, f"❌ Профиль `{profile_name}` не существует."
+        return True, ""
+
+
+
+class ProfileCommands(BaseAdminCommand):
+    """Handlers for profile management commands."""
     
     async def list_profiles(self, update: Update, context: ContextTypes.DEFAULT_TYPE, 
                            admin_manager, args: List[str]) -> str:
         """Handle /admin profile list command."""
         profiles_dir = self.profile_manager.profiles_dir
         
-        if not profiles_dir.exists():
+        if not profiles_dir.exists() or not list(profiles_dir.iterdir()):
             return "📁 Профили не найдены.\n\nСоздайте первый профиль:\n`/admin profile create <name>`"
         
         profiles = [p for p in profiles_dir.iterdir() if p.is_dir()]
-        
         if not profiles:
             return "📁 Профили не найдены.\n\nСоздайте первый профиль:\n`/admin profile create <name>`"
         
         current = self.profile_manager.get_current_profile()
-        
         response = "📁 **Доступные профили:**\n\n"
         
         for profile_dir in sorted(profiles, key=lambda p: p.name):
             profile_name = profile_dir.name
             is_active = profile_name == current
             
-            # Get database info
+            # Get database info using utility
             db_path = profile_dir / "legale_bot.db"
-            db_exists = db_path.exists()
-            db_size = ""
-            
-            if db_exists:
-                size_bytes = db_path.stat().st_size
-                if size_bytes < 1024:
-                    db_size = f"{size_bytes}B"
-                elif size_bytes < 1024 * 1024:
-                    db_size = f"{size_bytes / 1024:.1f}KB"
-                else:
-                    db_size = f"{size_bytes / (1024 * 1024):.1f}MB"
-            
-            # Get chunk count
-            chunk_count = "?"
-            if db_exists:
-                try:
-                    import sqlite3
-                    conn = sqlite3.connect(str(db_path))
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT COUNT(*) FROM chunks")
-                    chunk_count = cursor.fetchone()[0]
-                    conn.close()
-                except Exception:
-                    pass
+            db_size = self.formatter.format_file_size(db_path.stat().st_size) if db_path.exists() else "0B"
+            chunk_count = self.db_stats.get_chunk_count(db_path) if db_path.exists() else 0
             
             marker = "✅" if is_active else "📂"
             active_text = " **(активный)**" if is_active else ""
-            db_text = f"БД: {db_size}, чанков: {chunk_count}" if db_exists else "БД не создана"
+            db_text = f"БД: {db_size}, чанков: {self.formatter.format_number(chunk_count)}" if db_path.exists() else "БД не создана"
             
             response += f"{marker} `{profile_name}`{active_text}\n"
             response += f"   {db_text}\n\n"
         
         response += f"\n**Активный профиль:** `{current}`"
-        
         return response
     
     async def create_profile(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
                             admin_manager, args: List[str]) -> str:
         """Handle /admin profile create <name> command."""
-        if not args:
-            return "❌ Укажите имя профиля.\n\nИспользование: `/admin profile create <name>`"
+        # Validate arguments
+        is_valid, error = self.validator.validate_args_count(
+            args, 1, 1, 
+            usage="/admin profile create <name>"
+        )
+        if not is_valid:
+            return error
         
         profile_name = args[0]
         
         # Validate profile name
-        if not profile_name.replace('_', '').replace('-', '').isalnum():
-            return "❌ Имя профиля может содержать только буквы, цифры, дефисы и подчёркивания."
+        is_valid, error = self.validator.validate_profile_name(profile_name)
+        if not is_valid:
+            return f"❌ {error}"
         
         profile_dir = self.profile_manager.get_profile_dir(profile_name)
         
@@ -104,45 +143,46 @@ class ProfileCommands:
         try:
             # Create profile
             self.profile_manager.create_profile(profile_name, set_active=False)
-            
             paths = self.profile_manager.get_profile_paths(profile_name)
             
-            response = (
-                f"✅ Профиль `{profile_name}` создан!\n\n"
-                f"📁 Директория: `{paths['profile_dir']}`\n"
-                f"💾 База данных: `{paths['db_path']}`\n"
-                f"🔍 Векторное хранилище: `{paths['vector_db_path']}`\n\n"
-                f"Для переключения на этот профиль:\n"
-                f"`/admin profile switch {profile_name}`"
+            response = self.formatter.format_success_message(
+                f"Профиль `{profile_name}` создан!",
+                {
+                    "📁 Директория": f"`{paths['profile_dir']}`",
+                    "💾 База данных": f"`{paths['db_path']}`",
+                    "🔍 Векторное хранилище": f"`{paths['vector_db_path']}`",
+                }
             )
+            response += f"\nДля переключения на этот профиль:\n`/admin profile switch {profile_name}`"
             
             logger.info(f"Profile '{profile_name}' created by admin {update.message.from_user.id}")
-            
             return response
             
         except Exception as e:
-            logger.error(f"Error creating profile '{profile_name}': {e}", exc_info=True)
-            return f"❌ Ошибка при создании профиля: {e}"
+            return await self.handle_error(e, f"создании профиля '{profile_name}'")
     
     async def switch_profile(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
                             admin_manager, args: List[str]) -> str:
         """Handle /admin profile switch <name> command."""
-        if not args:
-            return "❌ Укажите имя профиля.\n\nИспользование: `/admin profile switch <name>`"
+        # Validate arguments
+        is_valid, error = self.validator.validate_args_count(
+            args, 1, 1,
+            usage="/admin profile switch <name>"
+        )
+        if not is_valid:
+            return error
         
         profile_name = args[0]
-        profile_dir = self.profile_manager.get_profile_dir(profile_name)
         
-        if not profile_dir.exists():
-            return (
-                f"❌ Профиль `{profile_name}` не существует.\n\n"
-                f"Создайте его:\n`/admin profile create {profile_name}`"
-            )
+        # Validate profile exists
+        exists, error = self.validate_profile_exists(profile_name)
+        if not exists:
+            return f"{error}\n\nСоздайте его:\n`/admin profile create {profile_name}`"
         
         current = self.profile_manager.get_current_profile()
         
         if profile_name == current:
-            return f"ℹ️ Профиль `{profile_name}` уже активен."
+            return self.formatter.format_info_message(f"Профиль `{profile_name}` уже активен.")
         
         try:
             # Switch profile
@@ -155,18 +195,21 @@ class ProfileCommands:
             )
             
             logger.info(f"Profile switched to '{profile_name}' by admin {update.message.from_user.id}")
-            
             return response
             
         except Exception as e:
-            logger.error(f"Error switching to profile '{profile_name}': {e}", exc_info=True)
-            return f"❌ Ошибка при переключении профиля: {e}"
+            return await self.handle_error(e, f"переключении на профиль '{profile_name}'")
     
     async def delete_profile(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
                             admin_manager, args: List[str]) -> str:
         """Handle /admin profile delete <name> command."""
-        if not args:
-            return "❌ Укажите имя профиля.\n\nИспользование: `/admin profile delete <name>`"
+        # Validate arguments
+        is_valid, error = self.validator.validate_args_count(
+            args, 1, 2,
+            usage="/admin profile delete <name> [confirm]"
+        )
+        if not is_valid:
+            return error
         
         profile_name = args[0]
         current = self.profile_manager.get_current_profile()
@@ -178,32 +221,21 @@ class ProfileCommands:
                 f"`/admin profile switch <другой_профиль>`"
             )
         
-        profile_dir = self.profile_manager.get_profile_dir(profile_name)
+        # Validate profile exists
+        exists, error = self.validate_profile_exists(profile_name)
+        if not exists:
+            return error
         
-        if not profile_dir.exists():
-            return f"❌ Профиль `{profile_name}` не существует."
+        profile_dir = self.profile_manager.get_profile_dir(profile_name)
         
         # Get profile info before deletion
         db_path = profile_dir / "legale_bot.db"
-        db_exists = db_path.exists()
-        
         info_text = f"📁 Профиль: `{profile_name}`\n"
         info_text += f"📂 Путь: `{profile_dir}`\n"
         
-        if db_exists:
-            size_bytes = db_path.stat().st_size
-            size_mb = size_bytes / (1024 * 1024)
+        if db_path.exists():
+            size_mb = self.db_stats.get_database_size(db_path)
             info_text += f"💾 Размер БД: {size_mb:.2f} MB\n"
-        
-        # For now, just show info and ask for confirmation
-        # TODO: Implement confirmation with inline keyboard
-        response = (
-            f"⚠️ **Подтверждение удаления**\n\n"
-            f"{info_text}\n"
-            f"❌ **Это действие необратимо!**\n\n"
-            f"Для подтверждения удаления используйте:\n"
-            f"`/admin profile delete {profile_name} confirm`"
-        )
         
         # Check for confirmation
         if len(args) > 1 and args[1] == "confirm":
@@ -219,88 +251,80 @@ class ProfileCommands:
                 )
                 
             except Exception as e:
-                logger.error(f"Error deleting profile '{profile_name}': {e}", exc_info=True)
-                return f"❌ Ошибка при удалении профиля: {e}"
+                return await self.handle_error(e, f"удалении профиля '{profile_name}'")
         
-        return response
+        # Show confirmation request
+        return (
+            f"⚠️ **Подтверждение удаления**\n\n"
+            f"{info_text}\n"
+            f"❌ **Это действие необратимо!**\n\n"
+            f"Для подтверждения удаления используйте:\n"
+            f"`/admin profile delete {profile_name} confirm`"
+        )
+    
     
     async def profile_info(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
                           admin_manager, args: List[str]) -> str:
         """Handle /admin profile info [name] command."""
         profile_name = args[0] if args else self.profile_manager.get_current_profile()
         
-        profile_dir = self.profile_manager.get_profile_dir(profile_name)
+        # Validate profile exists
+        exists, error = self.validate_profile_exists(profile_name)
+        if not exists:
+            return error
         
-        if not profile_dir.exists():
-            return f"❌ Профиль `{profile_name}` не существует."
-        
-        paths = self.profile_manager.get_profile_paths(profile_name)
-        current = self.profile_manager.get_current_profile()
-        is_active = profile_name == current
-        
-        response = f"📊 **Информация о профиле `{profile_name}`**\n\n"
-        
-        if is_active:
-            response += "✅ **Статус:** Активный\n\n"
-        else:
-            response += "📂 **Статус:** Неактивный\n\n"
-        
-        response += f"📁 **Директория:** `{paths['profile_dir']}`\n\n"
-        
-        # Database info
-        db_path = paths['db_path']
-        if db_path.exists():
-            size_bytes = db_path.stat().st_size
-            size_mb = size_bytes / (1024 * 1024)
-            response += f"💾 **База данных:**\n"
-            response += f"   Путь: `{db_path}`\n"
-            response += f"   Размер: {size_mb:.2f} MB\n"
+        try:
+            paths = self.profile_manager.get_profile_paths(profile_name)
+            profile_dir = self.profile_manager.get_profile_dir(profile_name)
+            current = self.profile_manager.get_current_profile()
+            is_active = profile_name == current
             
-            # Get chunk count
-            try:
-                import sqlite3
-                conn = sqlite3.connect(str(db_path))
-                cursor = conn.cursor()
-                cursor.execute("SELECT COUNT(*) FROM chunks")
-                chunk_count = cursor.fetchone()[0]
-                conn.close()
-                response += f"   Чанков: {chunk_count:,}\n"
-            except Exception as e:
-                response += f"   Чанков: ошибка чтения ({e})\n"
-        else:
-            response += f"💾 **База данных:** Не создана\n"
-        
-        response += "\n"
-        
-        # Vector store info
-        vector_path = paths['vector_db_path']
-        if vector_path.exists():
-            # Calculate directory size
-            total_size = sum(f.stat().st_size for f in vector_path.rglob('*') if f.is_file())
-            size_mb = total_size / (1024 * 1024)
-            response += f"🔍 **Векторное хранилище:**\n"
-            response += f"   Путь: `{vector_path}`\n"
-            response += f"   Размер: {size_mb:.2f} MB\n"
-        else:
-            response += f"🔍 **Векторное хранилище:** Не создано\n"
-        
-        response += "\n"
-        
-        # Session file
-        session_path = paths['session_file']
-        if session_path.exists():
-            response += f"📱 **Telegram сессия:** Создана\n"
-        else:
-            response += f"📱 **Telegram сессия:** Не создана\n"
-        
-        # Admin file
-        admin_file = profile_dir / "admin.json"
-        if admin_file.exists():
-            response += f"👤 **Администратор:** Назначен\n"
-        else:
-            response += f"👤 **Администратор:** Не назначен\n"
-        
-        return response
+            response = f"📊 **Информация о профиле `{profile_name}`**\n\n"
+            response += "✅ **Статус:** Активный\n\n" if is_active else "📂 **Статус:** Неактивный\n\n"
+            response += f"📁 **Директория:** `{paths['profile_dir']}`\n\n"
+            
+            # Database info using utility
+            db_stats = self.db_stats.get_database_stats(paths['db_path'])
+            if db_stats['exists']:
+                response += f"💾 **База данных:**\n"
+                response += f"   Путь: `{paths['db_path']}`\n"
+                response += f"   Размер: {db_stats['size_mb']:.2f} MB\n"
+                response += f"   Чанков: {self.formatter.format_number(db_stats['chunk_count'])}\n"
+            else:
+                response += f"💾 **База данных:** Не создана\n"
+            
+            response += "\n"
+            
+            # Vector store info using utility
+            vector_stats = self.db_stats.get_vector_store_stats(paths['vector_db_path'])
+            if vector_stats['exists']:
+                response += f"🔍 **Векторное хранилище:**\n"
+                response += f"   Путь: `{paths['vector_db_path']}`\n"
+                response += f"   Размер: {vector_stats['size_mb']:.2f} MB\n"
+            else:
+                response += f"🔍 **Векторное хранилище:** Не создано\n"
+            
+            response += "\n"
+            
+            # Session file
+            session_path = paths['session_file']
+            if session_path.exists():
+                response += f"📱 **Telegram сессия:** Создана\n"
+            else:
+                response += f"📱 **Telegram сессия:** Не создана\n"
+            
+            # Admin file
+            admin_file = profile_dir / "admin.json"
+            if admin_file.exists():
+                response += f"👤 **Администратор:** Назначен\n"
+            else:
+                response += f"👤 **Администратор:** Не назначен\n"
+            
+            return response
+            
+        except Exception as e:
+            return await self.handle_error(e, f"получении информации о профиле '{profile_name}'")
+
 
 
 class HelpCommands:
@@ -392,7 +416,7 @@ class HelpCommands:
             return f"❌ Справка по команде `{command}` не найдена.\n\nИспользуйте `/admin help` для списка команд."
 
 
-class IngestCommands:
+class IngestCommands(BaseAdminCommand):
     """Handlers for data ingestion commands."""
     
     def __init__(self, profile_manager, task_manager):
@@ -403,7 +427,7 @@ class IngestCommands:
             profile_manager: ProfileManager instance
             task_manager: TaskManager instance
         """
-        self.profile_manager = profile_manager
+        super().__init__(profile_manager)
         self.task_manager = task_manager
         self.waiting_for_file = {}  # user_id -> bool
     
@@ -430,24 +454,12 @@ class IngestCommands:
             from src.ingestion.pipeline import IngestionPipeline
             
             # Get profile paths
-            paths = self.profile_manager.get_profile_paths()
+            paths = self.get_profile_paths()
             
-            # Get current stats before clearing
-            db_path = paths['db_path']
-            chunk_count = 0
-            db_size = 0
-            
-            if db_path.exists():
-                db_size = db_path.stat().st_size / (1024 * 1024)
-                try:
-                    import sqlite3
-                    conn = sqlite3.connect(str(db_path))
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT COUNT(*) FROM chunks")
-                    chunk_count = cursor.fetchone()[0]
-                    conn.close()
-                except Exception:
-                    pass
+            # Get current stats before clearing using utility
+            db_stats = self.db_stats.get_database_stats(paths['db_path'])
+            chunk_count = db_stats['chunk_count']
+            db_size = db_stats['size_mb']
             
             # Create pipeline and clear data
             pipeline = IngestionPipeline(
@@ -461,14 +473,13 @@ class IngestCommands:
             
             return (
                 f"✅ **Данные очищены**\n\n"
-                f"Удалено чанков: {chunk_count:,}\n"
+                f"Удалено чанков: {self.formatter.format_number(chunk_count)}\n"
                 f"Освобождено места: {db_size:.2f} MB\n\n"
                 f"База данных и векторное хранилище очищены."
             )
             
         except Exception as e:
-            logger.error(f"Error clearing data: {e}", exc_info=True)
-            return f"❌ Ошибка при очистке данных: {e}"
+            return await self.handle_error(e, "очистке данных")
     
     async def ingest_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
                            admin_manager, args: List[str]) -> str:
@@ -476,22 +487,25 @@ class IngestCommands:
         task = self.task_manager.get_current_task()
         
         if not task:
-            return "ℹ️ Нет активных задач загрузки."
+            return self.formatter.format_info_message("Нет активных задач загрузки.")
         
         if task.status == "pending":
             return "⏳ Задача загрузки ожидает запуска..."
         elif task.status == "running":
             progress_pct = (task.progress / task.total * 100) if task.total > 0 else 0
+            progress_bar = self.formatter.create_progress_bar(task.progress, task.total, width=20)
             return (
                 f"⏳ **Загрузка данных в процессе**\n\n"
-                f"Прогресс: {task.progress:,}/{task.total:,} ({progress_pct:.1f}%)\n\n"
-                f"{'▓' * int(progress_pct / 5)}{'░' * (20 - int(progress_pct / 5))}"
+                f"Прогресс: {self.formatter.format_number(task.progress)}/"
+                f"{self.formatter.format_number(task.total)} "
+                f"({progress_pct:.1f}%)\n\n"
+                f"{progress_bar}"
             )
         elif task.status == "completed":
             return (
                 f"✅ **Загрузка завершена**\n\n"
-                f"Обработано сообщений: {task.result['messages']:,}\n"
-                f"Создано чанков: {task.result['chunks']:,}"
+                f"Обработано сообщений: {self.formatter.format_number(task.result['messages'])}\n"
+                f"Создано чанков: {self.formatter.format_number(task.result['chunks'])}"
             )
         elif task.status == "failed":
             return f"❌ **Загрузка завершилась с ошибкой:**\n\n`{task.error}`"
@@ -517,8 +531,12 @@ class IngestCommands:
             return "❌ Файл должен быть в формате JSON.\n\nОтправьте JSON файл с дампом чата."
         
         # Check file size (max 20MB)
-        if document.file_size > 20 * 1024 * 1024:
-            return "❌ Файл слишком большой (макс. 20MB).\n\nИспользуйте CLI для загрузки больших файлов."
+        max_size_mb = 20
+        if document.file_size > max_size_mb * 1024 * 1024:
+            return (
+                f"❌ Файл слишком большой (макс. {max_size_mb}MB).\n\n"
+                f"Используйте CLI для загрузки больших файлов."
+            )
         
         try:
             # Download file
@@ -533,7 +551,8 @@ class IngestCommands:
             temp_file = temp_dir / f"{user_id}_{document.file_name}"
             await file.download_to_drive(temp_file)
             
-            logger.info(f"File downloaded: {temp_file} ({document.file_size} bytes)")
+            file_size_str = self.formatter.format_file_size(document.file_size)
+            logger.info(f"File downloaded: {temp_file} ({file_size_str})")
             
             # Send initial message
             status_message = await update.message.reply_text(
@@ -552,100 +571,85 @@ class IngestCommands:
             return None  # Message already sent
             
         except Exception as e:
-            logger.error(f"Error handling file upload: {e}", exc_info=True)
-            return f"❌ Ошибка при обработке файла: {e}"
+            return await self.handle_error(e, "обработке файла")
     
     def is_waiting_for_file(self, user_id: int) -> bool:
         """Check if user is waiting for file upload."""
         return user_id in self.waiting_for_file and self.waiting_for_file[user_id]
 
 
-class StatsCommands:
+class StatsCommands(BaseAdminCommand):
     """Handlers for statistics and monitoring commands."""
-    
-    def __init__(self, profile_manager):
-        """
-        Initialize StatsCommands.
-        
-        Args:
-            profile_manager: ProfileManager instance
-        """
-        self.profile_manager = profile_manager
     
     async def show_stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
                         admin_manager, args: List[str]) -> str:
         """Handle /admin stats command."""
         try:
-            import sqlite3
-            from datetime import datetime
-            
             # Get profile paths
-            paths = self.profile_manager.get_profile_paths()
+            paths = self.get_profile_paths()
             profile_name = self.profile_manager.get_current_profile()
             
             response = f"📊 **Статистика бота**\n\n"
             response += f"**Профиль:** `{profile_name}`\n\n"
             
-            # Database stats
-            db_path = paths['db_path']
-            if db_path.exists():
-                # Database size
-                db_size = db_path.stat().st_size / (1024 * 1024)
-                response += f"💾 **База данных:**\n"
-                response += f"   Размер: {db_size:.2f} MB\n"
-                
-                # Chunk count
-                try:
-                    conn = sqlite3.connect(str(db_path))
-                    cursor = conn.cursor()
-                    
-                    cursor.execute("SELECT COUNT(*) FROM chunks")
-                    chunk_count = cursor.fetchone()[0]
-                    response += f"   Чанков: {chunk_count:,}\n"
-                    
-                    # Get date range of chunks
-                    cursor.execute("""
-                        SELECT 
-                            MIN(json_extract(metadata_json, '$.date')) as min_date,
-                            MAX(json_extract(metadata_json, '$.date')) as max_date
-                        FROM chunks
-                        WHERE json_extract(metadata_json, '$.date') IS NOT NULL
-                    """)
-                    dates = cursor.fetchone()
-                    if dates[0] and dates[1]:
-                        response += f"   Период: {dates[0][:10]} - {dates[1][:10]}\n"
-                    
-                    conn.close()
-                except Exception as e:
-                    response += f"   Ошибка чтения: {e}\n"
-            else:
-                response += f"💾 **База данных:** Не создана\n"
+            # Get database stats using utility
+            db_stats = self.db_stats.get_database_stats(paths['db_path'])
+            response += self._format_database_stats(db_stats, paths['db_path'])
             
             response += "\n"
             
-            # Vector store stats
-            vector_path = paths['vector_db_path']
-            if vector_path.exists():
-                total_size = sum(f.stat().st_size for f in vector_path.rglob('*') if f.is_file())
-                size_mb = total_size / (1024 * 1024)
-                response += f"🔍 **Векторное хранилище:**\n"
-                response += f"   Размер: {size_mb:.2f} MB\n"
-            else:
-                response += f"🔍 **Векторное хранилище:** Не создано\n"
+            # Get vector store stats using utility
+            vector_stats = self.db_stats.get_vector_store_stats(paths['vector_db_path'])
+            response += self._format_vector_stats(vector_stats)
             
             response += "\n"
             
-            # System info
+            # System stats
+            response += self._format_system_stats(paths['profile_dir'])
+            
+            return response
+            
+        except Exception as e:
+            return await self.handle_error(e, "получении статистики")
+    
+    def _format_database_stats(self, stats: dict, db_path: Path) -> str:
+        """Format database statistics section."""
+        if not stats['exists']:
+            return "💾 **База данных:** Не создана\n"
+        
+        response = "💾 **База данных:**\n"
+        response += f"   Размер: {stats['size_mb']:.2f} MB\n"
+        response += f"   Чанков: {self.formatter.format_number(stats['chunk_count'])}\n"
+        
+        if stats['date_range']:
+            min_date, max_date = stats['date_range']
+            response += f"   Период: {min_date} - {max_date}\n"
+        
+        return response
+    
+    def _format_vector_stats(self, stats: dict) -> str:
+        """Format vector store statistics section."""
+        if not stats['exists']:
+            return "🔍 **Векторное хранилище:** Не создано\n"
+        
+        return (
+            f"🔍 **Векторное хранилище:**\n"
+            f"   Размер: {stats['size_mb']:.2f} MB\n"
+        )
+    
+    def _format_system_stats(self, profile_dir: Path) -> str:
+        """Format system statistics section."""
+        try:
             import psutil
             process = psutil.Process()
             memory_mb = process.memory_info().rss / (1024 * 1024)
             
-            response += f"⚙️ **Система:**\n"
+            response = "⚙️ **Система:**\n"
             response += f"   Память: {memory_mb:.1f} MB\n"
             response += f"   CPU: {psutil.cpu_percent()}%\n"
             
             # Disk space
-            disk = psutil.disk_usage(str(paths['profile_dir']))
+            disk = psutil.disk_usage(str(profile_dir))
             disk_free_gb = disk.free / (1024 * 1024 * 1024)
             disk_total_gb = disk.total / (1024 * 1024 * 1024)
             disk_percent = disk.percent
@@ -653,132 +657,49 @@ class StatsCommands:
             response += f"   Диск: {disk_free_gb:.1f}/{disk_total_gb:.1f} GB свободно ({100-disk_percent:.1f}%)\n"
             
             return response
-            
         except Exception as e:
-            logger.error(f"Error getting stats: {e}", exc_info=True)
-            return f"❌ Ошибка при получении статистики: {e}"
+            logger.error(f"Error getting system stats: {e}")
+            return "⚙️ **Система:** Ошибка получения данных\n"
     
     async def health_check(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
                           admin_manager, args: List[str]) -> str:
         """Handle /admin health command."""
         try:
-            import sqlite3
+            paths = self.get_profile_paths()
             
-            paths = self.profile_manager.get_profile_paths()
+            # Run all health checks using HealthChecker utility
+            checks = HealthChecker.run_all_checks(
+                db_path=paths['db_path'],
+                vector_path=paths['vector_db_path'],
+                profile_dir=paths['profile_dir']
+            )
             
-            response = "🏥 **Проверка здоровья системы**\n\n"
-            
-            checks = []
-            
-            # Database check
-            db_path = paths['db_path']
-            if db_path.exists():
-                try:
-                    conn = sqlite3.connect(str(db_path))
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT 1")
-                    conn.close()
-                    checks.append(("💾 База данных", "✅ OK"))
-                except Exception as e:
-                    checks.append(("💾 База данных", f"❌ Ошибка: {e}"))
-            else:
-                checks.append(("💾 База данных", "⚠️ Не создана"))
-            
-            # Vector store check
-            vector_path = paths['vector_db_path']
-            if vector_path.exists():
-                checks.append(("🔍 Векторное хранилище", "✅ OK"))
-            else:
-                checks.append(("🔍 Векторное хранилище", "⚠️ Не создано"))
-            
-            # LLM API check
-            try:
-                import os
-                api_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
-                if api_key:
-                    checks.append(("🤖 LLM API ключ", "✅ Установлен"))
-                else:
-                    checks.append(("🤖 LLM API ключ", "❌ Не установлен"))
-            except Exception as e:
-                checks.append(("🤖 LLM API ключ", f"❌ Ошибка: {e}"))
-            
-            # Embedding API check
-            # Uses same key as LLM currently (OpenRouter/OpenAI)
-            try:
-                import os
-                # Check environment variables used by EmbeddingClient
-                emb_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
-                if emb_key:
-                    checks.append(("🔤 Embedding API ключ", "✅ Установлен"))
-                else:
-                    checks.append(("🔤 Embedding API ключ", "❌ Не установлен"))
-            except Exception as e:
-                checks.append(("🔤 Embedding API ключ", f"❌ Ошибка: {e}"))
-            
-            # Memory check
-            try:
-                import psutil
-                memory = psutil.virtual_memory()
-                if memory.percent < 90:
-                    checks.append(("💾 Память", f"✅ {memory.percent:.1f}% использовано"))
-                else:
-                    checks.append(("💾 Память", f"⚠️ {memory.percent:.1f}% использовано"))
-            except Exception as e:
-                checks.append(("💾 Память", f"❌ Ошибка: {e}"))
-            
-            # Disk check
-            try:
-                import psutil
-                disk = psutil.disk_usage(str(paths['profile_dir']))
-                if disk.percent < 90:
-                    checks.append(("💿 Диск", f"✅ {disk.percent:.1f}% использовано"))
-                else:
-                    checks.append(("💿 Диск", f"⚠️ {disk.percent:.1f}% использовано"))
-            except Exception as e:
-                checks.append(("💿 Диск", f"❌ Ошибка: {e}"))
-            
-            # Format results
-            for name, status in checks:
-                response += f"{name}: {status}\n"
-            
-            # Overall status
-            failed = sum(1 for _, status in checks if "❌" in status)
-            warnings = sum(1 for _, status in checks if "⚠️" in status)
-            
-            response += "\n"
-            if failed == 0 and warnings == 0:
-                response += "✅ **Все системы работают нормально**"
-            elif failed == 0:
-                response += f"⚠️ **Обнаружено {warnings} предупреждений**"
-            else:
-                response += f"❌ **Обнаружено {failed} ошибок, {warnings} предупреждений**"
-            
-            return response
+            # Format and return report
+            return HealthChecker.format_health_report(checks)
             
         except Exception as e:
-            logger.error(f"Error in health check: {e}", exc_info=True)
-            return f"❌ Ошибка при проверке здоровья: {e}"
+            return await self.handle_error(e, "проверке здоровья")
     
     async def show_logs(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
                        admin_manager, args: List[str]) -> str:
         """Handle /admin logs [lines] command."""
         try:
-            # Get number of lines to show
+            # Validate lines argument
             lines = 50
             if args:
-                try:
-                    lines = int(args[0])
-                    if lines < 1 or lines > 200:
-                        return "❌ Количество строк должно быть от 1 до 200."
-                except ValueError:
-                    return "❌ Неверное количество строк. Используйте число."
+                is_valid, parsed_lines, error = self.validator.validate_log_lines(args[0])
+                if not is_valid:
+                    return f"❌ {error}"
+                lines = parsed_lines
             
             # Get profile directory
-            paths = self.profile_manager.get_profile_paths()
+            paths = self.get_profile_paths()
             log_file = paths['profile_dir'] / "bot.log"
             
             if not log_file.exists():
-                return "ℹ️ Лог-файл не найден.\n\nЛоги появятся после запуска бота в daemon режиме."
+                return self.formatter.format_info_message(
+                    "Лог-файл не найден.\n\nЛоги появятся после запуска бота в daemon режиме."
+                )
             
             # Read last N lines
             with open(log_file, 'r') as f:
@@ -786,7 +707,7 @@ class StatsCommands:
                 last_lines = all_lines[-lines:]
             
             if not last_lines:
-                return "ℹ️ Лог-файл пуст."
+                return self.formatter.format_info_message("Лог-файл пуст.")
             
             # Format response
             response = f"📋 **Последние {len(last_lines)} строк логов**\n\n"
@@ -801,46 +722,41 @@ class StatsCommands:
             return response
             
         except Exception as e:
-            logger.error(f"Error reading logs: {e}", exc_info=True)
-            return f"❌ Ошибка при чтении логов: {e}"
+            return await self.handle_error(e, "чтении логов")
 
 
-class ControlCommands:
+class ControlCommands(BaseAdminCommand):
     """Handlers for bot control commands."""
     
-    def __init__(self, profile_manager):
-        self.profile_manager = profile_manager
-    
+    def __init__(self, profile_manager, reload_callback=None):
+        super().__init__(profile_manager)
+        # reload_callback – async-функция, которая пересоздает bot_instance/admin_router/etc
+        self.reload_callback = reload_callback
+
     async def restart_bot(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
                          admin_manager, args: List[str]) -> str:
         """Handle /admin restart command."""
-        # Use job queue to exit after sending response
-        if context.job_queue:
-            context.job_queue.run_once(self._perform_restart, 2)
-            return "🔄 **Перезапуск бота...**\n\nБот перезагрузится через 2 секунды."
-        else:
-            # Fallback if no job queue
-            import asyncio
-            asyncio.create_task(self._delayed_restart())
-            return "🔄 **Перезапуск бота...**\n\nБот перезагрузится через 2 секунды."
+        # горячий reload без exit
+        if self.reload_callback is None:
+            # на всякий случай fallback, чтобы не молчать, если что-то не инициализировали
+            logger.warning("restart_bot called but reload_callback is not set")
+            return "❌ Перезапуск недоступен: не настроен обработчик перезагрузки."
+        
+        try:
+            paths = await self.reload_callback()
+            profile_name = self.profile_manager.get_current_profile()
+            return (
+                "🔄 Перезапуск выполнен.\n\n"
+                f"Профиль: `{profile_name}`\n"
+                f"База данных: `{paths['db_path']}`\n"
+                f"Векторное хранилище: `{paths['vector_db_path']}`"
+            )
+        except Exception as e:
+            logger.error(f"Error in hot restart: {e}", exc_info=True)
+            return await self.handle_error(e, "перезапуске бота")
 
-    async def _delayed_restart(self):
-        import asyncio
-        await asyncio.sleep(2)
-        self._perform_restart(None)
-
-    async def _perform_restart(self, context):
-        """Internal method to stop the process."""
-        import sys
-        logger.info("Restarting bot via admin command (sys.exit(1))...")
-        sys.exit(1)
-
-
-class SettingsCommands:
+class SettingsCommands(BaseAdminCommand):
     """Handlers for bot configuration settings."""
-    
-    def __init__(self, profile_manager):
-        self.profile_manager = profile_manager
 
     async def manage_chats(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
                           admin_manager, args: List[str]) -> str:
@@ -854,7 +770,11 @@ class SettingsCommands:
         if subcommand == 'list':
             chats = config.allowed_chats
             if not chats:
-                return "ℹ️ Список разрешенных чатов пуст.\n⚠️ **Внимание**: Бот игнорирует ВСЕ сообщения в чатах, которых нет в списке (кроме админ-команд)."
+                return self.formatter.format_info_message(
+                    "Список разрешенных чатов пуст.\n"
+                    "⚠️ **Внимание**: Бот игнорирует ВСЕ сообщения в чатах, "
+                    "которых нет в списке (кроме админ-команд)."
+                )
             
             response = "📋 **Разрешенные чаты**:\n\n"
             for chat_id in chats:
@@ -862,36 +782,40 @@ class SettingsCommands:
             return response
             
         elif subcommand == 'add':
+            # Determine chat ID
             if len(args) < 2:
-                # Try to use current chat ID
                 chat_id = update.message.chat_id
             else:
-                try:
-                    chat_id = int(args[1])
-                except ValueError:
-                    return "❌ Неверный ID чата. Используйте число."
+                is_valid, parsed_id, error = self.validator.validate_chat_id(args[1])
+                if not is_valid:
+                    return error
+                chat_id = parsed_id
             
             if chat_id in config.allowed_chats:
-                return f"⚠️ Чат `{chat_id}` уже в списке."
+                return self.formatter.format_warning_message(f"Чат `{chat_id}` уже в списке.")
             
             config.add_allowed_chat(chat_id)
-            return f"✅ Чат `{chat_id}` добавлен в список разрешенных."
+            return self.formatter.format_success_message(
+                f"Чат `{chat_id}` добавлен в список разрешенных."
+            )
             
         elif subcommand == 'remove':
+            # Determine chat ID
             if len(args) < 2:
-                # Try to use current chat ID
                 chat_id = update.message.chat_id
             else:
-                try:
-                    chat_id = int(args[1])
-                except ValueError:
-                    return "❌ Неверный ID чата. Используйте число."
+                is_valid, parsed_id, error = self.validator.validate_chat_id(args[1])
+                if not is_valid:
+                    return error
+                chat_id = parsed_id
             
             if chat_id not in config.allowed_chats:
-                return f"⚠️ Чат `{chat_id}` отсутствует в списке."
+                return self.formatter.format_warning_message(f"Чат `{chat_id}` отсутствует в списке.")
             
             config.remove_allowed_chat(chat_id)
-            return f"✅ Чат `{chat_id}` удален из списка разрешенных."
+            return self.formatter.format_success_message(
+                f"Чат `{chat_id}` удален из списка разрешенных."
+            )
             
         else:
             return f"❌ Неизвестная команда: {subcommand}"
@@ -902,14 +826,23 @@ class SettingsCommands:
         config = admin_manager.config
         
         if not args:
-            return f"ℹ️ Текущая частота ответов: **1 ответ на {config.response_frequency} сообщений**"
-            
-        try:
-            freq = int(args[0])
-            if freq < 1:
-                return "❌ Частота должна быть >= 1."
-                
-            config.response_frequency = freq
-            return f"✅ Частота ответов установлена: **1 ответ на {freq} сообщений**"
-        except ValueError:
-            return "❌ Используйте число."
+            return self.formatter.format_info_message(
+                f"Текущая частота ответов: **1 ответ на {config.response_frequency} сообщений**"
+            )
+        
+        # Validate frequency value
+        is_valid, freq, error = self.validator.validate_frequency(args[0])
+        if not is_valid:
+            return error
+        
+        config.response_frequency = freq
+        
+        if freq == 0:
+            return self.formatter.format_success_message(
+                "Частота установлена 0 сообщений, ответы будут отправляться "
+                "только если бот упомянут в сообщении."
+            )
+        
+        return self.formatter.format_success_message(
+            f"Частота ответов установлена: **1 ответ на {freq} сообщений**"
+        )
