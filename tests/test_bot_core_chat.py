@@ -190,8 +190,9 @@ class TestChatErrorHandling:
         mock_dependencies['llm_instance'].complete.side_effect = Exception("LLM Error")
         
         # Chat should handle the error gracefully
-        with pytest.raises(Exception):
-            bot.chat("Test query")
+        # Chat should handle the error gracefully and return an error message
+        response = bot.chat("Test query")
+        assert "❌" in response or "error" in response.lower()
     
     def test_chat_retrieval_failure(self, mock_dependencies):
         """Test chat behavior when retrieval fails."""

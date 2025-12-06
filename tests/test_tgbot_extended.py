@@ -224,10 +224,11 @@ class TestMessageHandler:
         """Test user query with respond=True."""
         handler = setup_handler['handler']
         bot = setup_handler['bot']
+        admin = setup_handler['admin']
         
         result = await handler.handle_user_query("What is Python?", respond=True)
         
-        bot.chat.assert_called_once_with("What is Python?", respond=True)
+        bot.chat.assert_called_once_with("What is Python?", respond=True, system_prompt_template=admin.config.system_prompt)
         assert result == "Bot response"
     
     @pytest.mark.asyncio
@@ -235,12 +236,13 @@ class TestMessageHandler:
         """Test user query with respond=False (silent processing)."""
         handler = setup_handler['handler']
         bot = setup_handler['bot']
+        admin = setup_handler['admin']
         # Mock silent response (usually None)
         bot.chat.return_value = None
         
         result = await handler.handle_user_query("What is Python?", respond=False)
         
-        bot.chat.assert_called_with("What is Python?", respond=False)
+        bot.chat.assert_called_with("What is Python?", respond=False, system_prompt_template=admin.config.system_prompt)
         assert result is None
     
     @pytest.mark.asyncio
@@ -657,7 +659,7 @@ class TestHandleMessage:
         await handle_message(update)
         
         # Should call chat with respond=False (records history)
-        mock_deps['bot'].chat.assert_called_with("hello", respond=False)
+        mock_deps['bot'].chat.assert_called_with("hello", respond=False, system_prompt_template=mock_deps['admin'].config.system_prompt)
         mock_deps['app'].bot.send_message.assert_not_called()
 
     @pytest.mark.asyncio
@@ -674,7 +676,7 @@ class TestHandleMessage:
         
         await handle_message(update)
         
-        mock_deps['bot'].chat.assert_called_with("hello", respond=True)
+        mock_deps['bot'].chat.assert_called_with("hello", respond=True, system_prompt_template=mock_deps['admin'].config.system_prompt)
         mock_deps['app'].bot.send_message.assert_called_once_with(
             chat_id=999,
             text="Bot response"

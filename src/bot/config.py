@@ -27,7 +27,8 @@ class BotConfig:
         defaults = {
             "admin_password": "",
             "allowed_chats": [],
-            "response_frequency": 0
+            "response_frequency": 0,
+            "system_prompt": ""
         }
         
         if not self.config_file.exists():
@@ -99,5 +100,14 @@ class BotConfig:
     @current_model.setter
     def current_model(self, value: str):
         self.data["current_model"] = value
+        self.save()
+
+    @property
+    def system_prompt(self) -> str:
+        return self.data.get("system_prompt", "")
+
+    @system_prompt.setter
+    def system_prompt(self, value: str):
+        self.data["system_prompt"] = value
         self.save()
 

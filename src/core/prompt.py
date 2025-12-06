@@ -1,7 +1,8 @@
 from typing import List, Dict
 
 class PromptEngine:
-    """Constructs system prompts for the Union Lawyer bot."""
+    """Constructs system prompts for the bot."""
+
     
     SYSTEM_PROMPT_TEMPLATE = """
 Твои сообщения точны, как пуля, и остры, как бритва. Злобный, язвительный и остроумный сарказм. 
@@ -59,7 +60,7 @@ class PromptEngine:
 {task}
 """
 
-    def construct_prompt(self, context_chunks: List[Dict], chat_history: List[Dict], user_task: str, max_context_chars: int = 8000) -> str:
+    def construct_prompt(self, context_chunks: List[Dict], chat_history: List[Dict], user_task: str, max_context_chars: int = 8000, custom_template: str = None) -> str:
         """
         Constructs the full system prompt.
         
@@ -68,6 +69,7 @@ class PromptEngine:
             chat_history: List of recent chat messages (dictionaries with 'sender', 'content').
             user_task: The specific instruction for the bot.
             max_context_chars: Maximum characters for context (to prevent token overflow).
+            custom_template: Optional custom template string overriding the default.
             
         Returns:
             Formatted prompt string.
@@ -99,8 +101,22 @@ class PromptEngine:
         if not history_str:
             history_str = "Нет недавних сообщений."
             
-        return self.SYSTEM_PROMPT_TEMPLATE.format(
-            context=context_str.strip(),
-            history=history_str.strip(),
-            task=user_task
-        )
+        template = custom_template if custom_template else self.SYSTEM_PROMPT_TEMPLATE
+        
+        # Ensure template has necessary keys if using custom one? 
+        # For now assume user provides correct format or we handle error if format fails.
+        # But to be safe let's wrap formatted.
+        
+        try:
+            return template.format(
+                context=context_str.strip(),
+                history=history_str.strip(),
+                task=user_task
+            )
+        except KeyError as e:
+            # Fallback if custom template is broken
+             return f"Error in system prompt template: {e}\nUsing default.\n" + self.SYSTEM_PROMPT_TEMPLATE.format(
+                context=context_str.strip(),
+                history=history_str.strip(),
+                task=user_task
+            )

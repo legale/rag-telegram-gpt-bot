@@ -178,7 +178,7 @@ class LegaleBot:
             "percentage": round(percentage, 2),
         }
 
-    def chat(self, user_input: str, n_results: int = 3, respond: bool = True) -> str:
+    def chat(self, user_input: str, n_results: int = 3, respond: bool = True, system_prompt_template: str = None) -> str:
         """
         Process a user message and return the bot's response.
         """
@@ -218,6 +218,7 @@ class LegaleBot:
             context_chunks=context_chunks,
             chat_history=history_for_prompt,
             user_task=user_input,
+            custom_template=system_prompt_template
         )
 
         print("Querying LLM...")
@@ -243,6 +244,7 @@ class LegaleBot:
                     context_chunks=context_chunks,
                     chat_history=[],
                     user_task=user_input,
+                    custom_template=system_prompt_template
                 )
                 
                 messages = [

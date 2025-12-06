@@ -32,7 +32,7 @@ from dotenv import load_dotenv
 from src.bot.core import LegaleBot
 from src.bot.admin import AdminManager
 from src.bot.admin_router import AdminCommandRouter
-from src.bot.admin_commands import ProfileCommands, HelpCommands, IngestCommands, StatsCommands, ControlCommands, SettingsCommands
+from src.bot.admin_commands import ProfileCommands, HelpCommands, IngestCommands, StatsCommands, ControlCommands, SettingsCommands, ModelCommands, SystemPromptCommands
 from src.bot.admin_tasks import TaskManager
 from src.bot.utils import AccessControlService, FrequencyController
 
@@ -205,7 +205,9 @@ class MessageHandler:
     async def handle_user_query(self, text: str, respond: bool) -> str:
         """Handle regular user query to bot."""
         try:
-            return self.bot.chat(text, respond=respond)
+            # Get system prompt from config
+            system_prompt = self.admin_manager.config.system_prompt
+            return self.bot.chat(text, respond=respond, system_prompt_template=system_prompt)
         except Exception as e:
             logger.error(f"Error querying bot: {e}", exc_info=True)
             return f"Произошла ошибка при обработке вашего запроса. error={e}"
@@ -312,6 +314,12 @@ async def init_runtime_for_current_profile():
     admin_router_local.register("model", model_commands.list_models, "list")
     admin_router_local.register("model", model_commands.get_model, "get")
     admin_router_local.register("model", model_commands.set_model, "set")
+
+    # system prompt commands
+    system_prompt_commands = SystemPromptCommands(profile_manager)
+    admin_router_local.register("system_prompt", system_prompt_commands.get_prompt, "get")
+    admin_router_local.register("system_prompt", system_prompt_commands.set_prompt, "set")
+    admin_router_local.register("system_prompt", system_prompt_commands.reset_prompt, "reset")
 
     # help command
     help_commands = HelpCommands()

@@ -817,6 +817,72 @@ class ModelCommands(BaseAdminCommand):
         except Exception as e:
             return await self.handle_error(e, f"установке модели {target_model}")
 
+
+class SystemPromptCommands(BaseAdminCommand):
+    """Handlers for system prompt management commands."""
+    
+    def __init__(self, profile_manager):
+        super().__init__(profile_manager)
+
+    async def get_prompt(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
+                        admin_manager, args: List[str]) -> str:
+        """Handle /admin system_prompt get command."""
+        current_prompt = admin_manager.config.system_prompt
+        
+        if not current_prompt:
+            from src.core.prompt import PromptEngine
+            current_prompt = PromptEngine.SYSTEM_PROMPT_TEMPLATE
+            return f"📜 **Текущий системный промпт (по умолчанию):**\n\n```\n{current_prompt}\n```"
+            
+        return f"📜 **Текущий системный промпт (пользовательский):**\n\n```\n{current_prompt}\n```"
+
+    async def set_prompt(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
+                        admin_manager, args: List[str]) -> str:
+        """Handle /admin system_prompt set <prompt> command."""
+        if not args:
+            return "❌ Укажите новый промпт.\nПример: `/admin system_prompt set Ты - полезный ассистент.`"
+        
+        # Join all args to form the prompt string, preserving spaces
+        new_prompt = " ".join(args)
+        
+        # Or better, check if there is text in the message after the command
+        # args comes from split() so it works for basic cases, but losing newlines if not careful.
+        # But telegram update object has the full text.
+        
+        # Extract full text after "set"
+        message_text = update.message.text
+        # /admin system_prompt set ...
+        # Ensure we find the right split point
+        parts = message_text.split("set", 1)
+        if len(parts) > 1:
+            new_prompt = parts[1].strip()
+        else:
+             return "❌ Не удалось прочитать промпт."
+
+        if not new_prompt:
+             return "❌ Промпт не может быть пустым."
+
+        try:
+            admin_manager.config.system_prompt = new_prompt
+            logger.info(f"System prompt updated by admin {update.message.from_user.id}")
+            return "✅ Системный промпт успешно обновлен!"
+        except Exception as e:
+            return await self.handle_error(e, "обновлении системного промпта")
+            
+    async def reset_prompt(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
+                          admin_manager, args: List[str]) -> str:
+        """Handle /admin system_prompt reset command."""
+        try:
+            admin_manager.config.system_prompt = ""
+            logger.info(f"System prompt reset to default by admin {update.message.from_user.id}")
+            
+            from src.core.prompt import PromptEngine
+            default_prompt = PromptEngine.SYSTEM_PROMPT_TEMPLATE
+            
+            return f"✅ Системный промпт сброшен на значение по умолчанию:\n\n```\n{default_prompt}\n```"
+        except Exception as e:
+            return await self.handle_error(e, "сбросе системного промпта")
+
 class SettingsCommands(BaseAdminCommand):
     """Handlers for bot configuration settings."""
 

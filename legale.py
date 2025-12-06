@@ -477,6 +477,21 @@ For more information, visit: https://github.com/legale/rag-telegram-gpt-bot
     delete_parser.add_argument('--token', help='Bot token (or set TELEGRAM_BOT_TOKEN in .env)')
     delete_parser.add_argument('--profile', help='Profile to use (default: current active)')
     
+    # ===== CONFIGURATION =====
+    config_parser = subparsers.add_parser('config', help='Manage profile configuration')
+    config_subparsers = config_parser.add_subparsers(dest='config_command', help='Config command')
+    
+    # config get
+    get_config_parser = config_subparsers.add_parser('get', help='Get configuration value')
+    get_config_parser.add_argument('key', choices=['system_prompt'], help='Configuration key')
+    get_config_parser.add_argument('--profile', help='Profile to use (default: current active)')
+    
+    # config set
+    set_config_parser = config_subparsers.add_parser('set', help='Set configuration value')
+    set_config_parser.add_argument('key', choices=['system_prompt'], help='Configuration key')
+    set_config_parser.add_argument('value', help='Value to set')
+    set_config_parser.add_argument('--profile', help='Profile to use (default: current active)')
+    
     # bot run
     run_parser = bot_subparsers.add_parser('run', help='Run bot in foreground mode')
     run_parser.add_argument('--host', default='127.0.0.1', help='Host to bind (default: 127.0.0.1)')
@@ -535,6 +550,43 @@ For more information, visit: https://github.com/legale/rag-telegram-gpt-bot
             bot_parser.print_help()
             sys.exit(1)
         cmd_bot(args, profile_manager)
+
+    elif args.command == 'config':
+        if not args.config_command:
+            config_parser.print_help()
+            sys.exit(1)
+        cmd_config(args, profile_manager)
+
+
+def cmd_config(args, profile_manager: ProfileManager):
+    """Handle configuration commands."""
+    from src.bot.config import BotConfig
+    
+    profile_name = args.profile if args.profile else profile_manager.get_current_profile()
+    profile_dir = profile_manager.get_profile_dir(profile_name)
+    
+    if not profile_dir.exists():
+         print(f"✗ Profile '{profile_name}' does not exist")
+         sys.exit(1)
+         
+    config = BotConfig(profile_dir)
+    
+    if args.config_command == 'get':
+        if args.key == 'system_prompt':
+            prompt = config.system_prompt
+            if not prompt:
+                from src.core.prompt import PromptEngine
+                prompt = f"(Default)\n{PromptEngine.SYSTEM_PROMPT_TEMPLATE}"
+            print(f"System Prompt for profile '{profile_name}':\n\n{prompt}")
+        else:
+             print(f"Unknown config key: {args.key}")
+
+    elif args.config_command == 'set':
+        if args.key == 'system_prompt':
+             config.system_prompt = args.value
+             print(f"✓ System prompt updated for profile '{profile_name}'")
+        else:
+             print(f"Unknown config key: {args.key}")
 
 
 if __name__ == '__main__':
