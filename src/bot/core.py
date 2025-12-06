@@ -84,6 +84,13 @@ class LegaleBot:
         
         return f"✅ Модель переключена на: {new_model}\n({self.current_model_index + 1}/{len(self.available_models)})"
     
+    @property
+    def current_model_name(self) -> str:
+        """Get the name of the currently active model."""
+        if not self.available_models:
+            return "openai/gpt-3.5-turbo"
+        return self.available_models[self.current_model_index]
+
     def get_current_model(self) -> str:
         """
         Get current model information.

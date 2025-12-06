@@ -616,11 +616,35 @@ class TestHandleMessage:
         mock_deps['app'].bot.send_message.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_frequency_limited(self, mock_deps):
-        """Test behavior when frequency controller says no response."""
+    async def test_frequency_limited_freq_zero(self, mock_deps):
+        """Test behavior when freq=0 (should skip completely)."""
         from src.bot.tgbot import handle_message
         
-        mock_deps['freq'].should_respond.return_value = (False, "ignored")
+        # Setup: Freq=0, No mention
+        mock_deps['admin'].config.response_frequency = 0
+        mock_deps['freq'].should_respond.return_value = (False, "freq_zero_no_mention")
+        
+        update = Mock()
+        update.message.text = "hello"
+        update.message.chat_id = 999
+        update.message.chat.type = "group"
+        update.message.from_user.id = 111
+        update.message.entities = []
+        
+        await handle_message(update)
+        
+        # Should NOT call chat (skips history)
+        mock_deps['bot'].chat.assert_not_called()
+        mock_deps['app'].bot.send_message.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_frequency_limited_freq_n(self, mock_deps):
+        """Test behavior when freq>1 (should record but silence)."""
+        from src.bot.tgbot import handle_message
+        
+        # Setup: Freq=5, Skip message
+        mock_deps['admin'].config.response_frequency = 5
+        mock_deps['freq'].should_respond.return_value = (False, "freq_skip_1")
         mock_deps['bot'].chat.return_value = None  # Silent response
         
         update = Mock()
@@ -632,6 +656,7 @@ class TestHandleMessage:
         
         await handle_message(update)
         
+        # Should call chat with respond=False (records history)
         mock_deps['bot'].chat.assert_called_with("hello", respond=False)
         mock_deps['app'].bot.send_message.assert_not_called()
 

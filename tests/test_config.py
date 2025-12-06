@@ -58,13 +58,20 @@ class TestBotConfig:
         config = BotConfig(temp_profile)
         
         config.response_frequency = 0
-        assert config.response_frequency == 1
+        assert config.response_frequency == 0
         
         config.response_frequency = -5
-        assert config.response_frequency == 1
+        assert config.response_frequency == 0
         
         config.response_frequency = 10
         assert config.response_frequency == 10
+
+    def test_current_model_persistence(self, temp_profile):
+        config = BotConfig(temp_profile)
+        config.current_model = "gpt-4"
+        
+        new_config = BotConfig(temp_profile)
+        assert new_config.current_model == "gpt-4"
 
     def test_permissions(self, temp_profile):
         config = BotConfig(temp_profile)

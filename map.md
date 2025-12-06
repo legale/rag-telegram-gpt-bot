@@ -1499,21 +1499,22 @@ legale bot run
 7. **76%** - `src/core/prompt.py`
 8. **78%** - `src/bot/utils/response_formatter.py`
 9. **80%** - `src/bot/tgbot.py`
-10. **80%** - `src/ingestion/pipeline.py`
-11. **83%** - `src/core/retrieval.py`
-12. **88%** - `src/bot/admin_tasks.py`
-13. **89%** - `src/bot/utils/database_stats.py`
-14. **91%** - `src/bot/admin_router.py`
-15. **93%** - `src/bot/admin.py`
-16. **93%** - `src/ingestion/chunker.py`
-17. **94%** - `src/bot/core.py`
-18. **94%** - `src/core/embedding.py`
-19. **96%** - `src/bot/config.py`
+10. **80%** - `src/bot/tgbot.py`
+11. **80%** - `src/ingestion/pipeline.py`
+12. **83%** - `src/core/retrieval.py`
+13. **88%** - `src/bot/admin_tasks.py`
+14. **89%** - `src/bot/utils/database_stats.py`
+15. **91%** - `src/bot/admin_router.py`
+16. **91%** - `src/bot/core.py`
+17. **93%** - `src/bot/admin.py`
+18. **93%** - `src/ingestion/chunker.py`
+19. **94%** - `src/core/embedding.py`
 20. **96%** - `src/storage/vector_store.py`
-21. **100%** - `src/core/llm.py`
-22. **100%** - `src/bot/utils/access_control.py`
-23. **100%** - `src/bot/utils/frequency_controller.py`
-24. **100%** - `src/storage/db.py`
+21. **97%** - `src/bot/config.py`
+22. **100%** - `src/core/llm.py`
+23. **100%** - `src/bot/utils/access_control.py`
+24. **100%** - `src/bot/utils/frequency_controller.py`
+25. **100%** - `src/storage/db.py`
 
 **Status:**
 - Target 80% Reached!

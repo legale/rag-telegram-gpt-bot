@@ -123,7 +123,11 @@ class MessageHandler:
     async def handle_model_command(self) -> str:
         """Handle /model command."""
         try:
-            return self.bot.switch_model()
+            msg = self.bot.switch_model()
+            # Save new model to config
+            if self.admin_manager:
+                self.admin_manager.config.current_model = self.bot.current_model_name
+            return msg
         except Exception as e:
             logger.error(f"Error switching model: {e}", exc_info=True)
             return "Ошибка при переключении модели."
@@ -245,22 +249,27 @@ async def init_runtime_for_current_profile():
     # получаем пути для текущего профиля (использует ACTIVE_PROFILE из .env)
     paths = profile_manager.get_profile_paths()
 
-    # пересоздаем core
-    bot_instance = LegaleBot(
-        db_url=paths["db_url"],
-        vector_db_path=str(paths["vector_db_path"])
-    )
-    logger.warning(
-        "Bot core (LegaleBot) initialized with profile=%s db_url=%s vector=%s",
-        profile_manager.get_current_profile(),
-        paths["db_url"],
-        paths["vector_db_path"],
-    )
-
-    # пересоздаем admin_manager
+    # пересоздаем admin_manager sначала, чтобы получить конфиг
     profile_dir = paths["profile_dir"]
     admin_manager_local = AdminManager(profile_dir)
     logger.info("Admin manager initialized for profile_dir=%s", profile_dir)
+
+    # Загружаем сохраненную модель
+    model_name = admin_manager_local.config.current_model or "openai/gpt-3.5-turbo"
+
+    # пересоздаем core
+    bot_instance = LegaleBot(
+        db_url=paths["db_url"],
+        vector_db_path=str(paths["vector_db_path"]),
+        model_name=model_name
+    )
+    logger.warning(
+        "Bot core (LegaleBot) initialized with profile=%s db_url=%s vector=%s model=%s",
+        profile_manager.get_current_profile(),
+        paths["db_url"],
+        paths["vector_db_path"],
+        model_name
+    )
 
     # пересоздаем admin_router и все команды
     admin_router_local = AdminCommandRouter()
@@ -553,6 +562,13 @@ async def handle_message(update: Update):
             response = await handler.handle_user_query(text, respond)
     else:
         # Regular user query
+        # Если частота 0 и мы не отвечаем (нет упоминания), то полностью игнорируем сообщение
+        # (не сохраняем в историю и не тратим ресурсы)
+        target_freq = config.response_frequency or 0
+        if not respond and target_freq == 0:
+            logger.debug(f"Ignoring message in chat {chat_id} (freq=0, no mention)")
+            return
+
         response = await handler.handle_user_query(text, respond)
 
     # Send response if available

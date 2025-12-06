@@ -136,11 +136,19 @@ async def test_init_runtime_for_current_profile():
          patch("src.bot.tgbot.SettingsCommands"), \
          patch("src.bot.tgbot.HelpCommands"):
          
+         # Mock AdminManager config
+         mock_admin_instance = MockAdmin.return_value
+         mock_admin_instance.config.current_model = "gpt-4"
+         
          paths = await init_runtime_for_current_profile()
          
          assert paths == mock_pm.get_profile_paths.return_value
-         MockBot.assert_called_with(db_url="sqlite:///test.db", vector_db_path="vec_path")
          MockAdmin.assert_called_with("prof_dir")
+         MockBot.assert_called_with(
+             db_url="sqlite:///test.db", 
+             vector_db_path="vec_path",
+             model_name="gpt-4"
+         )
 
 @pytest.mark.asyncio
 async def test_init_runtime_no_profile_manager():

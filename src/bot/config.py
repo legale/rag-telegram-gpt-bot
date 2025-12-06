@@ -87,7 +87,17 @@ class BotConfig:
         
     @response_frequency.setter
     def response_frequency(self, value: int):
-        if value < 1:
-            value = 1
+        if value < 0:
+            value = 0
         self.data["response_frequency"] = value
         self.save()
+
+    @property
+    def current_model(self) -> str:
+        return self.data.get("current_model", "")
+
+    @current_model.setter
+    def current_model(self, value: str):
+        self.data["current_model"] = value
+        self.save()
+
