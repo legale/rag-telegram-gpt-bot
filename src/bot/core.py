@@ -31,8 +31,63 @@ class LegaleBot:
         
         # Simple in-memory history for the current session
         self.chat_history: List[Dict[str, str]] = []
+        
+        # Token limit configuration
+        self.max_context_tokens = int(os.getenv("MAX_CONTEXT_TOKENS", "14000"))
+        
+    def reset_context(self) -> str:
+        """
+        Reset the chat history/context.
+        
+        Returns:
+            Confirmation message.
+        """
+        self.chat_history = []
+        return "✅ Контекст сброшен!"
+    
+    def get_token_usage(self) -> Dict[str, int]:
+        """
+        Get current token usage statistics.
+        
+        Returns:
+            Dictionary with token usage info.
+        """
+        # Build current messages to count tokens
+        if not self.chat_history:
+            return {
+                "current_tokens": 0,
+                "max_tokens": self.max_context_tokens,
+                "percentage": 0.0
+            }
+        
+        # Simulate what would be sent to LLM
+        history_for_prompt = []
+        for msg in self.chat_history[-5:]:
+            sender = "User" if msg['role'] == 'user' else "Bot"
+            history_for_prompt.append({"sender": sender, "content": msg['content']})
+        
+        # Create a sample prompt to estimate tokens
+        system_prompt = self.prompt_engine.construct_prompt(
+            context_chunks=[],
+            chat_history=history_for_prompt,
+            user_task="sample"
+        )
+        
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": system_prompt}
+        ]
+        
+        current_tokens = self.llm_client.count_tokens(messages)
+        percentage = (current_tokens / self.max_context_tokens) * 100
+        
+        return {
+            "current_tokens": current_tokens,
+            "max_tokens": self.max_context_tokens,
+            "percentage": round(percentage, 2)
+        }
 
-    def chat(self, user_input: str, n_results: int = 5) -> str:
+    def chat(self, user_input: str, n_results: int = 3) -> str:
         """
         Process a user message and return the bot's response.
         
@@ -43,6 +98,16 @@ class LegaleBot:
         Returns:
             The bot's response.
         """
+        # Check token usage and auto-reset if needed
+        auto_reset_warning = ""
+        if self.chat_history:
+            token_usage = self.get_token_usage()
+            if token_usage["current_tokens"] >= self.max_context_tokens:
+                self.reset_context()
+                auto_reset_warning = "⚠️ Контекст был автоматически сброшен из-за достижения лимита токенов.\n\n"
+                if self.verbosity >= 1:
+                    print(f"[Auto-reset] Token limit reached: {token_usage['current_tokens']}/{self.max_context_tokens}")
+        
         # 1. Retrieve Context
         print(f"Retrieving context ({n_results} chunks)...")
         context_chunks = self.retrieval_service.retrieve(user_input, n_results=n_results)
@@ -91,4 +156,5 @@ class LegaleBot:
         self.chat_history.append({"role": "user", "content": user_input})
         self.chat_history.append({"role": "assistant", "content": response})
         
-        return response
+        # Prepend auto-reset warning if context was reset
+        return auto_reset_warning + response

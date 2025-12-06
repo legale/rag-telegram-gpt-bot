@@ -161,12 +161,41 @@ async def handle_message(update: Update):
     elif text.startswith('/help'):
         response = (
             "Я анализирую историю чата и отвечаю на вопросы.\n\n"
+            "Доступные команды:\n"
+            "• /start — приветствие\n"
+            "• /help — эта справка\n"
+            "• /reset — сбросить контекст разговора\n"
+            "• /tokens — показать использование токенов\n\n"
             "Примеры вопросов:\n"
             "• Что случилось с точкой 840?\n"
             "• Когда Ru уходит в отпуск?\n"
             "• Какие были проблемы с сетью?\n\n"
             "Просто напишите свой вопрос!"
         )
+    elif text.startswith('/reset'):
+        try:
+            response = bot_instance.reset_context()
+        except Exception as e:
+            logger.error(f"Error resetting context: {e}", exc_info=True)
+            response = "Ошибка при сбросе контекста."
+    elif text.startswith('/tokens'):
+        try:
+            usage = bot_instance.get_token_usage()
+            response = (
+                f"📊 Использование токенов:\n\n"
+                f"Текущее: {usage['current_tokens']:,}\n"
+                f"Максимум: {usage['max_tokens']:,}\n"
+                f"Использовано: {usage['percentage']}%\n\n"
+            )
+            if usage['percentage'] > 80:
+                response += "⚠️ Приближаетесь к лимиту! Используйте /reset для сброса."
+            elif usage['percentage'] > 50:
+                response += "ℹ️ Контекст заполнен наполовину."
+            else:
+                response += "✅ Достаточно места для разговора."
+        except Exception as e:
+            logger.error(f"Error getting token usage: {e}", exc_info=True)
+            response = "Ошибка при получении информации о токенах."
     else:
         # Query the bot
         try:

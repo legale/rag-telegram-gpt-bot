@@ -58,5 +58,5 @@ def test_retrieval_service():
     assert results[1]['id'] == '2'
     assert results[1]['text'] == 'Text 2'
     
-    mock_embedding_client.get_embedding.assert_called_with("query")
+    # Verify vector store was queried (no longer using get_embedding directly)
     mock_vector_store.collection.query.assert_called_once()

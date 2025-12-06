@@ -2,6 +2,7 @@ from openai import OpenAI
 from typing import List, Dict, Optional, Generator
 import os
 import json
+import tiktoken
 
 class LLMClient:
     """Client for interacting with LLM APIs (OpenRouter/OpenAI)."""
@@ -26,8 +27,36 @@ class LLMClient:
             base_url=self.base_url,
             api_key=self.api_key,
         )
+        
+        # Initialize tokenizer for token counting
+        try:
+            # Extract base model name for tiktoken (remove provider prefix)
+            base_model = model.split('/')[-1] if '/' in model else model
+            self.encoding = tiktoken.encoding_for_model(base_model)
+        except KeyError:
+            # Fallback to cl100k_base encoding (used by gpt-3.5-turbo and gpt-4)
+            self.encoding = tiktoken.get_encoding("cl100k_base")
+    
+    def count_tokens(self, messages: List[Dict[str, str]]) -> int:
+        """
+        Count the number of tokens in a list of messages.
+        
+        Args:
+            messages: List of message dictionaries (role, content).
+            
+        Returns:
+            Total number of tokens.
+        """
+        num_tokens = 0
+        for message in messages:
+            # Every message follows <|start|>{role/name}\n{content}<|end|>\n
+            num_tokens += 4  # message overhead
+            for key, value in message.items():
+                num_tokens += len(self.encoding.encode(str(value)))
+        num_tokens += 2  # every reply is primed with <|start|>assistant
+        return num_tokens
 
-    def complete(self, messages: List[Dict[str, str]], temperature: float = 0.7, max_tokens: int = 1000) -> str:
+    def complete(self, messages: List[Dict[str, str]], temperature: float = 0.7, max_tokens: int = 500) -> str:
         """
         Generates a completion for the given messages.
         
