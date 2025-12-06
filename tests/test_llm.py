@@ -243,11 +243,11 @@ class TestCompletion:
         mock_client.chat.completions.create.side_effect = Exception("API Error")
         
         messages = [{"role": "user", "content": "Test"}]
-        response = client.complete(messages)
         
-        # Should return error message
-        assert "error" in response.lower() or "apologize" in response.lower()
-    
+        # Should raise exception now
+        with pytest.raises(Exception, match="API Error"):
+             client.complete(messages)
+
     def test_complete_network_timeout(self, llm_client):
         """Test handling of network timeout."""
         client, mock_client = llm_client
@@ -255,10 +255,10 @@ class TestCompletion:
         mock_client.chat.completions.create.side_effect = TimeoutError("Timeout")
         
         messages = [{"role": "user", "content": "Test"}]
-        response = client.complete(messages)
         
-        # Should return error message
-        assert "error" in response.lower() or "apologize" in response.lower()
+        # Should raise exception now
+        with pytest.raises(TimeoutError, match="Timeout"):
+             client.complete(messages)
     
     def test_complete_verbosity_0(self, llm_client):
         """Test completion with verbosity 0 (no output)."""

@@ -755,6 +755,68 @@ class ControlCommands(BaseAdminCommand):
             logger.error(f"Error in hot restart: {e}", exc_info=True)
             return await self.handle_error(e, "перезапуске бота")
 
+class ModelCommands(BaseAdminCommand):
+    """Handlers for model management commands."""
+    
+    def __init__(self, profile_manager, bot_instance):
+        super().__init__(profile_manager)
+        self.bot_instance = bot_instance
+
+    async def list_models(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
+                         admin_manager, args: List[str]) -> str:
+        """Handle /admin model list command."""
+        if not self.bot_instance:
+             return "❌ Бот не инициализирован."
+        
+        available = self.bot_instance.available_models
+        current = self.bot_instance.current_model_name
+        
+        response = "🤖 **Доступные модели:**\n\n"
+        for model in available:
+            marker = "✅" if model == current else "🔹"
+            response += f"{marker} `{model}`\n"
+            
+        return response
+
+    async def get_model(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
+                       admin_manager, args: List[str]) -> str:
+        """Handle /admin model get command."""
+        if not self.bot_instance:
+             return "❌ Бот не инициализирован."
+            
+        return self.bot_instance.get_current_model()
+    
+    async def set_model(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
+                       admin_manager, args: List[str]) -> str:
+        """Handle /admin model set <name> command."""
+        if not self.bot_instance:
+             return "❌ Бот не инициализирован."
+            
+        if not args:
+            return "❌ Укажите имя модели.\nПример: `/admin model set openai/gpt-4-turbo`"
+        
+        target_model = args[0]
+        available = self.bot_instance.available_models
+        
+        if target_model not in available:
+            return (
+                f"❌ Модель `{target_model}` не найдена в списке доступных.\n\n"
+                f"Используйте `/admin model list` для просмотра списка."
+            )
+        
+        try:
+             # Set model in bot instance
+             result_msg = self.bot_instance.set_model(target_model)
+             
+             # Persist to config
+             admin_manager.config.current_model = target_model
+             
+             logger.info(f"Model changed to {target_model} by admin {update.message.from_user.id}")
+             return result_msg
+             
+        except Exception as e:
+            return await self.handle_error(e, f"установке модели {target_model}")
+
 class SettingsCommands(BaseAdminCommand):
     """Handlers for bot configuration settings."""
 

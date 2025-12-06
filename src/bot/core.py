@@ -83,6 +83,29 @@ class LegaleBot:
             print(f"[Model Switch] Changed to: {new_model}")
         
         return f"✅ Модель переключена на: {new_model}\n({self.current_model_index + 1}/{len(self.available_models)})"
+
+    def set_model(self, model_name: str) -> str:
+        """
+        Set a specific model by name.
+        
+        Args:
+            model_name: Name of the model to switch to.
+            
+        Returns:
+            Success message or error message.
+        """
+        if model_name not in self.available_models:
+            return f"❌ Модель `{model_name}` не найдена в списке доступных."
+        
+        self.current_model_index = self.available_models.index(model_name)
+        
+        # Recreate LLM client with new model
+        self.llm_client = LLMClient(model=model_name, verbosity=self.verbosity)
+        
+        if self.verbosity >= 1:
+            print(f"[Model Set] Changed to: {model_name}")
+            
+        return f"✅ Модель успешно установлена: {model_name}"
     
     @property
     def current_model_name(self) -> str:
@@ -203,7 +226,44 @@ class LegaleBot:
             {"role": "user", "content": user_input},
         ]
 
-        response = self.llm_client.complete(messages)
+        try:
+            response = self.llm_client.complete(messages)
+        except Exception as e:
+            error_msg = str(e)
+            # Check for token limit or payment issues (OpenRouter 402 or context length)
+            if "402" in error_msg or "context_length_exceeded" in error_msg or "Prompt tokens limit exceeded" in error_msg:
+                if self.verbosity >= 1:
+                    print(f"[Error] Token/Credit limit reached: {e}. Resetting context and retrying.")
+                
+                # Force reset context
+                self.reset_context()
+                
+                # Reconstruct prompt without history
+                system_prompt = self.prompt_engine.construct_prompt(
+                    context_chunks=context_chunks,
+                    chat_history=[],
+                    user_task=user_input,
+                )
+                
+                messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_input},
+                ]
+                
+                # Append warning to result
+                auto_reset_warning = "⚠️ Ошибка лимита токенов/баланса. Контекст сброшен.\n\n"
+                
+                try:
+                    # Retry
+                    response = self.llm_client.complete(messages)
+                except Exception as retry_e:
+                     print(f"[Fatal] Retry failed: {retry_e}")
+                     return "❌ Ошибка: Не удалось получить ответ даже после сброса контекста (лимит токенов или баланс исчерпан)."
+            else:
+                 # Other errors
+                 print(f"[Error] LLM call failed: {e}")
+                 # In verbose mode, might want to show error, but for user safety keep it generic or specific if needed
+                 return f"❌ Произошла ошибка при обращении к нейросети: {e}"
 
         self.chat_history.append({"role": "user", "content": user_input})
         self.chat_history.append({"role": "assistant", "content": response})

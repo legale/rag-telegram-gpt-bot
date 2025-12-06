@@ -87,8 +87,8 @@ class LLMClient:
             
             return content if content else ""
         except Exception as e:
-            print(f"Error calling LLM: {e}")
-            return "I apologize, but I encountered an error while processing your request."
+            # Re-raise exception to be handled by caller (LegaleBot)
+            raise e
 
     def stream_complete(self, messages: List[Dict[str, str]], temperature: float = 0.7) -> Generator[str, None, None]:
         """

@@ -301,15 +301,25 @@ async def init_runtime_for_current_profile():
 
     # settings commands
     settings_commands = SettingsCommands(profile_manager)
+    admin_router_local.register("allowed", settings_commands.manage_chats, "list")
+    admin_router_local.register("allowed", settings_commands.manage_chats, "add")
+    admin_router_local.register("allowed", settings_commands.manage_chats, "remove")
     admin_router_local.register("chat", settings_commands.manage_chats)
-    admin_router_local.register("allowed", settings_commands.manage_chats)
     admin_router_local.register("frequency", settings_commands.manage_frequency)
 
-    # help commands
+    # model commands
+    model_commands = ModelCommands(profile_manager, bot_instance)
+    admin_router_local.register("model", model_commands.list_models, "list")
+    admin_router_local.register("model", model_commands.get_model, "get")
+    admin_router_local.register("model", model_commands.set_model, "set")
+
+    # help command
     help_commands = HelpCommands()
     admin_router_local.register("help", help_commands.show_help)
 
     logger.info("Admin router initialized with all admin commands")
+
+
 
     # только после успешного создания всех локальных объектов – публикуем их в глобальные
     admin_manager = admin_manager_local
