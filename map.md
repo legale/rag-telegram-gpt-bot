@@ -115,8 +115,8 @@ Create a chatbot that acts as an IT union lawyer, using a RAG (Retrieval-Augment
     - [x] Update `pyproject.toml` with new dependencies
     - [x] Document webhook registration process
     - [x] Add Quick Start guide with complete setup workflow
-- [ ] **Testing & Verification**:
-    - [ ] Write unit tests for webhook handler
+- [/] **Testing & Verification**:
+    - [x] Write unit tests for webhook handler
     - [ ] Write integration tests for daemon startup/shutdown
     - [ ] Test foreground mode with verbosity levels
     - [ ] Test daemon mode with syslog
