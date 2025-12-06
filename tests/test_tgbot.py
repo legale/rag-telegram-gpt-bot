@@ -27,6 +27,7 @@ def mock_deps():
     admin_mock.config.allowed_chats = []
     admin_mock.config.response_frequency = 1
     admin_mock.verify_password.return_value = False
+    admin_mock.is_admin.return_value = False
     
     tg_mock = MagicMock()
     tg_mock.bot.send_message = AsyncMock()
@@ -40,6 +41,7 @@ def mock_deps():
             m.message.message_id = msg_data.get('message_id')
             m.message.chat_id = msg_data['chat']['id']  # Note: helper property usually
             m.message.chat.id = msg_data['chat']['id']
+            m.message.chat.type = msg_data['chat'].get('type', 'private')
             m.message.from_user.id = msg_data['from']['id']
             m.message.text = msg_data.get('text')
             
@@ -140,3 +142,61 @@ def test_webhook_frequency_limit(client, mock_deps):
     update["message"]["text"] = "Msg 2"
     client.post("/webhook", json=update)
     mock_deps['bot'].chat.assert_called_with("Msg 2", respond=True)
+
+def test_webhook_private_admin(client, mock_deps):
+    """Test admin access in private chat (overrides whitelist)."""
+    mock_deps['admin'].config.allowed_chats = []
+    mock_deps['admin'].is_admin.return_value = True
+    
+    update = {
+        "update_id": 10,
+        "message": {
+            "message_id": 1,
+            "date": 123,
+            "chat": {"id": 123, "type": "private"},
+            "from": {"id": 1},
+            "text": "Hello"
+        }
+    }
+    client.post("/webhook", json=update)
+    mock_deps['bot'].chat.assert_called()
+
+def test_webhook_private_command(client, mock_deps):
+    """Test command allowed in private chat even if not admin/whitelisted."""
+    mock_deps['admin'].config.allowed_chats = []
+    mock_deps['admin'].is_admin.return_value = False
+    
+    update = {
+        "update_id": 11,
+        "message": {
+            "message_id": 1,
+            "date": 123,
+            "chat": {"id": 123, "type": "private"},
+            "from": {"id": 2},
+            "text": "/start"
+        }
+    }
+    client.post("/webhook", json=update)
+    
+    # Check that send_message was called (response to /start)
+    mock_deps['tg'].bot.send_message.assert_called()
+    # Check that bot.chat was NOT called (it's a command)
+    mock_deps['bot'].chat.assert_not_called()
+
+def test_webhook_private_text_blocked(client, mock_deps):
+    """Test text blocked in private chat for non-admin."""
+    mock_deps['admin'].config.allowed_chats = []
+    mock_deps['admin'].is_admin.return_value = False
+    
+    update = {
+        "update_id": 12,
+        "message": {
+            "message_id": 1,
+            "date": 123,
+            "chat": {"id": 123, "type": "private"},
+            "from": {"id": 2},
+            "text": "Hello"
+        }
+    }
+    client.post("/webhook", json=update)
+    mock_deps['bot'].chat.assert_not_called()

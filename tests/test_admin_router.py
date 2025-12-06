@@ -96,3 +96,19 @@ async def test_route_missing_subcommand(mock_router):
     
     res = await mock_router.route(update, context, admin_manager)
     assert "требует подкоманду" in res
+
+@pytest.mark.asyncio
+async def test_route_direct_args(mock_router):
+    update = MagicMock()
+    update.message.from_user.id = 1
+    update.message.text = "/admin direct arg1 arg2"
+    context = MagicMock()
+    admin_manager = MagicMock()
+    admin_manager.is_admin.return_value = True
+    
+    handler = AsyncMock(return_value="OK Direct")
+    mock_router.register("direct", handler) # No subcommands
+    
+    res = await mock_router.route(update, context, admin_manager)
+    assert "OK Direct" in res
+    handler.assert_called_with(update, context, admin_manager, ['arg1', 'arg2'])

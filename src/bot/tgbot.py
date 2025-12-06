@@ -165,6 +165,7 @@ async def lifespan(app: FastAPI):
             # Register settings commands
             settings_commands = SettingsCommands(profile_manager)
             admin_router.register('chat', settings_commands.manage_chats)
+            admin_router.register('allowed', settings_commands.manage_chats)
             admin_router.register('frequency', settings_commands.manage_frequency)
             
             # Register help commands
@@ -263,11 +264,29 @@ async def handle_message(update: Update):
         await telegram_app.bot.send_message(chat_id=chat_id, text=f"Chat ID: `{chat_id}`\nUser ID: `{user_id}`", parse_mode="Markdown")
         return
     else:
-        # Check whitelist
+        # Access Control Logic
         config = admin_manager.config
-        if chat_id not in config.allowed_chats:
-            # Ignore unauthorized chats
-            logger.info(f"Ignoring message from unauthorized chat {chat_id}")
+        is_allowed = False
+        
+        # 1. Whitelist Check
+        if chat_id in config.allowed_chats:
+            is_allowed = True
+            
+        # 2. Admin Check (Admins always allowed)
+        if admin_manager and admin_manager.is_admin(user_id):
+            is_allowed = True
+            
+        # 3. Private Chat Command Check
+        # Allow commands in private chats even if unauthorized (to allow /admin_set, /help, etc)
+        # message.chat.type can be 'private', 'group', 'supergroup', 'channel'
+        is_private = (message.chat.type == 'private')
+        if is_private and is_command:
+            is_allowed = True
+            
+        if not is_allowed:
+            # Ignore unauthorized
+            # Use debug level to avoid spamming logs with ignored messages
+            logger.debug(f"Ignoring message from unauthorized chat {chat_id} (User {user_id})")
             return
     
     # Check frequency (only for non-commands)

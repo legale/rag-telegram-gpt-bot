@@ -755,7 +755,8 @@ legale bot run
     - [x] `/admin chat list` - Show allowed chats
     - [x] `/admin chat add <id>` - Allow chat
     - [x] `/admin chat remove <id>` - Disallow chat
-    - [x] Block unauthorized chats (if whitelist active)
+    - [x] `/admin allowed list/add` - Aliases added
+    - [x] DM Logic: Admins always allowed; Non-admins only commands allowed (unless whitelisted)
     - [x] `/id` command to show chat ID
 
 - [x] **Response Frequency**:

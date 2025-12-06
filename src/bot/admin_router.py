@@ -70,18 +70,31 @@ class AdminCommandRouter:
             args = parts[3:]  # remaining arguments
             
             # Find subcommand handler
-            if command in self.subcommand_handlers:
-                if subcommand in self.subcommand_handlers[command]:
-                    handler = self.subcommand_handlers[command][subcommand]
-                    try:
-                        return await handler(update, context, admin_manager, args)
-                    except Exception as e:
-                        logger.error(f"Error in handler {command}/{subcommand}: {e}", exc_info=True)
-                        return f"❌ Ошибка при выполнении команды: {e}"
-                else:
-                    return f"❌ Неизвестная подкоманда: {subcommand}\n\nИспользуйте /admin help {command}"
+            # Find subcommand handler
+            if command in self.subcommand_handlers and subcommand in self.subcommand_handlers[command]:
+                handler = self.subcommand_handlers[command][subcommand]
+                try:
+                    return await handler(update, context, admin_manager, args)
+                except Exception as e:
+                    logger.error(f"Error in handler {command}/{subcommand}: {e}", exc_info=True)
+                    return f"❌ Ошибка при выполнении команды: {e}"
             else:
-                return f"❌ Команда '{command}' не поддерживает подкоманды."
+                # Check for direct handler accepting arguments (fallback)
+                if command in self.handlers:
+                    handler = self.handlers[command]
+                    try:
+                        # Pass all parts after command as args (including what looked like subcommand)
+                        full_args = parts[2:]
+                        return await handler(update, context, admin_manager, full_args)
+                    except Exception as e:
+                        logger.error(f"Error in handler {command}: {e}", exc_info=True)
+                        return f"❌ Ошибка при выполнении команды: {e}"
+                
+                # Check if it was a valid command in subcommands list
+                elif command in self.subcommand_handlers:
+                    return f"❌ Неизвестная подкоманда: {subcommand}\n\nИспользуйте /admin help {command}"
+                else:
+                    return f"❌ Команда '{command}' не найдена."
         else:
             # No subcommand - check for direct handler
             if command in self.handlers:
@@ -113,6 +126,10 @@ class AdminCommandRouter:
             "• `/admin ingest` - загрузить данные (отправьте JSON файл)\n"
             "• `/admin ingest clear` - очистить данные профиля\n"
             "• `/admin ingest status` - статус загрузки\n\n"
+            "**Доступ:**\n"
+            "• `/admin allowed list` - список разрешенных чатов\n"
+            "• `/admin allowed add <id>` - разрешить чат\n"
+            "• `/admin allowed remove <id>` - запретить чат\n\n"
             "**Статистика и мониторинг:**\n"
             "• `/admin stats` - общая статистика\n"
             "• `/admin health` - проверка здоровья системы\n"
