@@ -76,43 +76,45 @@ Create a chatbot that acts as an IT union lawyer, using a RAG (Retrieval-Augment
     - Implement an evaluation script to check retrieval quality.
 
 ### Phase 4: Telegram Bot Integration (Webhook + Daemon)
-- [ ] **Daemon Architecture**:
-    - [ ] Design persistent memory architecture (keep DB/VectorStore loaded)
-    - [ ] Choose web framework (FastAPI + uvicorn)
-    - [ ] Design logging strategy (syslog for daemon, stdout for foreground)
-    - [ ] Plan graceful shutdown handling
-- [ ] **Telegram Bot Implementation**:
-    - [ ] Implement `src/bot/tgbot.py` main module
-    - [ ] Create FastAPI app with `/webhook` endpoint
-    - [ ] Implement Telegram update parser
-    - [ ] Add message handler (text messages → LegaleBot.chat())
-    - [ ] Add `/start` and `/help` commands
-    - [ ] Implement persistent LegaleBot instance (singleton pattern)
-- [ ] **CLI Utilities**:
-    - [ ] Implement `register` command (webhook registration)
-    - [ ] Implement `delete` command (webhook deletion)
-    - [ ] Implement `run` command (foreground mode with -v/-vv/-vvv)
-    - [ ] Implement `daemon` command (background mode)
-    - [ ] Add argument parsing with `argparse`
-- [ ] **Daemonization**:
-    - [ ] Implement daemon mode using `python-daemon` or systemd
-    - [ ] Configure syslog logging for daemon mode
-    - [ ] Implement PID file management
-    - [ ] Add signal handlers (SIGTERM, SIGINT for graceful shutdown)
-- [ ] **Nginx Integration**:
-    - [ ] Create nginx config template (`nginx/telegram-bot.conf`)
-    - [ ] Document SSL/TLS requirements
-    - [ ] Document reverse proxy setup
-    - [ ] Add health check endpoint (`/health`)
-- [ ] **Systemd Service**:
-    - [ ] Create systemd service file (`systemd/legale-bot.service`)
-    - [ ] Document service installation steps
-    - [ ] Document service management commands
-- [ ] **Configuration & Documentation**:
-    - [ ] Add `TELEGRAM_BOT_TOKEN` to `.env.example`
-    - [ ] Update `README.md` with Telegram bot setup instructions
-    - [ ] Update `pyproject.toml` with new dependencies
-    - [ ] Document webhook registration process
+- [x] **Daemon Architecture**:
+    - [x] Design persistent memory architecture (keep DB/VectorStore loaded)
+    - [x] Choose web framework (FastAPI + uvicorn)
+    - [x] Design logging strategy (syslog for daemon, stdout for foreground)
+    - [x] Plan graceful shutdown handling
+- [x] **Telegram Bot Implementation**:
+    - [x] Implement `src/bot/tgbot.py` main module
+    - [x] Create FastAPI app with `/webhook` endpoint
+    - [x] Implement Telegram update parser
+    - [x] Add message handler (text messages → LegaleBot.chat())
+    - [x] Add `/start` and `/help` commands
+    - [x] Implement persistent LegaleBot instance (singleton pattern)
+- [x] **CLI Utilities**:
+    - [x] Implement `register` command (webhook registration)
+    - [x] Implement `delete` command (webhook deletion)
+    - [x] Implement `run` command (foreground mode with -v/-vv/-vvv)
+    - [x] Implement `daemon` command (background mode)
+    - [x] Add argument parsing with `argparse`
+- [x] **Daemonization**:
+    - [x] Implement daemon mode using `python-daemon` or systemd
+    - [x] Configure syslog logging for daemon mode
+    - [x] Implement PID file management
+    - [x] Add signal handlers (SIGTERM, SIGINT for graceful shutdown)
+- [x] **Nginx Integration**:
+    - [x] Create nginx config template (`nginx/telegram-bot.conf`)
+    - [x] Document SSL/TLS requirements
+    - [x] Document reverse proxy setup
+    - [x] Add health check endpoint (`/health`)
+- [x] **Systemd Service**:
+    - [x] Create systemd service file (`systemd/legale-bot.service`)
+    - [x] Create SysV init script (`init.d/legale-bot`)
+    - [x] Document service installation steps
+    - [x] Document service management commands
+- [x] **Configuration & Documentation**:
+    - [x] Add `TELEGRAM_BOT_TOKEN` to `.env.example`
+    - [x] Update `README.md` with Telegram bot setup instructions
+    - [x] Update `pyproject.toml` with new dependencies
+    - [x] Document webhook registration process
+    - [x] Add Quick Start guide with complete setup workflow
 - [ ] **Testing & Verification**:
     - [ ] Write unit tests for webhook handler
     - [ ] Write integration tests for daemon startup/shutdown
