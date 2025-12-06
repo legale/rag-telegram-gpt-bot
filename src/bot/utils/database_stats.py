@@ -141,9 +141,11 @@ class DatabaseStatsService:
         try:
             conn = sqlite3.connect(str(db_path))
             cursor = conn.cursor()
-            cursor.execute("SELECT 1")
+            # PRAGMA quick_check returns 'ok' if healthy
+            cursor.execute("PRAGMA quick_check")
+            result = cursor.fetchone()
             conn.close()
-            return True
+            return result and result[0] == 'ok'
         except Exception as e:
             logger.error(f"Database health check failed: {e}")
             return False

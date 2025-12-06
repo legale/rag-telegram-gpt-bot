@@ -1,48 +1,110 @@
+
 import pytest
-from unittest.mock import MagicMock, patch
-from src.core.embedding import EmbeddingClient
+from unittest.mock import MagicMock, patch, mock_open
+from src.core.embedding import EmbeddingClient, OpenRouterEmbeddingFunction, get_embedding_function
+import os
 
 @pytest.fixture
-def mock_openai_client():
-    with patch("src.core.embedding.OpenAI") as mock_openai:
-        mock_instance = MagicMock()
-        mock_openai.return_value = mock_instance
-        yield mock_instance
+def mock_openai():
+    with patch('src.core.embedding.OpenAI') as mock:
+        yield mock
 
-def test_embedding_client_init(mock_openai_client):
-    client = EmbeddingClient(api_key="test-key")
-    assert client.model == "text-embedding-3-small"
-    mock_openai_client.assert_not_called() # OpenAI init is called inside __init__, wait.
-    # Actually OpenAI() is called.
+@pytest.fixture
+def client(mock_openai):
+    # Ensure env doesn't leak
+    with patch.dict(os.environ, {}, clear=True):
+        return EmbeddingClient(api_key="sk-test", base_url="https://test.com")
+
+def test_init_defaults(mock_openai):
+    # Use clear=True to ignore real env
+    with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-env", "OPENROUTER_BASE_URL": "https://env.com"}, clear=True):
+        client = EmbeddingClient()
+        assert client.api_key == "sk-env"
+        assert client.base_url == "https://env.com"
+        mock_openai.assert_called_with(api_key="sk-env", base_url="https://env.com")
+
+def test_get_embeddings(client, mock_openai):
+    mock_resp = MagicMock()
+    mock_resp.data = [MagicMock(embedding=[0.1, 0.2]), MagicMock(embedding=[0.3, 0.4])]
+    client.client.embeddings.create.return_value = mock_resp
     
-def test_get_embeddings(mock_openai_client):
-    client = EmbeddingClient(api_key="test-key")
+    embs = client.get_embeddings(["hello", "world"])
     
-    # Mock response
-    mock_response = MagicMock()
-    mock_data_item = MagicMock()
-    mock_data_item.embedding = [0.1, 0.2, 0.3]
-    mock_response.data = [mock_data_item]
-    
-    client.client.embeddings.create.return_value = mock_response
-    
-    embeddings = client.get_embeddings(["test text"])
-    
-    assert len(embeddings) == 1
-    assert embeddings[0] == [0.1, 0.2, 0.3]
+    assert len(embs) == 2
+    assert embs[0] == [0.1, 0.2]
     client.client.embeddings.create.assert_called_once()
-    
-def test_get_embedding_single(mock_openai_client):
-    client = EmbeddingClient(api_key="test-key")
-    
-    # Mock response
-    mock_response = MagicMock()
-    mock_data_item = MagicMock()
-    mock_data_item.embedding = [0.1, 0.2, 0.3]
-    mock_response.data = [mock_data_item]
-    
-    client.client.embeddings.create.return_value = mock_response
-    
-    embedding = client.get_embedding("test text")
-    
-    assert embedding == [0.1, 0.2, 0.3]
+    call_args = client.client.embeddings.create.call_args[1]
+    assert call_args['input'] == ["hello", "world"]
+
+def test_get_embedding(client):
+    with patch.object(client, 'get_embeddings') as mock_get_embs:
+        mock_get_embs.return_value = [[0.1, 0.2]]
+        emb = client.get_embedding("text")
+        assert emb == [0.1, 0.2]
+        mock_get_embs.assert_called_once_with(["text"])
+
+def test_get_embeddings_batched(client):
+    with patch.object(client, 'get_embeddings') as mock_get_embs:
+        mock_get_embs.side_effect = [[[1.0], [1.0]], [[2.0]]]
+        
+        embs = client.get_embeddings_batched(["a", "b", "c"], batch_size=2)
+        
+        assert len(embs) == 3
+        assert mock_get_embs.call_count == 2
+
+def test_embed_and_save_jsonl(client, tmp_path):
+    with patch.object(client, 'get_embeddings') as mock_get_embs:
+        mock_get_embs.return_value = [[0.1], [0.2]]
+        
+        out_file = tmp_path / "test.jsonl"
+        embs = client.embed_and_save_jsonl(
+            ids=["1", "2"],
+            texts=["a", "b"],
+            out_path=str(out_file),
+            batch_size=2
+        )
+        
+        assert len(embs) == 2
+        assert out_file.exists()
+        lines = out_file.read_text().splitlines()
+        assert len(lines) == 2
+
+def test_embed_and_save_jsonl_mismatch(client):
+    with pytest.raises(ValueError):
+        client.embed_and_save_jsonl(["1"], [], "out")
+
+def test_embed_and_save_jsonl_empty(client, tmp_path):
+    out = tmp_path / "empty.jsonl"
+    res = client.embed_and_save_jsonl([], [], str(out))
+    assert res == []
+    assert out.exists()
+
+def test_load_embeddings_jsonl(tmp_path):
+    f = tmp_path / "load.jsonl"
+    import json
+    with open(f, 'w') as fp:
+        fp.write(json.dumps({"id": "1", "embedding": [0.1]}) + "\n")
+        fp.write("\n") 
+        fp.write(json.dumps({"id": "2", "embedding": [0.2]}) + "\n")
+        
+    ids, embs = EmbeddingClient.load_embeddings_jsonl(str(f))
+    assert ids == ["1", "2"]
+    assert embs == [[0.1], [0.2]]
+
+def test_openrouter_embedding_function(client):
+    func = OpenRouterEmbeddingFunction(client)
+    with patch.object(client, 'get_embeddings') as mock_get:
+        mock_get.return_value = [[1.0]]
+        res = func(["text"])
+        assert res == [[1.0]]
+
+def test_get_embedding_function():
+    with patch("src.core.embedding.EmbeddingClient") as MockClient:
+        # Default (local) -> None
+        with patch.dict(os.environ, {"EMBEDDING_PROVIDER": "local"}, clear=True):
+            assert get_embedding_function() is None
+            
+        assert get_embedding_function("local") is None
+        
+        func = get_embedding_function("openrouter")
+        assert isinstance(func, OpenRouterEmbeddingFunction)

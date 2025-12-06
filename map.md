@@ -1485,5 +1485,40 @@ legale bot run
 - **Below 50% (7 modules)**: `tgbot.py` (30%), `database_stats.py` (49%), `frequency_controller.py` (35%), `access_control.py` (25%), `telegram.py` (0%)
 
 **Total:** 27 modules, 17 below 80% coverage
+### Phase 12: Coverage Analysis (Generated)
+**Current Overall Coverage: 80%** ✅ 
+
+**Modules Ranked by Coverage (Ascending):**
+
+1. **61%** - `src/bot/admin_commands.py`
+2. **62%** - `src/bot/cli.py`
+3. **68%** - `src/bot/utils/command_validator.py`
+4. **68%** - `src/ingestion/telegram.py`
+5. **70%** - `src/ingestion/parser.py`
+6. **76%** - `src/bot/utils/health_checker.py`
+7. **76%** - `src/core/prompt.py`
+8. **78%** - `src/bot/utils/response_formatter.py`
+9. **80%** - `src/bot/tgbot.py`
+10. **80%** - `src/ingestion/pipeline.py`
+11. **83%** - `src/core/retrieval.py`
+12. **88%** - `src/bot/admin_tasks.py`
+13. **89%** - `src/bot/utils/database_stats.py`
+14. **91%** - `src/bot/admin_router.py`
+15. **93%** - `src/bot/admin.py`
+16. **93%** - `src/ingestion/chunker.py`
+17. **94%** - `src/bot/core.py`
+18. **94%** - `src/core/embedding.py`
+19. **96%** - `src/bot/config.py`
+20. **96%** - `src/storage/vector_store.py`
+21. **100%** - `src/core/llm.py`
+22. **100%** - `src/bot/utils/access_control.py`
+23. **100%** - `src/bot/utils/frequency_controller.py`
+24. **100%** - `src/storage/db.py`
+
+**Status:**
+- Target 80% Reached!
+- Created comprehensive tests for `vector_store`, `embedding`, `pipeline`, `database_stats`, `db`, and `telegram`.
+- `tgbot.py` coverage improved drastically.
+
 
 
