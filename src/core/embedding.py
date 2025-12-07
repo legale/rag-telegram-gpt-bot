@@ -319,7 +319,14 @@ def create_embedding_client(
         return EmbeddingClient(model=api_model)
     elif generator_lower == "local":
         local_model = model or os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
-        return LocalEmbeddingClient(model=local_model)
+        try:
+            return LocalEmbeddingClient(model=local_model)
+        except ImportError:
+            import sys
+            print("Error: sentence-transformers is not installed.", file=sys.stderr)
+            print("Install it with: poetry install", file=sys.stderr)
+            print("Or: pip install sentence-transformers", file=sys.stderr)
+            sys.exit(1)
     else:
         # Default to openrouter for backward compatibility
         api_model = model or os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")

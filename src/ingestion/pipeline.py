@@ -37,9 +37,19 @@ class IngestionPipeline:
                     generator=config.embedding_generator,
                     model=config.embedding_model
                 )
+            except SystemExit:
+                # Already handled in create_embedding_client
+                raise
             except Exception as e:
-                print(f"Warning: Could not load profile config: {e}")
-                print("  Using default embedding client")
+                import sys
+                print(f"Error: Could not load profile config: {e}", file=sys.stderr)
+                sys.exit(1)
+        
+        # If no profile config, use defaults from environment
+        if embedding_client is None:
+            generator = os.getenv("EMBEDDING_PROVIDER", "openrouter")
+            model = os.getenv("EMBEDDING_MODEL")
+            embedding_client = create_embedding_client(generator=generator, model=model)
         
         self.vector_store = VectorStore(
             persist_directory=vector_db_path,
@@ -125,10 +135,11 @@ class IngestionPipeline:
 
         # 4. precompute embeddings + save to disk + load into vector db
         if ids:
-            # Use profile embedding client if available, otherwise create default
+            # Use embedding client from initialization (profile config or env defaults)
             emb_client = self.embedding_client
             if emb_client is None:
-                emb_client = EmbeddingClient()
+                # This should not happen if initialization was correct
+                raise RuntimeError("Embedding client was not initialized. This is a bug.")
             
             emb_path = file_path + ".embeddings.jsonl"
 
