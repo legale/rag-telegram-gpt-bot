@@ -33,6 +33,7 @@ except ImportError as e:
         sys.exit(1)
 
 from dotenv import load_dotenv
+from src.core.syslog2 import syslog2, setup_log, LogLevel
 
 def main():
     # Load .env from project root
@@ -41,7 +42,7 @@ def main():
     
     # Debug: Check if key is loaded
     if not os.getenv("OPENROUTER_API_KEY") and not os.getenv("OPENAI_API_KEY"):
-        print(f"Warning: Neither OPENROUTER_API_KEY nor OPENAI_API_KEY found in {dotenv_path}")
+        syslog2(LOG_WARNING, "api key missing", env_file=dotenv_path)
         # Print first few chars if exists to verify
     
     import argparse
@@ -49,19 +50,48 @@ def main():
     parser = argparse.ArgumentParser(description="Legale Bot CLI")
     parser.add_argument("-v", "--verbose", action="count", default=0, help="Increase verbosity level (-v, -vv, -vvv)")
     parser.add_argument("--chunks", type=int, default=5, help="Number of context chunks to retrieve (default: 5)")
+    parser.add_argument("-V", "--log-level", type=str, choices=["DEBUG", "INFO", "WARNING", "ERR", "CRIT", "ALERT"], help="Set logging level")
     args = parser.parse_args()
 
+    # Configure logging
+    syslog_level = LOG_WARNING
+    
+    if args.log_level:
+        level_map = {
+            "DEBUG": LOG_DEBUG,
+            "INFO": LOG_INFO,
+            "WARNING": LOG_WARNING,
+            "ERR": LOG_ERR,
+            "CRIT": LOG_CRIT,
+            "ALERT": LOG_ALERT
+        }
+        syslog_level = level_map.get(args.log_level, LOG_WARNING)
+        
+        # Update verbosity for components that use it (LegaleBot, LLMClient)
+        if args.log_level == 'DEBUG':
+            args.verbose = max(args.verbose, 2)
+        elif args.log_level == 'INFO':
+            args.verbose = max(args.verbose, 1)
+            
+    elif args.verbose == 1:
+        syslog_level = LOG_INFO
+    elif args.verbose >= 2:
+        syslog_level = LOG_DEBUG
+    
+    setup_log(syslog_level)
+
     # Read model from models.txt
-    model_name = "openai/gpt-3.5-turbo" # Default
+    model_name = None
     try:
         with open("models.txt", "r") as f:
             line = f.readline().strip()
             if line:
                 model_name = line
     except FileNotFoundError:
-        print("Warning: models.txt not found, using default model.")
+        syslog2(LOG_ERR, "models file missing")
+        sys.exit(1)
 
-    print(f"Initializing Legale Bot with model: {model_name} (Verbosity: {args.verbose}, Chunks: {args.chunks})...")
+    syslog2(LOG_INFO, "cli bot initializing", model=model_name, verbosity=args.verbose, chunks=args.chunks)
     
     # Get paths from environment (set by legale.py)
     db_url = os.getenv("DATABASE_URL")
@@ -69,7 +99,7 @@ def main():
     profile_dir = os.getenv("PROFILE_DIR")
     
     if not db_url or not vector_db_path:
-        print("Error: DATABASE_URL and VECTOR_DB_PATH must be set in environment.")
+        syslog2(LOG_ERR, "environment variables missing", vars="DATABASE_URL, VECTOR_DB_PATH")
         print("Please use 'legale chat' command instead of running cli.py directly.")
         return
 
@@ -84,7 +114,7 @@ def main():
         print("Bot ready! Type 'exit' or 'quit' to stop.")
         print("-" * 50)
     except Exception as e:
-        print(f"Error initializing bot: {e}")
+        syslog2(LOG_ERR, "bot init failed", error=str(e))
         return
 
     while True:
@@ -105,7 +135,7 @@ def main():
             print("\nGoodbye!")
             break
         except Exception as e:
-            print(f"Error: {e}")
+            syslog2(LOG_ERR, "chat error", error=str(e))
 
 if __name__ == "__main__":
     main()

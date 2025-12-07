@@ -25,6 +25,7 @@ from datetime import datetime
 import os
 import argparse
 import sys
+from src.core.syslog2 import *
 
 # Helper to serialize datetime
 def json_serial(obj):
@@ -48,7 +49,7 @@ class TelegramFetcher:
         except ValueError:
             pass
 
-        print(f"Searching for chat: '{id_or_name}'...")
+        syslog2(LOG_INFO, "searching for chat", name=id_or_name)
         
         # Iterate dialogs to find match
         # Note: This might be slow if there are many dialogs, but it's reliable for Titles.
@@ -75,7 +76,7 @@ class TelegramFetcher:
         with self.client:
             chat = self._find_chat(id_or_name)
             if not chat:
-                print(f"Error: Chat '{id_or_name}' not found.")
+                syslog2(LOG_ERR, "chat not found", name=id_or_name)
                 return
 
             print(f"Members of '{chat.name}' ({chat.id}):")
@@ -88,18 +89,18 @@ class TelegramFetcher:
                     username = f"@{user.username}" if user.username else "N/A"
                     print(f"{user.id:<15} | {name:<20} | {username}")
             except Exception as e:
-                print(f"Error fetching members: {e}")
+                syslog2(LOG_ERR, "fetch members failed", error=str(e))
 
     def dump_chat(self, id_or_name: str, limit: int = 1000, output_file: Optional[str] = None):
         """Dumps messages from a chat."""
         with self.client:
             chat = self._find_chat(id_or_name)
             if not chat:
-                print(f"Error: Chat '{id_or_name}' not found.")
+                syslog2(LOG_ERR, "chat not found", name=id_or_name)
                 return
 
-            print(f"Found chat: {chat.name} (ID: {chat.id})")
-            print(f"Fetching last {limit} messages...")
+            syslog2(LOG_INFO, "found chat", name=chat.name, id=chat.id)
+            syslog2(LOG_INFO, "fetching messages", limit=limit)
             
             messages_data = []
             count = 0
@@ -152,7 +153,7 @@ class TelegramFetcher:
                 
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump(messages_data, f, default=json_serial, ensure_ascii=False, indent=2)
-            print(f"Saved {len(messages_data)} messages to {output_file}")
+            syslog2(LOG_INFO, "saved messages", count=len(messages_data), path=output_file)
 
 if __name__ == "__main__":
     from dotenv import load_dotenv

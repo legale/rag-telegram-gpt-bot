@@ -35,6 +35,7 @@ from src.bot.admin_router import AdminCommandRouter
 from src.bot.admin_commands import ProfileCommands, HelpCommands, IngestCommands, StatsCommands, ControlCommands, SettingsCommands, ModelCommands, SystemPromptCommands
 from src.bot.admin_tasks import TaskManager
 from src.bot.utils import AccessControlService, FrequencyController
+from src.core.syslog2 import *
 
 # Load environment variables
 load_dotenv()
@@ -96,7 +97,7 @@ class MessageHandler:
         try:
             return self.bot.reset_context()
         except Exception as e:
-            logger.error(f"Error resetting context: {e}", exc_info=True)
+            syslog2(LOG_ERR, "reset context failed", error=str(e))
             return "Ошибка при сбросе контекста."
     
     async def handle_tokens_command(self) -> str:
@@ -117,7 +118,7 @@ class MessageHandler:
                 response += "✅ Достаточно места для разговора."
             return response
         except Exception as e:
-            logger.error(f"Error getting token usage: {e}", exc_info=True)
+            syslog2(LOG_ERR, "get token usage failed", error=str(e))
             return "Ошибка при получении информации о токенах."
     
     async def handle_model_command(self) -> str:
@@ -129,7 +130,7 @@ class MessageHandler:
                 self.admin_manager.config.current_model = self.bot.current_model_name
             return msg
         except Exception as e:
-            logger.error(f"Error switching model: {e}", exc_info=True)
+            syslog2(LOG_ERR, "switch model failed", error=str(e))
             return "Ошибка при переключении модели."
     
     async def handle_admin_set_command(self, text: str, message) -> str:
@@ -157,7 +158,7 @@ class MessageHandler:
             try:
                 self.admin_manager.set_admin(user_id, username, first_name, last_name)
                 full_name = f"{first_name} {last_name}".strip() if last_name else first_name
-                logger.info(f"Admin set: {full_name} (ID: {user_id})")
+                syslog2(LOG_INFO, "admin set", full_name=full_name, user_id=user_id)
                 return (
                     f"✅ Вы успешно назначены администратором!\n\n"
                     f"👤 Имя: {full_name}\n"
@@ -165,10 +166,10 @@ class MessageHandler:
                     f"📝 Username: @{username}"
                 )
             except Exception as e:
-                logger.error(f"Error setting admin: {e}", exc_info=True)
+                syslog2(LOG_ERR, "set admin failed", error=str(e))
                 return "❌ Ошибка при назначении администратора."
         else:
-            logger.warning(f"Failed admin_set attempt from user {message.from_user.id}")
+            syslog2(LOG_WARNING, "failed admin set attempt", user_id=message.from_user.id)
             return "❌ Неверный пароль."
     
     async def handle_admin_get_command(self, user_id: int) -> str:
@@ -177,7 +178,7 @@ class MessageHandler:
             return "❌ Система администрирования недоступна."
         
         if not self.admin_manager.is_admin(user_id):
-            logger.warning(f"Unauthorized admin_get attempt from user {user_id}")
+            syslog2(LOG_WARNING, "unauthorized admin get attempt", user_id=user_id)
             return "❌ Эта команда доступна только администратору."
         
         admin_info = self.admin_manager.get_admin()
@@ -199,7 +200,7 @@ class MessageHandler:
         try:
             return await self.admin_router.route(update, None, self.admin_manager)
         except Exception as e:
-            logger.error(f"Error processing admin command: {e}", exc_info=True)
+            syslog2(LOG_ERR, "admin command failed", error=str(e))
             return f"❌ Ошибка при выполнении админ-команды: {e}"
     
     async def handle_user_query(self, text: str, respond: bool) -> str:
@@ -209,7 +210,7 @@ class MessageHandler:
             system_prompt = self.admin_manager.config.system_prompt
             return self.bot.chat(text, respond=respond, system_prompt_template=system_prompt)
         except Exception as e:
-            logger.error(f"Error querying bot: {e}", exc_info=True)
+            syslog2(LOG_ERR, "process user query failed", error=str(e))
             return f"Произошла ошибка при обработке вашего запроса. error={e}"
     
     async def route_command(self, text: str, update: Update) -> str:
@@ -254,10 +255,10 @@ async def init_runtime_for_current_profile():
     # пересоздаем admin_manager sначала, чтобы получить конфиг
     profile_dir = paths["profile_dir"]
     admin_manager_local = AdminManager(profile_dir)
-    logger.info("Admin manager initialized for profile_dir=%s", profile_dir)
+    syslog2(LOG_INFO, "admin manager initialized", profile_dir=str(profile_dir))
 
     # Загружаем сохраненную модель
-    model_name = admin_manager_local.config.current_model or "openai/gpt-3.5-turbo"
+    model_name = admin_manager_local.config.current_model or "openai/gpt-oss-20b:free"
 
     # пересоздаем core
     bot_instance = LegaleBot(
@@ -266,13 +267,7 @@ async def init_runtime_for_current_profile():
         model_name=model_name,
         profile_dir=profile_dir
     )
-    logger.warning(
-        "Bot core (LegaleBot) initialized with profile=%s db_url=%s vector=%s model=%s",
-        profile_manager.get_current_profile(),
-        paths["db_url"],
-        paths["vector_db_path"],
-        model_name
-    )
+    syslog2(LOG_WARNING, "bot core initialized", profile=profile_manager.get_current_profile(), db_url=paths["db_url"], vector=paths["vector_db_path"], model=model_name)
 
     # пересоздаем admin_router и все команды
     admin_router_local = AdminCommandRouter()
@@ -326,7 +321,7 @@ async def init_runtime_for_current_profile():
     help_commands = HelpCommands()
     admin_router_local.register("help", help_commands.show_help)
 
-    logger.info("Admin router initialized with all admin commands")
+    syslog2(LOG_INFO, "admin router initialized")
 
 
 
@@ -344,14 +339,9 @@ async def reload_for_current_profile():
     """
     hot-reload рантайма под активный профиль (используется /admin restart)
     """
-    logger.warning("Hot reload requested for active profile...")
+    syslog2(LOG_WARNING, "hot reload requested")
     paths = await init_runtime_for_current_profile()
-    logger.warning(
-        "Hot reload completed: profile=%s db=%s vector=%s",
-        profile_manager.get_current_profile(),
-        paths["db_path"],
-        paths["vector_db_path"],
-    )
+    syslog2(LOG_WARNING, "hot reload completed", profile=profile_manager.get_current_profile(), db=paths["db_path"], vector=paths["vector_db_path"])
     return paths
 
 
@@ -375,8 +365,10 @@ def setup_logging(verbosity: int = 0, use_syslog: bool = False):
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     
     handler.setFormatter(formatter)
-    logger.addHandler(handler)
-    logger.setLevel(level)
+    # Configure root logger to capture all logs including syslog2 ("app")
+    root_logger = logging.getLogger()
+    root_logger.addHandler(handler)
+    root_logger.setLevel(level)
     
     # Also configure uvicorn logger
     uvicorn_logger = logging.getLogger("uvicorn")
@@ -391,7 +383,7 @@ async def lifespan(app: FastAPI):
     """
     global bot_instance, telegram_app, admin_manager, admin_router, profile_manager, task_manager, ingest_commands, access_control
     
-    logger.info("Starting Legale Bot daemon...")
+    syslog2(LOG_INFO, "daemon starting")
     
     # Initialize profile manager
     try:
@@ -404,10 +396,9 @@ async def lifespan(app: FastAPI):
             sys.path.insert(0, str(project_root))
         from legale import ProfileManager
         
-        profile_manager = ProfileManager(project_root)
         logger.info("Profile manager initialized")
     except Exception as e:
-        logger.error(f"Failed to initialize profile manager: {e}")
+        syslog2(LOG_ERR, "profile manager init failed", error=str(e))
         profile_manager = None
         raise RuntimeError("Profile manager initialization failed")
 
@@ -415,33 +406,33 @@ async def lifespan(app: FastAPI):
     try:
         await init_runtime_for_current_profile()
     except Exception as e:
-        logger.error(f"Failed to initialize runtime: {e}")
+        syslog2(LOG_ERR, "runtime init failed", error=str(e))
         raise
     
     # Initialize Telegram application
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     if not token:
-        logger.error("TELEGRAM_BOT_TOKEN not found in environment")
+        syslog2(LOG_ERR, "telegram token missing")
         raise ValueError("TELEGRAM_BOT_TOKEN is required")
     
     telegram_app = Application.builder().token(token).build()
     await telegram_app.initialize()
-    logger.info("Telegram application initialized")
+    syslog2(LOG_INFO, "telegram app initialized")
     
     # Initialize access control service
     if admin_manager:
         access_control = AccessControlService(admin_manager)
-        logger.info("Access control service initialized")
+        syslog2(LOG_INFO, "access control initialized")
     else:
-        logger.warning("Access control not initialized - admin_manager is None")
+        syslog2(LOG_WARNING, "access control not initialized", reason="admin_manager is None")
     
     yield
     
     # Cleanup
-    logger.info("Shutting down gracefully...")
+    syslog2(LOG_INFO, "shutting down")
     if telegram_app:
         await telegram_app.shutdown()
-    logger.info("Shutdown complete")
+    syslog2(LOG_INFO, "shutdown complete")
 
 
 # Create FastAPI app
@@ -464,7 +455,7 @@ async def webhook(request: Request):
         data = await request.json()
         update = Update.de_json(data, telegram_app.bot)
         
-        logger.debug(f"Received update: {update.update_id}")
+        syslog2(LOG_DEBUG, "update received", update_id=update.update_id)
         
         # Handle file upload (for ingestion)
         if update.message and update.message.document and ingest_commands:
@@ -480,7 +471,7 @@ async def webhook(request: Request):
         return Response(status_code=200)
     
     except Exception as e:
-        logger.error(f"Error processing webhook: {e}", exc_info=True)
+        syslog2(LOG_ERR, "webhook processing failed", error=str(e))
         return Response(status_code=500)
 
 
@@ -522,7 +513,7 @@ async def handle_message(update: Update):
     chat_id = message.chat_id
     user_id = message.from_user.id
 
-    logger.info(f"Message from {chat_id} (User {user_id}): {text[:50]}...")
+    syslog2(LOG_INFO, "message received", chat_id=chat_id, user_id=user_id, text_snippet=text[:50])
 
     is_command = text.startswith("/")
     is_private = (message.chat.type == "private")
@@ -538,12 +529,12 @@ async def handle_message(update: Update):
 
     # admin_manager is required
     if not admin_manager:
-        logger.error("admin_manager is not initialized, dropping message")
+        syslog2(LOG_ERR, "admin manager missing", action="drop_message")
         return
 
     # Check access using AccessControlService
     if not access_control:
-        logger.error("access_control is not initialized")
+        syslog2(LOG_ERR, "access control missing")
         return
     
     is_allowed, denial_reason = access_control.is_allowed(
@@ -585,7 +576,7 @@ async def handle_message(update: Update):
         # (не сохраняем в историю и не тратим ресурсы)
         target_freq = config.response_frequency or 0
         if not respond and target_freq == 0:
-            logger.debug(f"Ignoring message in chat {chat_id} (freq=0, no mention)")
+            syslog2(LOG_DEBUG, "message ignored", chat_id=chat_id, reason="freq=0, no mention")
             return
 
         response = await handler.handle_user_query(text, respond)
@@ -593,7 +584,7 @@ async def handle_message(update: Update):
     # Send response if available
     if response:
         await telegram_app.bot.send_message(chat_id=chat_id, text=response)
-        logger.info(f"Response sent to {chat_id}")
+        syslog2(LOG_INFO, "response sent", chat_id=chat_id)
 
 
 def register_webhook(url: str, token: str):
@@ -675,7 +666,7 @@ def run_daemon(host: str = "127.0.0.1", port: int = 8000):
             signal.SIGINT: lambda signum, frame: sys.exit(0),
         }
     ):
-        logger.info("Daemon started")
+        syslog2(LOG_INFO, "daemon started")
         uvicorn.run(
             app,
             host=host,

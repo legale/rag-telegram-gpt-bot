@@ -67,7 +67,7 @@ class TestLoadAvailableModels:
             
             # Should fallback to default model
             assert len(bot.available_models) == 1
-            assert bot.available_models[0] == "openai/gpt-3.5-turbo"
+            assert bot.available_models[0] == "openai/gpt-oss-20b:free"
     
     def test_load_models_with_empty_file(self, mock_dependencies):
         """Test loading models from an empty models.txt file."""
@@ -80,7 +80,7 @@ class TestLoadAvailableModels:
                 
                 # Should fallback to default model
                 assert len(bot.available_models) == 1
-                assert bot.available_models[0] == "openai/gpt-3.5-turbo"
+                assert bot.available_models[0] == "openai/gpt-oss-20b:free"
         finally:
             if os.path.exists(temp_path):
                 os.unlink(temp_path)

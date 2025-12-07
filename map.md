@@ -1,9 +1,10 @@
-# Legale Bot - Union Lawyer Chatbot
+# Librarian bot
 
 ## Project Goal
-Create a chatbot that acts as an IT union lawyer, using a RAG (Retrieval-Augmented Generation) pipeline based on a chat dump history.
+RAG LLM chatbot 
 
 ## Architecture
+poetry based python program
 
 ### Components
 1.  **Data Ingestion Pipeline**:
@@ -39,7 +40,7 @@ Create a chatbot that acts as an IT union lawyer, using a RAG (Retrieval-Augment
 ## Implementation Plan
 
 ### Phase 1: Foundation & Ingestion
-- [x] **Project Setup**: Initialize git, poetry/pipenv, directory structure.
+- [x] **Project Setup**: Initialize git, poetry, directory structure.
 - [x] **Data Parser**: Implement `ChatParser` to read the dump file.
 - [x] **Chunking Logic**: Implement `TextChunker` to split data by day/size.
 - [x] **Database Setup**: Design schema for storing chunks (ID, text, metadata).
@@ -1522,4 +1523,53 @@ legale bot run
 - `tgbot.py` coverage improved drastically.
 
 
+
+
+### Phase 14: RAG Enhancement - Hierarchical Topic Clustering
+**Status: IN PROGRESS** 🔄
+**Goal**: Implement two-level hierarchical topic clustering (L1/L2) with HDBSCAN for improved RAG retrieval.
+
+#### 14.1 Database Schema & Models ✅
+- [x] New Models: MessageModel, updated ChunkModel, TopicL1Model, TopicL2Model
+- [x] 20+ CRUD methods for messages and hierarchical topics
+- [x] Testing: 18/18 tests passing in test_db_hierarchical.py
+- [x] Dependencies: hdbscan>=0.8.33, scikit-learn>=1.3.0
+
+#### 14.2 Message Storage & Chunking ✅
+- [x] Create chunker_v2.py for 10-message chunking (Done as chunker.py)
+- [x] Update pipeline.py to store messages
+- [x] CLI command: legale chunks build (Already covered by existing ingest command for now)
+
+#### 14.3 L1 Topic Clustering (HDBSCAN) ✅
+- [x] Implement TopicClusterer with HDBSCAN
+- [x] Fetch embeddings from VectorStore
+- [x] Save L1 topics and update chunk assignments
+- [x] Calculate topic stats (centroid, msg_count, time range)
+- [x] Unit test with synthetic data (passing)
+
+#### 14.4 L2 Super-Topic Clustering ✅
+- [x] Implement L2 clustering logic (cluster L1 centroids)
+- [x] Create L2 topics and link L1 topics -> L2
+- [x] Propagate L2 topic ID to chunks
+- [x] Unit test L2 clustering (passing)
+
+#### 14.5 Topic Naming with LLM ✅
+- [x] Implement topic naming with LLM
+- [x] Generate titles and descriptions for L1 (from chunks) and L2 (from L1 subtopics) topics
+- [x] Integrate prompts into PromptEngine (prompt.py)
+- [x] Add DB update methods for topic info
+
+#### 14.6 RAG Integration
+- [ ] RAG Integration (hierarchical retrieval)
+- [ ] Update Retriever to use topics match if useful or vector search only? (TBD)
+
+- [ ] Incremental Updates
+- [ ] Admin Commands (/admin topics rebuild/list/show)
+- [x] CLI Commands (legale topics build/list/show)
+- [ ] Testing & Documentation
+
+**Progress**: Phase 14.1-14.5 Complete (Topic Naming CLI) ✅
+**Next**: Phase 14.6 (RAG Integration)
+
+See implementation_plan.md for full details.
 

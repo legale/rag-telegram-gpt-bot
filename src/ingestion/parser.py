@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import List, Optional
 import json
+from src.core.syslog2 import *
 
 @dataclass
 class ChatMessage:
@@ -41,7 +42,7 @@ class ChatParser:
                             messages.append(msg)
                     else:
                         # Fallback or error for unexpected JSON structure
-                        print(f"Warning: Unexpected JSON structure in {file_path}")
+                        syslog2(LOG_WARNING, "unexpected json structure", file_path=file_path)
                 else:
                     # Fallback to line-based parsing for text files
                     for i, line in enumerate(f):
@@ -55,7 +56,7 @@ class ChatParser:
                             messages.append(msg)
                             
         except Exception as e:
-            print(f"Error reading file: {e}")
+            syslog2(LOG_ERR, "file read failed", error=str(e))
             raise
             
         return messages

@@ -16,6 +16,14 @@ try:
 except ImportError:
     SentenceTransformer = None
 
+try:
+    from huggingface_hub.errors import OfflineModeIsEnabled
+except ImportError:
+    OfflineModeIsEnabled = None
+
+from src.core.syslog2 import *
+
+
 
 class EmbeddingClient:
     """client for generating text embeddings using an openai-compatible api (e.g., openrouter)"""
@@ -96,7 +104,7 @@ class EmbeddingClient:
                 pass
             return []
 
-        print(f"embedding {total} texts -> {out_path}")
+        syslog2(LOG_INFO, "embedding texts", total=total, out_path=out_path)
         all_embs: List[List[float]] = []
         done = 0
 
@@ -139,12 +147,12 @@ class EmbeddingClient:
 class LocalEmbeddingClient:
     """Client for generating text embeddings locally using sentence-transformers."""
     
-    def __init__(self, model: str = "all-MiniLM-L6-v2"):
+    def __init__(self, model: str = "paraphrase-multilingual-MiniLM-L12-v2"):
         """
         Initialize local embedding client.
         
         Args:
-            model: Model name from sentence-transformers (e.g., "all-MiniLM-L6-v2")
+            model: Model name from sentence-transformers (e.g., "paraphrase-multilingual-MiniLM-L12-v2")
         """
         if SentenceTransformer is None:
             raise ImportError(
@@ -157,9 +165,27 @@ class LocalEmbeddingClient:
     
     @property
     def model(self) -> SentenceTransformer:
-        """Lazy load the model."""
+        """Lazy load model."""
         if self._model is None:
-            self._model = SentenceTransformer(self.model_name)
+            # Suppress tokenizer parallelism warning
+            os.environ["TOKENIZERS_PARALLELISM"] = "false"
+            
+            # Clear any HF offline flags to allow download if needed
+            for var in ["HF_HUB_OFFLINE", "HF_DATASETS_OFFLINE", "TRANSFORMERS_OFFLINE"]:
+                os.environ.pop(var, None)
+            
+            syslog2(LOG_DEBUG, "loading local embedding model", model=self.model_name)
+            
+            try:
+                # Load model (will use cache if available, download if not)
+                # sentence-transformers handles caching automatically
+                # trust_remote_code=True allows models with custom code (e.g., Giga-Embeddings)
+                self._model = SentenceTransformer(self.model_name, trust_remote_code=True)
+                syslog2(LOG_DEBUG, "model loaded successfully", model=self.model_name)
+            except Exception as e:
+                syslog2(LOG_ERR, "failed to load model", model=self.model_name, error=str(e))
+                raise
+                    
         return self._model
     
     def get_embeddings(self, texts: List[str]) -> List[List[float]]:
@@ -221,7 +247,7 @@ class LocalEmbeddingClient:
                 pass
             return []
 
-        print(f"embedding {total} texts -> {out_path}")
+        syslog2(LOG_INFO, "embedding texts", total=total, out_path=out_path)
         all_embs: List[List[float]] = []
         done = 0
 
@@ -273,7 +299,7 @@ def get_embedding_function(
     
     Args:
         provider: Provider name ("openrouter", "openai", "local")
-        model: Model name (for API: "text-embedding-3-small", for local: "all-MiniLM-L6-v2")
+        model: Model name (for API: "text-embedding-3-small", for local: "paraphrase-multilingual-MiniLM-L12-v2")
     
     Returns:
         EmbeddingFunction instance or None
@@ -288,7 +314,7 @@ def get_embedding_function(
         client = EmbeddingClient(model=api_model)
         return OpenRouterEmbeddingFunction(client)
     elif provider_lower == "local":
-        local_model = model or os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+        local_model = model or os.getenv("EMBEDDING_MODEL", "paraphrase-multilingual-MiniLM-L12-v2")
         client = LocalEmbeddingClient(model=local_model)
         return LocalEmbeddingFunction(client)
     
@@ -318,14 +344,12 @@ def create_embedding_client(
         api_model = model or os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
         return EmbeddingClient(model=api_model)
     elif generator_lower == "local":
-        local_model = model or os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+        local_model = model or os.getenv("EMBEDDING_MODEL", "paraphrase-multilingual-MiniLM-L12-v2")
         try:
             return LocalEmbeddingClient(model=local_model)
         except ImportError:
             import sys
-            print("Error: sentence-transformers is not installed.", file=sys.stderr)
-            print("Install it with: poetry install", file=sys.stderr)
-            print("Or: pip install sentence-transformers", file=sys.stderr)
+            syslog2(LOG_ERR, "sentence-transformers is not installed", instructions="pip install sentence-transformers")
             sys.exit(1)
     else:
         # Default to openrouter for backward compatibility

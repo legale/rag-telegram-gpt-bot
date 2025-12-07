@@ -3,16 +3,17 @@ from typing import List, Dict, Optional, Generator
 import os
 import json
 import tiktoken
+from src.core.syslog2 import *
 
 class LLMClient:
     """Client for interacting with LLM APIs (OpenRouter/OpenAI)."""
     
-    def __init__(self, model: str = "openai/gpt-3.5-turbo", verbosity: int = 0):
+    def __init__(self, model: str, verbosity: int = 0):
         """
         Initialize the LLM client.
         
         Args:
-            model: The model name to use (e.g., "openai/gpt-3.5-turbo", "anthropic/claude-3-opus").
+            model: The model name to use (e.g., "openai/gpt-oss-20b:free", "anthropic/claude-3-opus").
             verbosity: Logging level (0=none, 1=info, 2=debug, 3=trace).
         """
         self.api_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
@@ -23,6 +24,7 @@ class LLMClient:
         self.model = model
         self.verbosity = verbosity
         
+
         self.client = OpenAI(
             base_url=self.base_url,
             api_key=self.api_key,
@@ -36,6 +38,17 @@ class LLMClient:
         except KeyError:
             # Fallback to cl100k_base encoding (used by gpt-3.5-turbo and gpt-4)
             self.encoding = tiktoken.get_encoding("cl100k_base")
+            
+        if verbosity >= 3:
+            # Enable low-level HTTP logging
+            import logging
+            httpx_logger = logging.getLogger("httpx")
+            httpx_logger.setLevel(logging.DEBUG)
+            httpx_logger.propagate = True
+
+    @property
+    def model_name(self) -> str:
+        return self.model
     
     def count_tokens(self, messages: List[Dict[str, str]]) -> int:
         """
@@ -56,7 +69,7 @@ class LLMClient:
         num_tokens += 2  # every reply is primed with <|start|>assistant
         return num_tokens
 
-    def complete(self, messages: List[Dict[str, str]], temperature: float = 0.7, max_tokens: int = 500) -> str:
+    def complete(self, messages: List[Dict[str, str]], temperature: float = 0.7, max_tokens: int = 1500) -> str:
         """
         Generates a completion for the given messages.
         
@@ -68,9 +81,11 @@ class LLMClient:
         Returns:
             The generated text response.
         """
-        if self.verbosity >= 3:
-            print(f"\n[LLM Request] Model: {self.model}")
-            print(f"[LLM Request] Messages: {json.dumps(messages, ensure_ascii=False, indent=2)}")
+        if self.verbosity >= 2:
+            syslog2(LOG_DEBUG, "LLM request", model=self.model)
+            # Log full messages only at higher verbosity to avoid spam, or truncating
+            if self.verbosity >= 3:
+                 syslog2(LOG_DEBUG, "LLM messages", messages=messages)
 
         try:
             response = self.client.chat.completions.create(
@@ -82,9 +97,13 @@ class LLMClient:
             
             content = response.choices[0].message.content
             
-            if self.verbosity >= 3:
-                print(f"\n[LLM Response] Raw: {response}")
+            if self.verbosity >= 2:
+                syslog2(LOG_DEBUG, "LLM response", response=response)
             
+            if not content:
+                finish_reason = response.choices[0].finish_reason
+                syslog2(LOG_WARNING, "llm returned empty content", model=self.model, finish_reason=finish_reason)
+                
             return content if content else ""
         except Exception as e:
             # Re-raise exception to be handled by caller (LegaleBot)

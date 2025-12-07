@@ -3,6 +3,7 @@ from typing import List, Dict, Optional
 from src.storage.vector_store import VectorStore
 from src.storage.db import Database, ChunkModel
 from src.core.embedding import EmbeddingClient
+from src.core.syslog2 import *
 
 
 class RetrievalService:
@@ -27,10 +28,16 @@ class RetrievalService:
             List of dictionaries containing chunk text and metadata.
         """
         if self.verbosity >= 1:
-            print(f"\n[Retrieval] Query: '{query}'")
+            syslog2(LOG_DEBUG, "retrieval query", query=query)
 
+        if self.verbosity >= 2:
+            syslog2(LOG_DEBUG, "computing query embedding")
+        
         # 1. embed query with the same embedding client (same dim as stored vectors)
         query_embs = self.embedding_client.get_embeddings([query])
+
+        if self.verbosity >= 2:
+            syslog2(LOG_DEBUG, "searching vector store", collection=self.vector_store.collection.name)
 
         # 2. query vector store using precomputed query embedding
         results = self.vector_store.collection.query(
@@ -44,7 +51,8 @@ class RetrievalService:
         )
         
         if self.verbosity >= 2:
-            print(f"[Retrieval] Found {len(results['ids'][0]) if results['ids'] else 0} potential matches.")
+            count = len(results['ids'][0]) if results['ids'] else 0
+            syslog2(LOG_DEBUG, "retrieval candidates found", count=count)
 
         retrieved_chunks: List[Dict] = []
         
@@ -56,9 +64,10 @@ class RetrievalService:
         metadatas = results["metadatas"][0] if "metadatas" in results else []
         
         if self.verbosity >= 2:
-            print("[Retrieval] Candidates:")
-            for i, (chunk_id, dist) in enumerate(zip(ids, distances)):
-                print(f"  - ID: {chunk_id}, Distance: {dist:.4f}")
+            syslog2(LOG_DEBUG, "retrieval candidates detail", ids=ids, distances=distances)
+
+        if self.verbosity >= 2:
+            syslog2(LOG_DEBUG, "fetching full text from sqlite")
 
         session = self.db.get_session()
         

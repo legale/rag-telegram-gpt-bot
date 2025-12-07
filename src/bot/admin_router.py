@@ -7,8 +7,7 @@ from typing import Optional, Callable, Dict, Any, Tuple, List
 from telegram import Update
 from telegram.ext import ContextTypes
 import logging
-
-logger = logging.getLogger("legale_admin_router")
+from src.core.syslog2 import *
 
 
 class AdminCommandRouter:
@@ -42,7 +41,7 @@ class AdminCommandRouter:
             Tuple of (is_admin, error_message)
         """
         if not admin_manager or not admin_manager.is_admin(user_id):
-            logger.warning(f"Unauthorized admin command attempt from user {user_id}")
+            syslog2(LOG_WARNING, "unauthorized admin command", user_id=user_id)
             return False, "❌ Эта команда доступна только администратору."
         return True, None
     
@@ -88,7 +87,7 @@ class AdminCommandRouter:
         try:
             return await handler(update, context, admin_manager, args)
         except Exception as e:
-            logger.error(f"Error in handler {command_name}: {e}", exc_info=True)
+            syslog2(LOG_ERR, "handler failed", command=command_name, error=str(e))
             return f"❌ Ошибка при выполнении команды: {e}"
     
     async def _route_with_subcommand(self, command: str, subcommand: str, 

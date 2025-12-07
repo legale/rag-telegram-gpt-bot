@@ -7,10 +7,11 @@ It provides a unified interface for managing profiles, ingesting data,
 running the bot, and managing the Telegram webhook.
 """
 
-import sys
 import os
+import sys
 import subprocess
 import shutil
+import asyncio
 from pathlib import Path
 
 # Check if we're running inside poetry's virtualenv
@@ -49,6 +50,7 @@ if not is_in_virtualenv():
 import argparse
 from typing import Optional
 from dotenv import load_dotenv, set_key, find_dotenv
+from src.core.syslog2 import syslog2, setup_log, LogLevel
 
 # Add project root to path
 current_dir = Path(__file__).parent.absolute()
@@ -319,6 +321,11 @@ def cmd_chat(args, profile_manager: ProfileManager):
     
     # Build CLI arguments
     cli_args = []
+    
+    # Handle Global -V if present (passed via args.log_level if we add it to main parser)
+    if hasattr(args, 'log_level') and args.log_level:
+        cli_args.extend(['-V', args.log_level])
+        
     if args.verbose:
         cli_args.extend(['-' + 'v' * args.verbose])
     if args.chunks:
@@ -372,6 +379,13 @@ def cmd_bot(args, profile_manager: ProfileManager):
         print(f"Vector store: {paths['vector_db_path']}")
         print()
         
+        # Respect global log_level if set
+        if getattr(args, 'log_level', None):
+            if args.log_level == 'DEBUG':
+                args.verbose = max(args.verbose, 2)
+            elif args.log_level == 'INFO':
+                args.verbose = max(args.verbose, 1)
+        
         run_server(args.host, args.port, args.verbose)
     
     elif args.bot_command == 'daemon':
@@ -382,7 +396,42 @@ def cmd_bot(args, profile_manager: ProfileManager):
         run_daemon(args.host, args.port)
 
 
+def cmd_test_embedding(args):
+    """Test embedding generation for input text."""
+    # NOTE: We intentionally allow online mode here for initial model download
+    # After first download, the model will be cached and work offline
+    
+    from src.core.embedding import LocalEmbeddingClient
+    import time
+    
+    print(f"Testing embedding generation with model: {args.model}")
+    print(f"Text: '{args.text}'")
+    
+    try:
+        # Initialize client and warmup model (exclude from timing)
+        print("Loading model...")
+        client = LocalEmbeddingClient(model=args.model)
+        
+        # Warmup: generate embedding once to load model into memory
+        _ = client.get_embedding("warmup")
+        print("Model loaded.\n")
+        
+        # Now measure only embedding generation time
+        start_time = time.time()
+        emb = client.get_embedding(args.text)
+        duration_ms = (time.time() - start_time) * 1000
+        
+        print(f"Success! ms={int(duration_ms)}")
+        print(f"Dimensions: {len(emb)}")
+        print(f"First 5 values: {emb[:5]}")
+    except Exception as e:
+        print(f"\nError: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
 def main():
+    # ... existing code ...
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
         prog='legale',
@@ -412,6 +461,10 @@ For more information, visit: https://github.com/legale/rag-telegram-gpt-bot
     
     # Global options
     parser.add_argument('--version', action='version', version='Legale Bot 1.0.0')
+    parser.add_argument("-V", "--log-level", type=str, 
+        choices=["DEBUG", "INFO", "WARNING", "ERR", "CRIT", "ALERT"],
+        help="Set logging level (overrides -v)"
+    )
     
     subparsers = parser.add_subparsers(dest='command', help='Command to execute')
     
@@ -540,8 +593,29 @@ For more information, visit: https://github.com/legale/rag-telegram-gpt-bot
     topics_show_parser.add_argument('id', help='Topic ID')
     topics_show_parser.add_argument('--profile', help='Profile to use (default: current active)')
     
+    
+    # Test Embedding
+    emb_parser = subparsers.add_parser('test-embedding', help='Test embedding generation')
+    emb_parser.add_argument('text', help='Text to embed')
+    emb_parser.add_argument('--model', default='ai-sage/Giga-Embeddings-instruct', help='Model name')
+
     # Parse arguments
     args = parser.parse_args()
+
+    # Setup global logging
+    syslog_level = LogLevel.LOG_WARNING
+    if args.log_level:
+        level_map = {
+            "DEBUG": LogLevel.LOG_DEBUG,
+            "INFO": LogLevel.LOG_INFO,
+            "WARNING": LogLevel.LOG_WARNING,
+            "ERR": LogLevel.LOG_ERR,
+            "CRIT": LogLevel.LOG_CRIT,
+            "ALERT": LogLevel.LOG_ALERT
+        }
+        syslog_level = level_map.get(args.log_level, LogLevel.LOG_WARNING)
+    
+    setup_log(syslog_level)
     
     # Show help if no command provided
     if not args.command:
@@ -598,11 +672,17 @@ For more information, visit: https://github.com/legale/rag-telegram-gpt-bot
             sys.exit(1)
         cmd_topics(args, profile_manager)
 
+    elif args.command == 'test-embedding':
+        cmd_test_embedding(args)
+
 
 def cmd_topics(args, profile_manager: ProfileManager):
     """Handle topic management commands."""
-    from src.core.topics import TopicBuilder
+    from src.ai.clustering import TopicClusterer
     from src.storage.db import Database
+    from src.storage.vector_store import VectorStore
+    from src.core.llm import LLMClient
+    from src.bot.config import BotConfig
     
     profile_name = args.profile if args.profile else profile_manager.get_current_profile()
     paths = profile_manager.get_profile_paths(profile_name)
@@ -611,56 +691,114 @@ def cmd_topics(args, profile_manager: ProfileManager):
         print(f"✗ Error: No database found for profile '{profile_name}'")
         sys.exit(1)
         
+    db = Database(paths['db_url'])
+    vector_store = VectorStore(persist_directory=str(paths['vector_db_path']))
+    
+    # Init LLM Client
+    config = BotConfig(paths['profile_dir'])
+    model_name = config.current_model
+    if not model_name:
+         # Fallback to models.txt
+         try:
+             if os.path.exists("models.txt"):
+                 with open("models.txt", "r") as f:
+                     model_name = f.readline().strip()
+         except:
+             pass
+    if not model_name:
+        model_name = "openai/gpt-3.5-turbo"
+        
+    llm_client = LLMClient(model=model_name, verbosity=args.verbose if hasattr(args, 'verbose') else 0)
+
+    clusterer = TopicClusterer(db, vector_store, llm_client)
+
     if args.topic_command == 'build':
         print(f"Building topics for profile: {profile_name}")
-        try:
-            builder = TopicBuilder(paths['db_url'], str(paths['vector_db_path']))
-            builder.build_topics(clear_existing=True)
-        except Exception as e:
-            print(f"✗ Error building topics: {e}")
-            sys.exit(1)
+        print("1. Running L1 Clustering (Fine-grained)...")
+        clusterer.perform_l1_clustering()
+        
+        print("2. Running L2 Clustering (Super-topics)...")
+        clusterer.perform_l2_clustering()
+        
+        print("3. Naming Topics (LLM)...")
+        clusterer.name_topics()
+        
+        print("✓ Topic build complete.")
             
     elif args.topic_command == 'list':
         try:
-            db = Database(paths['db_url'])
-            topics = db.get_all_topics()
+            l2_topics = db.get_all_topics_l2()
+            l1_topics = db.get_all_topics_l1()
             
-            if not topics:
+            if not l1_topics:
                 print("No topics found. Run 'legale topics build' first.")
                 return
                 
-            print(f"{'ID':<5} {'Title':<50} {'Chunks'}")
-            print("-" * 70)
+            print(f"\n{'ID':<5} {'L2 Topic Title':<40} {'L1 Count':<10} {'Chunks'}")
+            print("-" * 75)
             
-            for t in topics:
-                # Naive count, for production might want a smarter query
-                c_ids = db.get_topic_chunks(t.id)
-                print(f"{t.id:<5} {t.title[:48]:<50} {len(c_ids)}")
+            l1_by_l2 = {}
+            orphans = []
+            for t in l1_topics:
+                if t.parent_l2_id:
+                    if t.parent_l2_id not in l1_by_l2:
+                        l1_by_l2[t.parent_l2_id] = []
+                    l1_by_l2[t.parent_l2_id].append(t)
+                else:
+                    orphans.append(t)
+                    
+            for l2 in l2_topics:
+                children = l1_by_l2.get(l2.id, [])
+                chunks_count = sum(c.chunk_count for c in children)
+                title = l2.title or f"Topic L2-{l2.id}"
+                print(f"{l2.id:<5} {title[:38]:<40} {len(children):<10} {chunks_count}")
+                
+            if orphans:
+                print("\nOrphaned L1 Topics (No Super-Topic):")
+                print(f"{'ID':<5} {'Title':<40} {'Chunks':<10}")
+                print("-" * 60)
+                for t in orphans:
+                     print(f"{t.id:<5} {t.title[:38]:<40} {t.chunk_count:<10}")
+
                 
         except Exception as e:
-             print(f"✗ Error listing topics: {e}")
-             
+                print(f"✗ Error listing topics: {e}")
+                
     elif args.topic_command == 'show':
         try:
-            db = Database(paths['db_url'])
-            topic = db.get_topic(int(args.id))
+            tid = int(args.id)
+            l2 = next((t for t in db.get_all_topics_l2() if t.id == tid), None)
             
-            if not topic:
-                print(f"Topic {args.id} not found.")
+            if l2:
+                print(f"=== Super-Topic L2-{l2.id} ===")
+                print(f"Title: {l2.title}")
+                print(f"Description: {l2.descr}")
+                subtopics = db.get_l1_topics_by_l2(l2.id)
+                print(f"Sub-topics count: {len(subtopics)}")
+                
+                print("\nSub-topics:")
+                for sub in subtopics:
+                    print(f"  [{sub.id}] {sub.title} ({sub.chunk_count} chunks)")
+                return
+
+            l1 = next((t for t in db.get_all_topics_l1() if t.id == tid), None)
+            if l1:
+                print(f"=== Topic L1-{l1.id} ===")
+                print(f"Title: {l1.title}")
+                print(f"Description: {l1.descr}")
+                print(f"Parent L2: {l1.parent_l2_id}")
+                print(f"Chunks: {l1.chunk_count}")
+                print(f"Messages: {l1.msg_count}")
+                print(f"Time: {l1.ts_from} - {l1.ts_to}")
+                
+                chunks = db.get_chunks_by_topic_l1(l1.id)
+                print(f"\nSample Content ({min(3, len(chunks))} of {len(chunks)}):")
+                for i, c in enumerate(chunks[:3]):
+                    print(f"--- Chunk {i+1} ---")
+                    print(c.text[:200].replace('\n', ' ') + "...")
                 return
                 
-            print(f"Topic {topic.id}: {topic.title}")
-            print(f"Description: {topic.description}")
-            
-            chunk_ids = db.get_topic_chunks(topic.id)
-            print(f"Total Chunks: {len(chunk_ids)}")
-            print("\nSample Content:")
-            
-            for i, cid in enumerate(chunk_ids[:3]):
-                text = db.get_chunk_text(cid)
-                print(f"--- Chunk {cid} ---")
-                print(text[:300] + ("..." if len(text) > 300 else ""))
-                print()
+            print(f"Topic ID {tid} not found in L1 or L2 tables.")
                 
         except ValueError:
             print("Error: Topic ID must be an integer.")
@@ -694,6 +832,7 @@ def cmd_profile_option(args, profile_manager: ProfileManager):
         "local": [
             "all-MiniLM-L6-v2",
             "all-mpnet-base-v2",
+            "paraphrase-multilingual-MiniLM-L12-v2",
             "paraphrase-multilingual-MiniLM-L12-v2"
         ]
     }

@@ -2,6 +2,7 @@
 
 import sys
 import os
+import re
 from typing import Optional
 
 # add project root to sys.path to allow imports from src
@@ -11,19 +12,20 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from src.ingestion.parser import ChatParser
-from src.ingestion.chunker import TextChunker
+from src.ingestion.chunker import MessageChunker
 from src.storage.db import Database, ChunkModel
 from src.storage.vector_store import VectorStore
 from src.core.embedding import EmbeddingClient, create_embedding_client
 from pathlib import Path
 import uuid
 import json
+from src.core.syslog2 import *
 
 
 class IngestionPipeline:
     def __init__(self, db_url: str, vector_db_path: str, collection_name: str = "default", profile_dir: Optional[str] = None):
         self.parser = ChatParser()
-        self.chunker = TextChunker()
+        self.chunker = MessageChunker()
         self.db = Database(db_url)
         self.profile_dir = Path(profile_dir) if profile_dir else None
         
@@ -61,23 +63,17 @@ class IngestionPipeline:
 
     def _clear_data(self):
         """clears sql and vector storage with verbose output"""
-        print("Clearing existing data...")
+        syslog2(LOG_INFO, "clearing existing data")
         db_before = self.db.count_chunks()
-        print(f"SQL database ({self.db_url}): {db_before} chunks before cleanup.")
         removed_db = self.db.clear()
         db_after = self.db.count_chunks()
-        print(f"Removed {removed_db} chunks from SQL database. Remaining: {db_after}.")
+        syslog2(LOG_INFO, "sql database cleanup", url=self.db_url, before=db_before, removed=removed_db, remaining=db_after)
 
         vector_before = self.vector_store.count()
-        print(
-            f"Vector store ({self.vector_store.persist_directory}, "
-            f"collection '{self.vector_store.collection_name}'): "
-            f"{vector_before} embeddings before cleanup."
-        )
         removed_vectors = self.vector_store.clear()
         vector_after = self.vector_store.count()
-        print(f"Removed {removed_vectors} embeddings from vector store. Remaining: {vector_after}.")
-        print("Data cleared.")
+        syslog2(LOG_INFO, "vector store cleanup", path=self.vector_store.persist_directory, collection=self.vector_store.collection_name, before=vector_before, removed=removed_vectors, remaining=vector_after)
+        syslog2(LOG_INFO, "data cleared")
 
     def run(self, file_path: Optional[str] = None, clear_existing: bool = False):
         """
@@ -91,15 +87,46 @@ class IngestionPipeline:
         if not file_path:
             raise ValueError("file_path must be provided when not running a cleanup-only command.")
 
-        print(f"Starting ingestion for {file_path}...")
+        syslog2(LOG_INFO, "starting ingestion", file_path=file_path)
 
         # 1. parse
         messages = self.parser.parse_file(file_path)
-        print(f"Parsed {len(messages)} messages.")
+        syslog2(LOG_INFO, "files parsed", messages_count=len(messages))
+
+        # Determine chat_id from filename or default
+        filename = os.path.basename(file_path)
+        chat_id_match = re.search(r"telegram_dump_(-?\d+)", filename)
+        chat_id = chat_id_match.group(1) if chat_id_match else "unknown_chat"
+        syslog2(LOG_INFO, "identified chat_id", chat_id=chat_id)
+
+        # 1.5. store messages in sql db
+        db_messages = []
+        for msg in messages:
+            # Composite ID: {chat_id}_{msg_id} to ensure global uniqueness
+            # Note: msg.id from parser is usually the telegram integer ID as string
+            composite_id = f"{chat_id}_{msg.id}"
+            db_messages.append({
+                "msg_id": composite_id,
+                "chat_id": chat_id,
+                "ts": msg.timestamp,
+                "from_id": msg.sender, # Using sender name as ID for now since parser doesn't provide user ID
+                "text": msg.content
+            })
+        
+        try:
+            self.db.add_messages_batch(db_messages)
+            syslog2(LOG_INFO, "messages saved to sql database", count=len(db_messages))
+        except Exception as e:
+            # Check if it's a unique constraint violation (optional improvement)
+            syslog2(LOG_WARNING, "messages save issue (duplicates might exist)", error=str(e))
+            # We continue because chunks might still need to be generated/saved
+            # or maybe we should raise? For now, let's assume if messages exist we can proceed.
+            # But duplicate keys will rollback the specific transaction.
+            pass
 
         # 2. chunk
         chunks = self.chunker.chunk_messages(messages)
-        print(f"Created {len(chunks)} chunks.")
+        syslog2(LOG_INFO, "chunks created", chunks_count=len(chunks))
 
         # 3. store in sql db
         chunk_models = []
@@ -111,24 +138,41 @@ class IngestionPipeline:
         try:
             for chunk in chunks:
                 chunk_id = str(uuid.uuid4())
+                
+                # Prepare metadata (enhanced fields)
+                # Convert chunk metadata to dict for metadata_json field
+                meta_dict = {
+                    "message_count": chunk.metadata.message_count,
+                    "start_date": chunk.metadata.ts_from.isoformat(),
+                    "end_date": chunk.metadata.ts_to.isoformat()
+                }
+
+                # Construct composite FKs
+                msg_id_start = f"{chat_id}_{chunk.metadata.msg_id_start}"
+                msg_id_end = f"{chat_id}_{chunk.metadata.msg_id_end}"
 
                 model = ChunkModel(
                     id=chunk_id,
                     text=chunk.text,
-                    metadata_json=json.dumps(chunk.metadata),
+                    metadata_json=json.dumps(meta_dict),
+                    chat_id=chat_id,
+                    msg_id_start=msg_id_start,
+                    msg_id_end=msg_id_end,
+                    ts_from=chunk.metadata.ts_from,
+                    ts_to=chunk.metadata.ts_to
                 )
                 chunk_models.append(model)
 
                 ids.append(chunk_id)
                 documents.append(chunk.text)
-                metadatas.append(chunk.metadata)
+                metadatas.append(meta_dict)
 
             session.add_all(chunk_models)
             session.commit()
-            print("Saved chunks to SQL database.")
+            syslog2(LOG_INFO, "chunks saved to sql database")
         except Exception as e:
             session.rollback()
-            print(f"Error saving to DB: {e}")
+            syslog2(LOG_ERR, "sql save failed", error=str(e))
             raise
         finally:
             session.close()
@@ -158,9 +202,9 @@ class IngestionPipeline:
                 metadatas=metadatas,
                 show_progress=True,
             )
-            print("Saved embeddings to Vector database.")
+            syslog2(LOG_INFO, "embeddings saved to vector database")
 
-        print("Ingestion complete.")
+        syslog2(LOG_INFO, "ingestion complete")
 
 
 if __name__ == "__main__":

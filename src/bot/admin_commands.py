@@ -14,8 +14,10 @@ from src.bot.utils import (
     ResponseFormatter,
     DatabaseStatsService,
     CommandValidator,
+    CommandValidator,
     HealthChecker,
 )
+from src.core.syslog2 import syslog2, LOG_INFO, LOG_WARNING, LOG_ERR
 
 logger = logging.getLogger("legale_admin_commands")
 
@@ -46,7 +48,7 @@ class BaseAdminCommand:
         Returns:
             Formatted error message
         """
-        logger.error(f"Error in {context}: {error}", exc_info=True)
+        syslog2(LOG_ERR, "admin command error", context=context, error=str(error))
         return self.formatter.format_error_message(str(error), context)
     
     def get_profile_paths(self, profile_name: str = None):
@@ -155,7 +157,7 @@ class ProfileCommands(BaseAdminCommand):
             )
             response += f"\nДля переключения на этот профиль:\n`/admin profile switch {profile_name}`"
             
-            logger.info(f"Profile '{profile_name}' created by admin {update.message.from_user.id}")
+            syslog2(LOG_INFO, "profile created", profile=profile_name, admin_id=update.message.from_user.id)
             return response
             
         except Exception as e:
@@ -194,7 +196,7 @@ class ProfileCommands(BaseAdminCommand):
                 f"`/admin restart`"
             )
             
-            logger.info(f"Profile switched to '{profile_name}' by admin {update.message.from_user.id}")
+            syslog2(LOG_INFO, "profile switched", profile=profile_name, admin_id=update.message.from_user.id)
             return response
             
         except Exception as e:
@@ -243,7 +245,7 @@ class ProfileCommands(BaseAdminCommand):
                 import shutil
                 shutil.rmtree(profile_dir)
                 
-                logger.warning(f"Profile '{profile_name}' deleted by admin {update.message.from_user.id}")
+                syslog2(LOG_WARNING, "profile deleted", profile=profile_name, admin_id=update.message.from_user.id)
                 
                 return (
                     f"✅ Профиль `{profile_name}` удалён.\n\n"
@@ -469,7 +471,7 @@ class IngestCommands(BaseAdminCommand):
             
             pipeline._clear_data()
             
-            logger.info(f"Data cleared by admin {update.message.from_user.id}")
+            syslog2(LOG_INFO, "data cleared", admin_id=update.message.from_user.id)
             
             return (
                 f"✅ **Данные очищены**\n\n"
@@ -552,7 +554,7 @@ class IngestCommands(BaseAdminCommand):
             await file.download_to_drive(temp_file)
             
             file_size_str = self.formatter.format_file_size(document.file_size)
-            logger.info(f"File downloaded: {temp_file} ({file_size_str})")
+            syslog2(LOG_INFO, "file downloaded for ingestion", path=str(temp_file), size=file_size_str)
             
             # Send initial message
             status_message = await update.message.reply_text(
@@ -658,7 +660,7 @@ class StatsCommands(BaseAdminCommand):
             
             return response
         except Exception as e:
-            logger.error(f"Error getting system stats: {e}")
+            syslog2(LOG_ERR, "system stats failed", error=str(e))
             return "⚙️ **Система:** Ошибка получения данных\n"
     
     async def health_check(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
@@ -739,7 +741,7 @@ class ControlCommands(BaseAdminCommand):
         # горячий reload без exit
         if self.reload_callback is None:
             # на всякий случай fallback, чтобы не молчать, если что-то не инициализировали
-            logger.warning("restart_bot called but reload_callback is not set")
+            syslog2(LOG_WARNING, "restart callback missing")
             return "❌ Перезапуск недоступен: не настроен обработчик перезагрузки."
         
         try:
@@ -752,7 +754,7 @@ class ControlCommands(BaseAdminCommand):
                 f"Векторное хранилище: `{paths['vector_db_path']}`"
             )
         except Exception as e:
-            logger.error(f"Error in hot restart: {e}", exc_info=True)
+            syslog2(LOG_ERR, "hot restart failed", error=str(e))
             return await self.handle_error(e, "перезапуске бота")
 
 class ModelCommands(BaseAdminCommand):

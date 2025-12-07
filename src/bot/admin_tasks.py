@@ -6,6 +6,7 @@ Handles long-running operations like data ingestion.
 import asyncio
 import logging
 from pathlib import Path
+from src.core.syslog2 import syslog2, LOG_INFO, LOG_WARNING, LOG_ERR
 from typing import Optional, Callable
 from telegram import Bot
 
@@ -65,7 +66,7 @@ class IngestionTask:
             )
             
             # Parse file
-            logger.info(f"Parsing file: {self.file_path}")
+            syslog2(LOG_INFO, "parsing file", path=str(self.file_path))
             messages = pipeline.parser.parse_file(str(self.file_path))
             self.total = len(messages)
             
@@ -134,7 +135,7 @@ class IngestionTask:
                 
                 session.add_all(chunk_models)
                 session.commit()
-                logger.info(f"Saved {len(chunk_models)} chunks to database")
+                syslog2(LOG_INFO, "saved chunks to database", count=len(chunk_models))
                 
             except Exception as e:
                 session.rollback()
@@ -151,7 +152,7 @@ class IngestionTask:
             # Store in vector DB
             if ids:
                 pipeline.vector_store.add_documents(ids=ids, documents=documents, metadatas=metadatas)
-                logger.info(f"Saved {len(ids)} embeddings to vector store")
+                syslog2(LOG_INFO, "saved embeddings to vector store", count=len(ids))
             
             self.status = "completed"
             self.result = {
@@ -177,7 +178,7 @@ class IngestionTask:
         except Exception as e:
             self.status = "failed"
             self.error = str(e)
-            logger.error(f"Ingestion task failed: {e}", exc_info=True)
+            syslog2(LOG_ERR, "ingestion task failed", error=str(e))
             
             await bot.edit_message_text(
                 chat_id=chat_id,
@@ -191,9 +192,9 @@ class IngestionTask:
             try:
                 if self.file_path.exists():
                     self.file_path.unlink()
-                    logger.info(f"Cleaned up temp file: {self.file_path}")
+                    syslog2(LOG_INFO, "cleaned up temp file", path=str(self.file_path))
             except Exception as e:
-                logger.warning(f"Failed to clean up temp file: {e}")
+                syslog2(LOG_WARNING, "temp file cleanup failed", error=str(e))
 
 
 class TaskManager:

@@ -12,8 +12,7 @@ import sqlite3
 import logging
 from pathlib import Path
 from typing import Optional, Tuple, Dict, Any
-
-logger = logging.getLogger(__name__)
+from src.core.syslog2 import *
 
 
 class DatabaseStatsService:
@@ -41,7 +40,7 @@ class DatabaseStatsService:
             conn.close()
             return count
         except Exception as e:
-            logger.error(f"Error getting chunk count: {e}")
+            syslog2(LOG_ERR, "get chunk count failed", error=str(e))
             return 0
     
     @staticmethod
@@ -62,7 +61,7 @@ class DatabaseStatsService:
             size_bytes = db_path.stat().st_size
             return size_bytes / (1024 * 1024)
         except Exception as e:
-            logger.error(f"Error getting database size: {e}")
+            syslog2(LOG_ERR, "get database size failed", error=str(e))
             return 0.0
     
     @staticmethod
@@ -96,7 +95,7 @@ class DatabaseStatsService:
                 return (result[0][:10], result[1][:10])
             return None
         except Exception as e:
-            logger.error(f"Error getting date range: {e}")
+            syslog2(LOG_ERR, "get date range failed", error=str(e))
             return None
     
     @staticmethod
@@ -121,7 +120,7 @@ class DatabaseStatsService:
             )
             return total_size / (1024 * 1024)
         except Exception as e:
-            logger.error(f"Error getting vector store size: {e}")
+            syslog2(LOG_ERR, "get vector store size failed", error=str(e))
             return 0.0
     
     @staticmethod
@@ -147,7 +146,7 @@ class DatabaseStatsService:
             conn.close()
             return result and result[0] == 'ok'
         except Exception as e:
-            logger.error(f"Database health check failed: {e}")
+            syslog2(LOG_ERR, "database health check failed", error=str(e))
             return False
     
     @staticmethod

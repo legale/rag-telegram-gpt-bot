@@ -1,5 +1,25 @@
 from typing import List, Dict
 
+TOPIC_L1_NAMING_PROMPT = """
+You are a summarization assistant.
+Analyze the following chat messages that have been grouped into a single topic.
+Generate a concise, human-readable Title (max 5-7 words) and a one-sentence Description.
+Return JSON format: {{"title": "...", "description": "..."}}
+
+Messages:
+{messages}
+"""
+
+TOPIC_L2_NAMING_PROMPT = """
+You are a summarization assistant.
+Analyze the following sub-topics that belong to a super-topic.
+Generate a high-level Super-Topic Title (max 3-5 words) and a one-sentence Description of the broader category.
+Return JSON format: {{"title": "...", "description": "..."}}
+
+Sub-topics:
+{subtopics}
+"""
+
 class PromptEngine:
     """Constructs system prompts for the bot."""
 

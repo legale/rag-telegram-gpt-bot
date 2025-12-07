@@ -2,8 +2,15 @@
 
 from typing import List, Optional, Dict, Any, Union
 import chromadb
+from chromadb.config import Settings
 
 from src.core.embedding import EmbeddingClient, LocalEmbeddingClient
+from src.core.syslog2 import *
+import os
+
+# Completely disable telemetry
+os.environ["ANONYMIZED_TELEMETRY"] = "False"
+os.environ["CHROMA_SERVER_NO_SIGNAL"] = "True"
 
 
 class VectorStore:
@@ -21,7 +28,10 @@ class VectorStore:
         """
         self.persist_directory = persist_directory
         self.collection_name = collection_name
-        self.client = chromadb.PersistentClient(path=persist_directory)
+        self.client = chromadb.PersistentClient(
+            path=persist_directory,
+            settings=Settings(anonymized_telemetry=False)
+        )
         self.collection = self.client.get_or_create_collection(
             name=collection_name,
             embedding_function=None,  # embeddings always provided explicitly
@@ -80,6 +90,8 @@ class VectorStore:
         if show_progress and total > 0:
             print()
 
+
+
     def count(self) -> int:
         """how many objects in collection"""
         return self.collection.count()
@@ -87,7 +99,11 @@ class VectorStore:
     def clear(self) -> int:
         """clear collection, return how many were removed"""
         before = self.collection.count()
-        self.collection.delete(where={})
+        if before > 0:
+            # Get all IDs and delete them
+            all_data = self.collection.get()
+            if all_data and all_data.get("ids"):
+                self.collection.delete(ids=all_data["ids"])
         after = self.collection.count()
         return before - after
 

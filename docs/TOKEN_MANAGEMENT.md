@@ -51,7 +51,7 @@ Add to your `.env` file:
 MAX_CONTEXT_TOKENS=14000
 
 # Model selection affects token limits
-OPENROUTER_MODEL=openai/gpt-3.5-turbo
+OPENROUTER_MODEL=openai/gpt-oss-20b:free
 ```
 
 ### Using Telegram Commands

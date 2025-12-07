@@ -132,6 +132,21 @@ legale chat --chunks 10
 legale chat --profile mybot
 ```
 
+### Topic Management
+
+Cluster chat history into topics offline.
+
+```bash
+# Build topics (cluster existing chunks)
+legale topics build
+
+# List created topics
+legale topics list
+
+# Inspect a topic
+legale topics show <id>
+```
+
 ### Telegram Bot
 
 ```bash
@@ -230,7 +245,7 @@ In Telegram bot, use `/model` command to cycle through available models.
 
 In CLI, models are configured via environment variables in `.env`:
 ```bash
-OPENROUTER_MODEL=openai/gpt-3.5-turbo
+OPENROUTER_MODEL=openai/gpt-oss-20b:free
 ```
 
 ## Configuration
@@ -244,7 +259,7 @@ ACTIVE_PROFILE=default
 # LLM API
 OPENROUTER_API_KEY=your_key_here
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
-OPENROUTER_MODEL=openai/gpt-3.5-turbo
+OPENROUTER_MODEL=openai/gpt-oss-20b:free
 
 # Token Management
 MAX_CONTEXT_TOKENS=14000

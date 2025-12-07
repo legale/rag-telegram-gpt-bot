@@ -7,6 +7,7 @@ from src.core.retrieval import RetrievalService
 from src.core.prompt import PromptEngine
 from src.core.llm import LLMClient
 import os
+from src.core.syslog2 import *
 
 class LegaleBot:
     """Main bot class orchestrating the RAG pipeline."""
@@ -15,7 +16,7 @@ class LegaleBot:
         self,
         db_url: str,
         vector_db_path: str,
-        model_name: str = "openai/gpt-3.5-turbo",
+        model_name: Optional[str] = None,
         verbosity: int = 0,
         profile_dir: Optional[Union[str, Path]] = None
     ):
@@ -40,8 +41,7 @@ class LegaleBot:
                     )
                 except Exception as e:
                     if verbosity >= 1:
-                        print(f"[Warning] Could not load profile config: {e}")
-                        print("  Using default embedding client")
+                        syslog2(LOG_WARNING, "profile config load failed", error=str(e), action="using default embedding client")
         
         # Use profile embedding client or create default
         if embedding_client is None:
@@ -52,7 +52,8 @@ class LegaleBot:
             persist_directory=vector_db_path,
             embedding_client=embedding_client
         )
-        self.llm_client = LLMClient(model=model_name, verbosity=verbosity)
+        # self.llm_client moved to after model selection logic
+
         
         # Initialize services
         self.retrieval_service = RetrievalService(
@@ -71,10 +72,19 @@ class LegaleBot:
         
         # Model switching support
         self.available_models = self._load_available_models()
-        self.current_model_index = 0
+        if not model_name and self.available_models:
+            model_name = self.available_models[0]
+            
         # Find initial model index
-        if model_name in self.available_models:
+        if model_name and model_name in self.available_models:
             self.current_model_index = self.available_models.index(model_name)
+            
+        if not model_name:
+             # This means available_models is empty and no model provided
+             syslog2(LOG_WARNING, "no model configured and no models found in models.txt")
+             model_name = "unknown" # LLMClient might fail or just log warning?
+             
+        self.llm_client = LLMClient(model=model_name, verbosity=verbosity)
     
     def _load_available_models(self) -> List[str]:
         """
@@ -87,11 +97,11 @@ class LegaleBot:
         try:
             with open(models_file, 'r') as f:
                 models = [line.strip() for line in f if line.strip()]
-            return models if models else ["openai/gpt-3.5-turbo"]
+            return models if models else []
         except FileNotFoundError:
             if self.verbosity >= 1:
-                print(f"[Warning] models.txt not found at {models_file}, using default model")
-            return ["openai/gpt-3.5-turbo"]
+                syslog2(LOG_WARNING, "models file missing", path=models_file)
+            return []
     
     def switch_model(self) -> str:
         """
@@ -111,7 +121,7 @@ class LegaleBot:
         self.llm_client = LLMClient(model=new_model, verbosity=self.verbosity)
         
         if self.verbosity >= 1:
-            print(f"[Model Switch] Changed to: {new_model}")
+            syslog2(LOG_INFO, "model switched", new_model=new_model)
         
         return f"✅ Модель переключена на: {new_model}\n({self.current_model_index + 1}/{len(self.available_models)})"
 
@@ -134,16 +144,17 @@ class LegaleBot:
         self.llm_client = LLMClient(model=model_name, verbosity=self.verbosity)
         
         if self.verbosity >= 1:
-            print(f"[Model Set] Changed to: {model_name}")
+            syslog2(LOG_INFO, "model set", new_model=model_name)
             
         return f"✅ Модель успешно установлена: {model_name}"
     
     @property
     def current_model_name(self) -> str:
         """Get the name of the currently active model."""
-        if not self.available_models:
-            return "openai/gpt-3.5-turbo"
-        return self.available_models[self.current_model_index]
+        # If available_models is empty, self.current_model_index might not be valid
+        # or llm_client might have been initialized with "unknown".
+        # It's safer to get the model name directly from the llm_client.
+        return self.llm_client.model_name
 
     def get_current_model(self) -> str:
         """
@@ -223,16 +234,13 @@ class LegaleBot:
                     "⚠️ Контекст был автоматически сброшен из-за достижения лимита токенов.\n\n"
                 )
                 if self.verbosity >= 1:
-                    print(
-                        f"[Auto-reset] Token limit reached: "
-                        f"{token_usage['current_tokens']}/{self.max_context_tokens}"
-                    )
+                    syslog2(LOG_WARNING, "auto reset context", token_usage=f"{token_usage['current_tokens']}/{self.max_context_tokens}")
 
         if not respond:
             self.chat_history.append({"role": "user", "content": user_input})
             return ""
 
-        print(f"Retrieving context ({n_results} chunks)...")
+        syslog2(LOG_INFO, "retrieving context", chunks=n_results)
         context_chunks = self.retrieval_service.retrieve(
             user_input, n_results=n_results
         )
@@ -252,7 +260,10 @@ class LegaleBot:
             custom_template=system_prompt_template
         )
 
-        print("Querying LLM...")
+        if self.verbosity >= 2:
+            syslog2(LOG_DEBUG, "system prompt constructed", length=len(system_prompt))
+
+        syslog2(LOG_INFO, "querying llm")
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_input},
@@ -265,7 +276,7 @@ class LegaleBot:
             # Check for token limit or payment issues (OpenRouter 402 or context length)
             if "402" in error_msg or "context_length_exceeded" in error_msg or "Prompt tokens limit exceeded" in error_msg:
                 if self.verbosity >= 1:
-                    print(f"[Error] Token/Credit limit reached: {e}. Resetting context and retrying.")
+                    syslog2(LOG_ERR, "token limit exceeded", error=str(e), action="resetting context and retrying")
                 
                 # Force reset context
                 self.reset_context()
@@ -290,11 +301,11 @@ class LegaleBot:
                     # Retry
                     response = self.llm_client.complete(messages)
                 except Exception as retry_e:
-                     print(f"[Fatal] Retry failed: {retry_e}")
+                     syslog2(LOG_ERR, "retry failed", error=str(retry_e))
                      return "❌ Ошибка: Не удалось получить ответ даже после сброса контекста (лимит токенов или баланс исчерпан)."
             else:
                  # Other errors
-                 print(f"[Error] LLM call failed: {e}")
+                 syslog2(LOG_ERR, "llm call failed", error=str(e))
                  # In verbose mode, might want to show error, but for user safety keep it generic or specific if needed
                  return f"❌ Произошла ошибка при обращении к нейросети: {e}"
 

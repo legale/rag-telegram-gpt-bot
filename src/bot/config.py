@@ -29,8 +29,8 @@ class BotConfig:
             "allowed_chats": [],
             "response_frequency": 0,
             "system_prompt": "",
-            "embedding_model": "text-embedding-3-small",
-            "embedding_generator": "openrouter"
+            "embedding_model": "paraphrase-multilingual-MiniLM-L12-v2",
+            "embedding_generator": "local"
         }
         
         if not self.config_file.exists():
@@ -115,7 +115,7 @@ class BotConfig:
 
     @property
     def embedding_model(self) -> str:
-        return self.data.get("embedding_model", "text-embedding-3-small")
+        return self.data.get("embedding_model", "paraphrase-multilingual-MiniLM-L12-v2")
 
     @embedding_model.setter
     def embedding_model(self, value: str):
@@ -124,7 +124,7 @@ class BotConfig:
 
     @property
     def embedding_generator(self) -> str:
-        return self.data.get("embedding_generator", "openrouter")
+        return self.data.get("embedding_generator", "local")
 
     @embedding_generator.setter
     def embedding_generator(self, value: str):

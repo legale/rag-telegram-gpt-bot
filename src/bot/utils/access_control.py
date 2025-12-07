@@ -10,8 +10,7 @@ Provides centralized access control logic including:
 
 import logging
 from typing import Optional
-
-logger = logging.getLogger(__name__)
+from src.core.syslog2 import *
 
 
 class AccessControlService:
@@ -61,27 +60,27 @@ class AccessControlService:
         """
         # Admins are always allowed
         if self.is_admin(user_id):
-            logger.debug(f"Access granted: user {user_id} is admin")
+            syslog2(LOG_DEBUG, "access granted admin", user_id=user_id)
             return True, None
         
         if is_private:
             # Private messages: only admins allowed
-            logger.debug(f"Access denied: private message from non-admin {user_id}")
+            syslog2(LOG_DEBUG, "access denied private", user_id=user_id)
             return False, "private_non_admin"
         else:
             # Group/supergroup/channel
             # Commands are always allowed
             if is_command:
-                logger.debug(f"Access granted: command in chat {chat_id}")
+                syslog2(LOG_DEBUG, "access granted command", chat_id=chat_id)
                 return True, None
             
             # Regular messages: check whitelist
             config = self.admin_manager.config
             if chat_id in config.allowed_chats:
-                logger.debug(f"Access granted: chat {chat_id} is whitelisted")
+                syslog2(LOG_DEBUG, "access granted whitelist", chat_id=chat_id)
                 return True, None
             else:
-                logger.debug(f"Access denied: chat {chat_id} not whitelisted")
+                syslog2(LOG_DEBUG, "access denied not whitelisted", chat_id=chat_id)
                 return False, "chat_not_whitelisted"
     
     def check_admin_access(self, user_id: int) -> tuple[bool, Optional[str]]:
@@ -98,7 +97,7 @@ class AccessControlService:
             return False, "❌ Система администрирования недоступна."
         
         if not self.is_admin(user_id):
-            logger.warning(f"Unauthorized admin command attempt from user {user_id}")
+            syslog2(LOG_WARNING, "unauthorized admin command", user_id=user_id)
             return False, "❌ Эта команда доступна только администратору."
         
         return True, None

@@ -1,64 +1,63 @@
 from dataclasses import dataclass
-from typing import List, Dict, Any
+from typing import List, Optional
+from datetime import datetime
 from src.ingestion.parser import ChatMessage
 
 @dataclass
-class TextChunk:
+class ChunkMetadata:
+    msg_id_start: str
+    msg_id_end: str
+    ts_from: datetime
+    ts_to: datetime
+    message_count: int
+
+@dataclass
+class EnhancedTextChunk:
     text: str
-    metadata: Dict[str, Any]
+    metadata: ChunkMetadata
     original_messages: List[ChatMessage]
 
-class TextChunker:
-    """Splits chat messages into logical chunks."""
+class MessageChunker:
+    """
+    Splits chat messages into logical chunks of fixed size (N messages).
+    Designed for Phase 14 hierarchical clustering.
+    """
     
-    def __init__(self, max_messages_per_chunk: int = 10, overlap: int = 2):
+    def __init__(self, max_messages_per_chunk: int = 10, overlap: int = 0):
         self.max_messages_per_chunk = max_messages_per_chunk
         self.overlap = overlap
         
-    def chunk_messages(self, messages: List[ChatMessage]) -> List[TextChunk]:
+    def chunk_messages(self, messages: List[ChatMessage]) -> List[EnhancedTextChunk]:
         """
-        Splits a list of messages into chunks with overlap.
-        
-        Args:
-            messages: List of ChatMessage objects.
-            
-        Returns:
-            List of TextChunk objects.
+        Splits a list of messages into chunks.
+        Assumes messages are sorted by timestamp.
         """
         chunks = []
-        step = self.max_messages_per_chunk - self.overlap
-        if step <= 0:
-            step = 1 # Prevent infinite loop if overlap >= max_messages
-            
+        step = max(1, self.max_messages_per_chunk - self.overlap)
+        
         for i in range(0, len(messages), step):
             msg_batch = messages[i:i + self.max_messages_per_chunk]
-            
-            # If the last chunk is too small (e.g. just the overlap), we might want to skip it 
-            # or merge it, but for now we'll keep it unless it's empty.
             if not msg_batch:
-                break
+                continue
                 
-            text = self.chunk_to_text(msg_batch)
+            text = self._chunk_to_text(msg_batch)
             
-            # Create metadata
-            metadata = {
-                "message_count": len(msg_batch),
-                "start_date": msg_batch[0].timestamp.isoformat() if msg_batch else None,
-                "end_date": msg_batch[-1].timestamp.isoformat() if msg_batch else None
-            }
+            meta = ChunkMetadata(
+                msg_id_start=msg_batch[0].id,
+                msg_id_end=msg_batch[-1].id,
+                ts_from=msg_batch[0].timestamp,
+                ts_to=msg_batch[-1].timestamp,
+                message_count=len(msg_batch)
+            )
             
-            chunks.append(TextChunk(
+            chunks.append(EnhancedTextChunk(
                 text=text,
-                metadata=metadata,
+                metadata=meta,
                 original_messages=msg_batch
             ))
             
-            # Stop if we've reached the end of the list
-            if i + self.max_messages_per_chunk >= len(messages):
-                break
-                
         return chunks
 
-    def chunk_to_text(self, chunk: List[ChatMessage]) -> str:
-        """Converts a chunk of messages into a single string for embedding."""
+    def _chunk_to_text(self, chunk: List[ChatMessage]) -> str:
+        """Converts a chunk of messages into a single string."""
         return "\n".join([f"{msg.sender}: {msg.content}" for msg in chunk])

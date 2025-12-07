@@ -9,8 +9,7 @@ Manages response frequency logic including:
 
 import logging
 from typing import Dict
-
-logger = logging.getLogger(__name__)
+from src.core.syslog2 import *
 
 
 class FrequencyController:
@@ -50,17 +49,17 @@ class FrequencyController:
         
         # Bot mentioned: always respond
         if has_mention:
-            logger.debug(f"Responding: bot mentioned in chat {chat_id}")
+            syslog2(LOG_DEBUG, "responding mentioned", chat_id=chat_id)
             return True, "mentioned"
         
         # Frequency < 1: only respond to mentions
         if frequency < 1:
-            logger.debug(f"Skipping: freq<1 and no mention in chat {chat_id}")
+            syslog2(LOG_DEBUG, "skipping freq zero", chat_id=chat_id)
             return False, "freq_zero_no_mention"
         
         # Frequency == 1: respond to all messages
         if frequency == 1:
-            logger.debug(f"Responding: freq=1 in chat {chat_id}")
+            syslog2(LOG_DEBUG, "responding freq one", chat_id=chat_id)
             return True, "freq_one"
         
         # Frequency > 1: respond every Nth message
@@ -68,10 +67,10 @@ class FrequencyController:
         self.chat_counters[chat_id] = current
         
         if current % frequency == 0:
-            logger.debug(f"Responding: frequency match (msg {current}, freq {frequency}, chat {chat_id})")
+            syslog2(LOG_DEBUG, "responding freq match", chat_id=chat_id, current=current, freq=frequency)
             return True, f"freq_match_{current}"
         else:
-            logger.debug(f"Skipping: frequency mismatch (msg {current}, freq {frequency}, chat {chat_id})")
+            syslog2(LOG_DEBUG, "skipping freq mismatch", chat_id=chat_id, current=current, freq=frequency)
             return False, f"freq_skip_{current}"
     
     def reset_counter(self, chat_id: int):
@@ -83,7 +82,7 @@ class FrequencyController:
         """
         if chat_id in self.chat_counters:
             del self.chat_counters[chat_id]
-            logger.debug(f"Reset counter for chat {chat_id}")
+            syslog2(LOG_DEBUG, "reset counter", chat_id=chat_id)
     
     def get_counter(self, chat_id: int) -> int:
         """
