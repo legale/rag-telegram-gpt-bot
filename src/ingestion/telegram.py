@@ -139,8 +139,16 @@ class TelegramFetcher:
             
             messages_data.sort(key=lambda x: x['date'])
             
+            # Form output filename based on chat ID
             if not output_file:
-                output_file = f"dump_{chat.id}.json"
+                # Default filename in current directory
+                chat_id = abs(chat.id)  # Use absolute value for negative IDs
+                output_file = f"telegram_dump_{chat_id}.json"
+            elif os.path.isdir(output_file):
+                # If output_file is a directory, create filename with chat ID in that directory
+                chat_id = abs(chat.id)  # Use absolute value for negative IDs
+                output_file = os.path.join(output_file, f"telegram_dump_{chat_id}.json")
+            # If output_file is already a full path to a file, use it as is
                 
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump(messages_data, f, default=json_serial, ensure_ascii=False, indent=2)

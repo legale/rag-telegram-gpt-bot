@@ -281,9 +281,14 @@ def cmd_telegram(args, profile_manager: ProfileManager):
         fetcher.list_members(args.target)
     
     elif args.telegram_command == 'dump':
-        # Default output to profile directory
+        # Default output to profile directory (will be set by dump_chat using chat ID)
         if not args.output:
-            args.output = str(paths['profile_dir'] / f"telegram_dump_{args.target}.json")
+            # Pass profile directory, dump_chat will form filename using chat ID
+            args.output = str(paths['profile_dir'])
+        else:
+            # If output is specified, ensure it's a full path
+            if not os.path.isabs(args.output):
+                args.output = str(paths['profile_dir'] / args.output)
         
         fetcher.dump_chat(args.target, limit=args.limit, output_file=args.output)
 
