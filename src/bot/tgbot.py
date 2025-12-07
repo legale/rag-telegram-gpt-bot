@@ -263,7 +263,8 @@ async def init_runtime_for_current_profile():
     bot_instance = LegaleBot(
         db_url=paths["db_url"],
         vector_db_path=str(paths["vector_db_path"]),
-        model_name=model_name
+        model_name=model_name,
+        profile_dir=profile_dir
     )
     logger.warning(
         "Bot core (LegaleBot) initialized with profile=%s db_url=%s vector=%s model=%s",

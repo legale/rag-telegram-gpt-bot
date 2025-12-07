@@ -1,9 +1,9 @@
 # src/storage/vector_store.py
 
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 import chromadb
 
-from src.core.embedding import EmbeddingClient
+from src.core.embedding import EmbeddingClient, LocalEmbeddingClient
 
 
 class VectorStore:
@@ -12,7 +12,7 @@ class VectorStore:
         persist_directory: str,
         collection_name: str = "default",
         max_batch_size: int = 5000,
-        embedding_client: Optional[EmbeddingClient] = None,
+        embedding_client: Optional[Union[EmbeddingClient, LocalEmbeddingClient]] = None,
     ):
         """
         vector store without internal chroma embedder
@@ -104,3 +104,12 @@ class VectorStore:
             query_embeddings=query_embs,
             n_results=n_results,
         )
+
+    def get_all_embeddings(self) -> Dict[str, Any]:
+        """
+        Returns all embeddings and ids from the collection.
+        This extracts the raw vectors for clustering.
+        """
+        # ChromaDB get() can return headings, ids, etc.
+        # We need "embeddings" which might not be returned by default.
+        return self.collection.get(include=["embeddings", "metadatas", "documents"])

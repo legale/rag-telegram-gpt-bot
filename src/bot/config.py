@@ -28,7 +28,9 @@ class BotConfig:
             "admin_password": "",
             "allowed_chats": [],
             "response_frequency": 0,
-            "system_prompt": ""
+            "system_prompt": "",
+            "embedding_model": "text-embedding-3-small",
+            "embedding_generator": "openrouter"
         }
         
         if not self.config_file.exists():
@@ -109,5 +111,25 @@ class BotConfig:
     @system_prompt.setter
     def system_prompt(self, value: str):
         self.data["system_prompt"] = value
+        self.save()
+
+    @property
+    def embedding_model(self) -> str:
+        return self.data.get("embedding_model", "text-embedding-3-small")
+
+    @embedding_model.setter
+    def embedding_model(self, value: str):
+        self.data["embedding_model"] = value
+        self.save()
+
+    @property
+    def embedding_generator(self) -> str:
+        return self.data.get("embedding_generator", "openrouter")
+
+    @embedding_generator.setter
+    def embedding_generator(self, value: str):
+        if value.lower() not in ["openrouter", "openai", "local"]:
+            raise ValueError(f"embedding_generator must be one of: openrouter, openai, local")
+        self.data["embedding_generator"] = value.lower()
         self.save()
 

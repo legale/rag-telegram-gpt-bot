@@ -206,6 +206,9 @@ def cmd_profile(args, profile_manager: ProfileManager):
         print(f"  Database: {paths['db_path']} ({'exists' if paths['db_path'].exists() else 'not created'})")
         print(f"  Vector DB: {paths['vector_db_path']} ({'exists' if paths['vector_db_path'].exists() else 'not created'})")
         print(f"  Session: {paths['session_file']} ({'exists' if paths['session_file'].exists() else 'not created'})")
+    
+    elif args.profile_command == 'option':
+        cmd_profile_option(args, profile_manager)
 
 
 def cmd_ingest(args, profile_manager: ProfileManager):
@@ -228,7 +231,8 @@ def cmd_ingest(args, profile_manager: ProfileManager):
     # Create pipeline with profile-specific paths
     pipeline = IngestionPipeline(
         db_url=paths['db_url'],
-        vector_db_path=str(paths['vector_db_path'])
+        vector_db_path=str(paths['vector_db_path']),
+        profile_dir=str(paths['profile_dir'])
     )
     
     # Run ingestion
@@ -306,6 +310,7 @@ def cmd_chat(args, profile_manager: ProfileManager):
     # Set environment variables for the CLI
     os.environ['DATABASE_URL'] = paths['db_url']
     os.environ['VECTOR_DB_PATH'] = str(paths['vector_db_path'])
+    os.environ['PROFILE_DIR'] = str(paths['profile_dir'])
     
     # Build CLI arguments
     cli_args = []
@@ -430,6 +435,13 @@ For more information, visit: https://github.com/legale/rag-telegram-gpt-bot
     info_parser = profile_subparsers.add_parser('info', help='Show profile information')
     info_parser.add_argument('name', nargs='?', help='Profile name (default: current)')
     
+    # profile option
+    option_parser = profile_subparsers.add_parser('option', help='Manage profile options')
+    option_parser.add_argument('option', choices=['model', 'generator', 'frequency'], help='Option to manage')
+    option_parser.add_argument('action', choices=['list', 'get', 'set'], help='Action to perform')
+    option_parser.add_argument('value', nargs='?', help='Value to set (required for set action)')
+    option_parser.add_argument('--profile', help='Profile to use (default: current active)')
+    
     # ===== DATA INGESTION =====
     ingest_parser = subparsers.add_parser('ingest', help='Ingest chat data into database')
     ingest_parser.add_argument('file', nargs='?', help='Path to chat dump file (JSON)')
@@ -500,10 +512,28 @@ For more information, visit: https://github.com/legale/rag-telegram-gpt-bot
     run_parser.add_argument('--profile', help='Profile to use (default: current active)')
     
     # bot daemon
+    # bot daemon
     daemon_parser = bot_subparsers.add_parser('daemon', help='Run bot as daemon')
     daemon_parser.add_argument('--host', default='127.0.0.1', help='Host to bind (default: 127.0.0.1)')
     daemon_parser.add_argument('--port', type=int, default=8000, help='Port to bind (default: 8000)')
     daemon_parser.add_argument('--profile', help='Profile to use (default: current active)')
+    
+    # ===== TOPICS =====
+    topics_parser = subparsers.add_parser('topics', help='Manage topics (clustering)')
+    topics_subparsers = topics_parser.add_subparsers(dest='topic_command', help='Topic command')
+    
+    # topics build
+    topics_build_parser = topics_subparsers.add_parser('build', help='Build topics from embeddings')
+    topics_build_parser.add_argument('--profile', help='Profile to use (default: current active)')
+    
+    # topics list
+    topics_list_parser = topics_subparsers.add_parser('list', help='List existing topics')
+    topics_list_parser.add_argument('--profile', help='Profile to use (default: current active)')
+    
+    # topics show
+    topics_show_parser = topics_subparsers.add_parser('show', help='Show details of a topic')
+    topics_show_parser.add_argument('id', help='Topic ID')
+    topics_show_parser.add_argument('--profile', help='Profile to use (default: current active)')
     
     # Parse arguments
     args = parser.parse_args()
@@ -556,6 +586,202 @@ For more information, visit: https://github.com/legale/rag-telegram-gpt-bot
             config_parser.print_help()
             sys.exit(1)
         cmd_config(args, profile_manager)
+
+    elif args.command == 'topics':
+        if not args.topic_command:
+            topics_parser.print_help()
+            sys.exit(1)
+        cmd_topics(args, profile_manager)
+
+
+def cmd_topics(args, profile_manager: ProfileManager):
+    """Handle topic management commands."""
+    from src.core.topics import TopicBuilder
+    from src.storage.db import Database
+    
+    profile_name = args.profile if args.profile else profile_manager.get_current_profile()
+    paths = profile_manager.get_profile_paths(profile_name)
+    
+    if not paths['db_path'].exists():
+        print(f"✗ Error: No database found for profile '{profile_name}'")
+        sys.exit(1)
+        
+    if args.topic_command == 'build':
+        print(f"Building topics for profile: {profile_name}")
+        try:
+            builder = TopicBuilder(paths['db_url'], str(paths['vector_db_path']))
+            builder.build_topics(clear_existing=True)
+        except Exception as e:
+            print(f"✗ Error building topics: {e}")
+            sys.exit(1)
+            
+    elif args.topic_command == 'list':
+        try:
+            db = Database(paths['db_url'])
+            topics = db.get_all_topics()
+            
+            if not topics:
+                print("No topics found. Run 'legale topics build' first.")
+                return
+                
+            print(f"{'ID':<5} {'Title':<50} {'Chunks'}")
+            print("-" * 70)
+            
+            for t in topics:
+                # Naive count, for production might want a smarter query
+                c_ids = db.get_topic_chunks(t.id)
+                print(f"{t.id:<5} {t.title[:48]:<50} {len(c_ids)}")
+                
+        except Exception as e:
+             print(f"✗ Error listing topics: {e}")
+             
+    elif args.topic_command == 'show':
+        try:
+            db = Database(paths['db_url'])
+            topic = db.get_topic(int(args.id))
+            
+            if not topic:
+                print(f"Topic {args.id} not found.")
+                return
+                
+            print(f"Topic {topic.id}: {topic.title}")
+            print(f"Description: {topic.description}")
+            
+            chunk_ids = db.get_topic_chunks(topic.id)
+            print(f"Total Chunks: {len(chunk_ids)}")
+            print("\nSample Content:")
+            
+            for i, cid in enumerate(chunk_ids[:3]):
+                text = db.get_chunk_text(cid)
+                print(f"--- Chunk {cid} ---")
+                print(text[:300] + ("..." if len(text) > 300 else ""))
+                print()
+                
+        except ValueError:
+            print("Error: Topic ID must be an integer.")
+        except Exception as e:
+            print(f"✗ Error showing topic: {e}")
+
+
+
+def cmd_profile_option(args, profile_manager: ProfileManager):
+    """Handle profile option management commands."""
+    from src.bot.config import BotConfig
+    
+    profile_name = args.profile if args.profile else profile_manager.get_current_profile()
+    profile_dir = profile_manager.get_profile_dir(profile_name)
+    
+    if not profile_dir.exists():
+        print(f"✗ Profile '{profile_name}' does not exist")
+        sys.exit(1)
+    
+    config = BotConfig(profile_dir)
+    option = args.option
+    action = args.action
+    
+    # Define available values for each option
+    available_models = {
+        "openrouter": [
+            "text-embedding-3-small",
+            "text-embedding-3-large",
+            "text-embedding-ada-002"
+        ],
+        "local": [
+            "all-MiniLM-L6-v2",
+            "all-mpnet-base-v2",
+            "paraphrase-multilingual-MiniLM-L12-v2"
+        ]
+    }
+    
+    all_models = available_models["openrouter"] + available_models["local"]
+    available_generators = ["openrouter", "openai", "local"]
+    
+    if option == 'model':
+        if action == 'list':
+            print("Available embedding models:")
+            print("\nOpenRouter/OpenAI models:")
+            for model in available_models["openrouter"]:
+                marker = " (current)" if model == config.embedding_model else ""
+                print(f"  - {model}{marker}")
+            print("\nLocal models (sentence-transformers):")
+            for model in available_models["local"]:
+                marker = " (current)" if model == config.embedding_model else ""
+                print(f"  - {model}{marker}")
+        
+        elif action == 'get':
+            print(f"Current embedding model: {config.embedding_model}")
+        
+        elif action == 'set':
+            if not args.value:
+                print("✗ Error: value is required for 'set' action")
+                sys.exit(1)
+            if args.value not in all_models:
+                print(f"✗ Error: Unknown model '{args.value}'")
+                print(f"  Available models: {', '.join(all_models)}")
+                sys.exit(1)
+            config.embedding_model = args.value
+            print(f"✓ Embedding model set to: {args.value}")
+    
+    elif option == 'generator':
+        if action == 'list':
+            print("Available embedding generators:")
+            for gen in available_generators:
+                marker = " (current)" if gen == config.embedding_generator else ""
+                print(f"  - {gen}{marker}")
+            print("\nNote:")
+            print("  - openrouter/openai: Use OpenRouter/OpenAI API")
+            print("  - local: Use local sentence-transformers (no API key required)")
+        
+        elif action == 'get':
+            print(f"Current embedding generator: {config.embedding_generator}")
+        
+        elif action == 'set':
+            if not args.value:
+                print("✗ Error: value is required for 'set' action")
+                sys.exit(1)
+            if args.value.lower() not in available_generators:
+                print(f"✗ Error: Unknown generator '{args.value}'")
+                print(f"  Available generators: {', '.join(available_generators)}")
+                sys.exit(1)
+            try:
+                config.embedding_generator = args.value.lower()
+                print(f"✓ Embedding generator set to: {args.value.lower()}")
+            except ValueError as e:
+                print(f"✗ Error: {e}")
+                sys.exit(1)
+    
+    elif option == 'frequency':
+        if action == 'list':
+            print("Response frequency options:")
+            print("  - 0: Respond only to mentions")
+            print("  - 1: Respond to every message")
+            print("  - N: Respond to every N-th message (N > 1)")
+            print(f"\nCurrent value: {config.response_frequency}")
+        
+        elif action == 'get':
+            freq = config.response_frequency
+            if freq == 0:
+                desc = "Respond only to mentions"
+            elif freq == 1:
+                desc = "Respond to every message"
+            else:
+                desc = f"Respond to every {freq}-th message"
+            print(f"Current response frequency: {freq} ({desc})")
+        
+        elif action == 'set':
+            if not args.value:
+                print("✗ Error: value is required for 'set' action")
+                sys.exit(1)
+            try:
+                freq_value = int(args.value)
+                if freq_value < 0:
+                    print("✗ Error: frequency must be >= 0")
+                    sys.exit(1)
+                config.response_frequency = freq_value
+                print(f"✓ Response frequency set to: {freq_value}")
+            except ValueError:
+                print(f"✗ Error: frequency must be an integer")
+                sys.exit(1)
 
 
 def cmd_config(args, profile_manager: ProfileManager):

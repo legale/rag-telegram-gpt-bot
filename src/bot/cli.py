@@ -66,6 +66,7 @@ def main():
     # Get paths from environment (set by legale.py)
     db_url = os.getenv("DATABASE_URL")
     vector_db_path = os.getenv("VECTOR_DB_PATH")
+    profile_dir = os.getenv("PROFILE_DIR")
     
     if not db_url or not vector_db_path:
         print("Error: DATABASE_URL and VECTOR_DB_PATH must be set in environment.")
@@ -77,7 +78,8 @@ def main():
             db_url=db_url,
             vector_db_path=vector_db_path,
             model_name=model_name, 
-            verbosity=args.verbose
+            verbosity=args.verbose,
+            profile_dir=profile_dir
         )
         print("Bot ready! Type 'exit' or 'quit' to stop.")
         print("-" * 50)

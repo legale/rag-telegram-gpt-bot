@@ -1,7 +1,8 @@
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Union
+from pathlib import Path
 from src.storage.db import Database
 from src.storage.vector_store import VectorStore
-from src.core.embedding import EmbeddingClient
+from src.core.embedding import EmbeddingClient, LocalEmbeddingClient, create_embedding_client
 from src.core.retrieval import RetrievalService
 from src.core.prompt import PromptEngine
 from src.core.llm import LLMClient
@@ -10,17 +11,47 @@ import os
 class LegaleBot:
     """Main bot class orchestrating the RAG pipeline."""
     
-    def __init__(self, db_url: str, vector_db_path: str, model_name: str = "openai/gpt-3.5-turbo", verbosity: int = 0):
+    def __init__(
+        self,
+        db_url: str,
+        vector_db_path: str,
+        model_name: str = "openai/gpt-3.5-turbo",
+        verbosity: int = 0,
+        profile_dir: Optional[Union[str, Path]] = None
+    ):
         # Initialize components
         if not db_url or not vector_db_path:
             raise ValueError("db_url and vector_db_path must be provided")
             
         self.db = Database(db_url)
-        self.vector_store = VectorStore(persist_directory=vector_db_path)
         self.verbosity = verbosity
         
-        # Initialize clients with credentials from env
-        self.embedding_client = EmbeddingClient()
+        # Load profile config if available
+        embedding_client = None
+        if profile_dir:
+            profile_path = Path(profile_dir)
+            if profile_path.exists():
+                try:
+                    from src.bot.config import BotConfig
+                    config = BotConfig(profile_path)
+                    embedding_client = create_embedding_client(
+                        generator=config.embedding_generator,
+                        model=config.embedding_model
+                    )
+                except Exception as e:
+                    if verbosity >= 1:
+                        print(f"[Warning] Could not load profile config: {e}")
+                        print("  Using default embedding client")
+        
+        # Use profile embedding client or create default
+        if embedding_client is None:
+            embedding_client = EmbeddingClient()
+        
+        self.embedding_client = embedding_client
+        self.vector_store = VectorStore(
+            persist_directory=vector_db_path,
+            embedding_client=embedding_client
+        )
         self.llm_client = LLMClient(model=model_name, verbosity=verbosity)
         
         # Initialize services

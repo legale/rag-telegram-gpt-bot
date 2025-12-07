@@ -14,21 +14,40 @@ from src.ingestion.parser import ChatParser
 from src.ingestion.chunker import TextChunker
 from src.storage.db import Database, ChunkModel
 from src.storage.vector_store import VectorStore
-from src.core.embedding import EmbeddingClient
+from src.core.embedding import EmbeddingClient, create_embedding_client
+from pathlib import Path
 import uuid
 import json
 
 
 class IngestionPipeline:
-    def __init__(self, db_url: str, vector_db_path: str, collection_name: str = "default"):
+    def __init__(self, db_url: str, vector_db_path: str, collection_name: str = "default", profile_dir: Optional[str] = None):
         self.parser = ChatParser()
         self.chunker = TextChunker()
         self.db = Database(db_url)
+        self.profile_dir = Path(profile_dir) if profile_dir else None
+        
+        # Load profile config if available
+        embedding_client = None
+        if self.profile_dir and self.profile_dir.exists():
+            try:
+                from src.bot.config import BotConfig
+                config = BotConfig(self.profile_dir)
+                embedding_client = create_embedding_client(
+                    generator=config.embedding_generator,
+                    model=config.embedding_model
+                )
+            except Exception as e:
+                print(f"Warning: Could not load profile config: {e}")
+                print("  Using default embedding client")
+        
         self.vector_store = VectorStore(
             persist_directory=vector_db_path,
             collection_name=collection_name,
+            embedding_client=embedding_client,
         )
         self.db_url = db_url
+        self.embedding_client = embedding_client
 
     def _clear_data(self):
         """clears sql and vector storage with verbose output"""
@@ -106,7 +125,11 @@ class IngestionPipeline:
 
         # 4. precompute embeddings + save to disk + load into vector db
         if ids:
-            emb_client = EmbeddingClient()
+            # Use profile embedding client if available, otherwise create default
+            emb_client = self.embedding_client
+            if emb_client is None:
+                emb_client = EmbeddingClient()
+            
             emb_path = file_path + ".embeddings.jsonl"
 
             embeddings = emb_client.embed_and_save_jsonl(
