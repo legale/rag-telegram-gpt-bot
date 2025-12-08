@@ -362,29 +362,62 @@ class TopicClusterer:
                     
         syslog2(LOG_INFO, "l2 topics saved")
 
-    def name_topics(self):
+    def name_topics(self, progress_callback=None, only_unnamed: bool = False, rebuild: bool = False, target: str = 'both'):
         """
         Generates names for L1 and L2 topics using LLM.
+        
+        Args:
+            progress_callback: Optional callback function(current, total, stage) for progress updates.
+                stage: 'l1' or 'l2'
+            only_unnamed: If True, generate names only for topics without names (default: False)
+            rebuild: If True, regenerate names for all topics, overriding only_unnamed (default: False)
+            target: Which topics to name: 'l1', 'l2', or 'both' (default: 'both')
         """
         if not self.llm_client:
             syslog2(LOG_WARNING, "llm client not available for topic naming")
             return
 
-        syslog2(LOG_INFO, "starting topic naming")
+        syslog2(LOG_INFO, "starting topic naming", only_unnamed=only_unnamed, rebuild=rebuild, target=target)
         
         # 1. Name L1 Topics
-        l1_topics = self.db.get_all_topics_l1()
-        syslog2(LOG_INFO, "naming l1 topics", count=len(l1_topics))
-        
-        for topic in l1_topics:
-            self._name_l1_topic(topic)
+        if target in ('l1', 'both'):
+            l1_topics = self.db.get_all_topics_l1()
+            
+            # Filter based on options
+            if rebuild:
+                # Rebuild all - no filtering
+                pass
+            elif only_unnamed:
+                # Only topics without names or with placeholder names
+                l1_topics = [t for t in l1_topics if not t.title or t.title.startswith("Topic L1-")]
+            
+            syslog2(LOG_INFO, "naming l1 topics", count=len(l1_topics))
+            
+            total_l1 = len(l1_topics)
+            for idx, topic in enumerate(l1_topics, 1):
+                self._name_l1_topic(topic)
+                if progress_callback:
+                    progress_callback(idx, total_l1, 'l1')
             
         # 2. Name L2 Topics
-        l2_topics = self.db.get_all_topics_l2()
-        syslog2(LOG_INFO, "naming l2 topics", count=len(l2_topics))
-        
-        for topic in l2_topics:
-            self._name_l2_topic(topic)
+        if target in ('l2', 'both'):
+            l2_topics = self.db.get_all_topics_l2()
+            
+            # Filter based on options
+            if rebuild:
+                # Rebuild all - no filtering
+                pass
+            elif only_unnamed:
+                # Only topics without names or with placeholder names
+                l2_topics = [t for t in l2_topics if not t.title or t.title.startswith("Topic L2-")]
+            
+            syslog2(LOG_INFO, "naming l2 topics", count=len(l2_topics))
+            
+            total_l2 = len(l2_topics)
+            for idx, topic in enumerate(l2_topics, 1):
+                self._name_l2_topic(topic)
+                if progress_callback:
+                    progress_callback(idx, total_l2, 'l2')
             
         syslog2(LOG_INFO, "topic naming complete")
 

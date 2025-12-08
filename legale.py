@@ -241,8 +241,44 @@ def cmd_ingest(args, profile_manager: ProfileManager):
         profile_dir=str(paths['profile_dir'])
     )
     
-    # Run ingestion
-    pipeline.run(args.file, clear_existing=args.clear)
+    # Route to appropriate subcommand
+    ingest_command = getattr(args, 'ingest_command', None)
+    
+    if ingest_command == 'parse':
+        if not args.file:
+            print("✗ Error: file path is required for 'ingest parse'")
+            sys.exit(1)
+        print("Parsing file and storing in SQLite...")
+        pipeline.parse_and_store(args.file, clear_existing=args.clear)
+        print("✓ Parse complete. Run 'ingest embed' to generate embeddings.")
+        
+    elif ingest_command == 'embed':
+        # Check if there are chunks in database
+        from src.storage.db import Database
+        db = Database(paths['db_url'])
+        chunk_count = db.count_chunks()
+        if chunk_count == 0:
+            print("✗ Error: No chunks found in database. Run 'ingest parse <file>' first.")
+            sys.exit(1)
+        
+        model = getattr(args, 'model', None)
+        batch_size = getattr(args, 'batch_size', 128)
+        print(f"Generating embeddings for chunks (batch size: {batch_size})...")
+        pipeline.generate_embeddings(model=model, batch_size=batch_size)
+        print("✓ Embedding generation complete.")
+        
+    elif ingest_command == 'all':
+        if not args.file:
+            print("✗ Error: file path is required for 'ingest all'")
+            sys.exit(1)
+        print("Running full ingestion pipeline...")
+        pipeline.run(args.file, clear_existing=args.clear)
+        print("✓ Full ingestion complete.")
+        
+    else:
+        # Should not happen due to routing logic, but handle gracefully
+        print("✗ Error: Unknown ingest command")
+        sys.exit(1)
 
 
 def cmd_telegram(args, profile_manager: ProfileManager):
@@ -441,7 +477,7 @@ def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
         prog='legale',
-        description='Legale Bot - Union Lawyer Chatbot with RAG',
+        description='Librarian chatbot with RAG',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -508,7 +544,28 @@ For more information, visit: https://github.com/legale/rag-telegram-gpt-bot
     
     # ===== DATA INGESTION =====
     ingest_parser = subparsers.add_parser('ingest', help='Ingest chat data into database')
-    ingest_parser.add_argument('file', nargs='?', help='Path to chat dump file (JSON)')
+    ingest_subparsers = ingest_parser.add_subparsers(dest='ingest_command', help='Ingest command')
+    
+    # ingest parse
+    ingest_parse_parser = ingest_subparsers.add_parser('parse', help='Parse file and store messages/chunks in SQLite')
+    ingest_parse_parser.add_argument('file', help='Path to chat dump file (JSON)')
+    ingest_parse_parser.add_argument('--clear', action='store_true', help='Clear existing data before ingestion')
+    ingest_parse_parser.add_argument('--profile', help='Profile to use (default: current active)')
+    
+    # ingest embed
+    ingest_embed_parser = ingest_subparsers.add_parser('embed', help='Generate embeddings for chunks without embeddings')
+    ingest_embed_parser.add_argument('--model', help='Embedding model to use (overrides profile config)')
+    ingest_embed_parser.add_argument('--batch-size', type=int, default=128, help='Batch size for embedding generation (default: 128)')
+    ingest_embed_parser.add_argument('--profile', help='Profile to use (default: current active)')
+    
+    # ingest all (full pipeline, backward compatibility)
+    ingest_all_parser = ingest_subparsers.add_parser('all', help='Full ingestion pipeline (parse + embed)')
+    ingest_all_parser.add_argument('file', help='Path to chat dump file (JSON)')
+    ingest_all_parser.add_argument('--clear', action='store_true', help='Clear existing data before ingestion')
+    ingest_all_parser.add_argument('--profile', help='Profile to use (default: current active)')
+    
+    # Backward compatibility: if no subcommand, treat as 'all'
+    ingest_parser.add_argument('file', nargs='?', help='Path to chat dump file (JSON) - backward compatibility, use "ingest all"')
     ingest_parser.add_argument('--clear', action='store_true', help='Clear existing data before ingestion')
     ingest_parser.add_argument('--profile', help='Profile to use (default: current active)')
     
@@ -587,33 +644,44 @@ For more information, visit: https://github.com/legale/rag-telegram-gpt-bot
     topics_parser = subparsers.add_parser('topics', help='Manage topics (clustering)')
     topics_subparsers = topics_parser.add_subparsers(dest='topic_command', help='Topic command')
     
-    # topics build
-    topics_build_parser = topics_subparsers.add_parser('build', help='Build topics from embeddings')
+    # Helper function to add clustering parameters
+    def add_clustering_params(parser, prefix='l1'):
+        parser.add_argument(f'--{prefix}-min-size', type=int, default=2, 
+                           help=f'{prefix.upper()}: Minimum chunks per cluster (default: 2, minimum: 2, lower = more topics)')
+        parser.add_argument(f'--{prefix}-min-samples', type=int, default=1,
+                           help=f'{prefix.upper()}: Minimum samples in neighborhood (default: 1, lower = more topics)')
+        parser.add_argument(f'--{prefix}-metric', choices=['cosine', 'euclidean', 'manhattan'], default='cosine',
+                           help=f'{prefix.upper()}: Distance metric (default: cosine, euclidean may find more clusters)')
+        parser.add_argument(f'--{prefix}-method', choices=['eom', 'leaf'], default='eom',
+                           help=f'{prefix.upper()}: Cluster selection method (default: eom, leaf creates more clusters)')
+        parser.add_argument(f'--{prefix}-epsilon', type=float, default=0.0,
+                           help=f'{prefix.upper()}: Distance threshold for merging clusters (default: 0.0 = auto)')
+    
+    # topics cluster-l1
+    topics_cluster_l1_parser = topics_subparsers.add_parser('cluster-l1', help='Perform L1 clustering only')
+    topics_cluster_l1_parser.add_argument('--profile', help='Profile to use (default: current active)')
+    add_clustering_params(topics_cluster_l1_parser, 'l1')
+    
+    # topics cluster-l2
+    topics_cluster_l2_parser = topics_subparsers.add_parser('cluster-l2', help='Perform L2 clustering only')
+    topics_cluster_l2_parser.add_argument('--profile', help='Profile to use (default: current active)')
+    add_clustering_params(topics_cluster_l2_parser, 'l2')
+    
+    # topics name
+    topics_name_parser = topics_subparsers.add_parser('name', help='Generate names for topics')
+    topics_name_parser.add_argument('--only-unnamed', action='store_true',
+                                   help='Generate names only for topics without names')
+    topics_name_parser.add_argument('--rebuild', action='store_true',
+                                   help='Regenerate names for all topics (overrides --only-unnamed)')
+    topics_name_parser.add_argument('--target', choices=['l1', 'l2', 'both'], default='both',
+                                   help='Target topics to name: l1, l2, or both (default: both)')
+    topics_name_parser.add_argument('--profile', help='Profile to use (default: current active)')
+    
+    # topics build (full pipeline)
+    topics_build_parser = topics_subparsers.add_parser('build', help='Build topics from embeddings (L1 + L2 + naming)')
     topics_build_parser.add_argument('--profile', help='Profile to use (default: current active)')
-    
-    # L1 clustering parameters
-    topics_build_parser.add_argument('--l1-min-size', type=int, default=2, 
-                                     help='L1: Minimum chunks per cluster (default: 2, minimum: 2, lower = more topics)')
-    topics_build_parser.add_argument('--l1-min-samples', type=int, default=1,
-                                     help='L1: Minimum samples in neighborhood (default: 1, lower = more topics)')
-    topics_build_parser.add_argument('--l1-metric', choices=['cosine', 'euclidean', 'manhattan'], default='cosine',
-                                     help='L1: Distance metric (default: cosine, euclidean may find more clusters)')
-    topics_build_parser.add_argument('--l1-method', choices=['eom', 'leaf'], default='eom',
-                                     help='L1: Cluster selection method (default: eom, leaf creates more clusters)')
-    topics_build_parser.add_argument('--l1-epsilon', type=float, default=0.0,
-                                     help='L1: Distance threshold for merging clusters (default: 0.0 = auto)')
-    
-    # L2 clustering parameters
-    topics_build_parser.add_argument('--l2-min-size', type=int, default=2,
-                                     help='L2: Minimum L1 topics per super-topic (default: 2)')
-    topics_build_parser.add_argument('--l2-min-samples', type=int, default=1,
-                                     help='L2: Minimum samples for L2 clustering (default: 1)')
-    topics_build_parser.add_argument('--l2-metric', choices=['cosine', 'euclidean', 'manhattan'], default='cosine',
-                                     help='L2: Distance metric (default: cosine)')
-    topics_build_parser.add_argument('--l2-method', choices=['eom', 'leaf'], default='eom',
-                                     help='L2: Cluster selection method (default: eom)')
-    topics_build_parser.add_argument('--l2-epsilon', type=float, default=0.0,
-                                     help='L2: Distance threshold for merging clusters (default: 0.0 = auto)')
+    add_clustering_params(topics_build_parser, 'l1')
+    add_clustering_params(topics_build_parser, 'l2')
     
     # topics list
     topics_list_parser = topics_subparsers.add_parser('list', help='List existing topics')
@@ -628,7 +696,7 @@ For more information, visit: https://github.com/legale/rag-telegram-gpt-bot
     # Test Embedding
     emb_parser = subparsers.add_parser('test-embedding', help='Test embedding generation')
     emb_parser.add_argument('text', help='Text to embed')
-    emb_parser.add_argument('--model', default='ai-sage/Giga-Embeddings-instruct', help='Model name')
+    emb_parser.add_argument('--model', default='all-MiniLM-L6-v2', help='Model name')
 
     # Parse arguments
     args = parser.parse_args()
@@ -672,8 +740,13 @@ For more information, visit: https://github.com/legale/rag-telegram-gpt-bot
         cmd_profile(args, profile_manager)
     
     elif args.command == 'ingest':
-        if not args.file and not args.clear:
-            ingest_parser.error("Please provide a file or specify --clear")
+        # Backward compatibility: if no subcommand but file provided, treat as 'all'
+        if not hasattr(args, 'ingest_command') or args.ingest_command is None:
+            if args.file:
+                args.ingest_command = 'all'
+            else:
+                ingest_parser.print_help()
+                sys.exit(1)
         cmd_ingest(args, profile_manager)
     
     elif args.command == 'telegram':
@@ -739,66 +812,126 @@ def cmd_topics(args, profile_manager: ProfileManager):
     if not model_name:
         model_name = "openai/gpt-3.5-turbo"
         
-    llm_client = LLMClient(model=model_name, verbosity=args.verbose if hasattr(args, 'verbose') else 0)
+    # For topic naming, always use verbosity=0 to suppress raw LLM output
+    # This ensures clean progress bar output without HTTP request/response spam
+    llm_verbosity = 0
+    llm_client = LLMClient(model=model_name, verbosity=llm_verbosity)
 
     clusterer = TopicClusterer(db, vector_store, llm_client)
 
-    if args.topic_command == 'build':
+    # Helper function to get clustering parameters
+    def get_clustering_params(prefix):
+        return {
+            'min_cluster_size': getattr(args, f'{prefix}_min_size', 2),
+            'min_samples': getattr(args, f'{prefix}_min_samples', 1),
+            'metric': getattr(args, f'{prefix}_metric', 'cosine'),
+            'cluster_selection_method': getattr(args, f'{prefix}_method', 'eom'),
+            'cluster_selection_epsilon': getattr(args, f'{prefix}_epsilon', 0.0)
+        }
+    
+    # Helper function to validate clustering parameters
+    def validate_clustering_params(prefix):
+        min_size = getattr(args, f'{prefix}_min_size', 2)
+        if min_size < 2:
+            print(f"✗ Error: --{prefix}-min-size must be at least 2 (HDBSCAN requirement), got {min_size}")
+            sys.exit(1)
+    
+    # Progress bar callback for naming
+    def show_progress(current, total, stage):
+        """Display progress bar for topic naming."""
+        percentage = int((current / total * 100)) if total > 0 else 0
+        bar_width = 30
+        filled = int((current / total * bar_width)) if total > 0 else 0
+        bar = "█" * filled + "░" * (bar_width - filled)
+        stage_name = "L1 Topics" if stage == 'l1' else "L2 Topics"
+        print(f"\r  {stage_name}: [{bar}] {current}/{total} ({percentage}%)", end="", flush=True)
+        if current == total:
+            print()  # New line when complete
+
+    if args.topic_command == 'cluster-l1':
+        print(f"Running L1 clustering for profile: {profile_name}")
+        validate_clustering_params('l1')
+        params = get_clustering_params('l1')
+        print(f"Parameters: min_cluster_size={params['min_cluster_size']}, min_samples={params['min_samples']}, "
+              f"metric={params['metric']}, method={params['cluster_selection_method']}, epsilon={params['cluster_selection_epsilon']}")
+        try:
+            clusterer.perform_l1_clustering(**params)
+            print("✓ L1 clustering complete. Run 'topics cluster-l2' for super-topics.")
+        except ValueError as e:
+            print(f"✗ Error: {e}")
+            sys.exit(1)
+            
+    elif args.topic_command == 'cluster-l2':
+        print(f"Running L2 clustering for profile: {profile_name}")
+        # Check if L1 topics exist
+        l1_topics = db.get_all_topics_l1()
+        if not l1_topics:
+            print("✗ Error: No L1 topics found. Run 'topics cluster-l1' first.")
+            sys.exit(1)
+        validate_clustering_params('l2')
+        params = get_clustering_params('l2')
+        print(f"Parameters: min_cluster_size={params['min_cluster_size']}, min_samples={params['min_samples']}, "
+              f"metric={params['metric']}, method={params['cluster_selection_method']}, epsilon={params['cluster_selection_epsilon']}")
+        try:
+            clusterer.perform_l2_clustering(**params)
+            print("✓ L2 clustering complete. Run 'topics name' to generate topic names.")
+        except ValueError as e:
+            print(f"✗ Error: {e}")
+            sys.exit(1)
+            
+    elif args.topic_command == 'name':
+        print(f"Generating topic names for profile: {profile_name}")
+        # Check if topics exist
+        l1_topics = db.get_all_topics_l1()
+        l2_topics = db.get_all_topics_l2()
+        if not l1_topics and not l2_topics:
+            print("✗ Error: No topics found. Run 'topics cluster-l1' first.")
+            sys.exit(1)
+        
+        only_unnamed = getattr(args, 'only_unnamed', False)
+        rebuild = getattr(args, 'rebuild', False)
+        target = getattr(args, 'target', 'both')
+        
+        print("Naming Topics (LLM)...")
+        clusterer.name_topics(
+            progress_callback=show_progress,
+            only_unnamed=only_unnamed,
+            rebuild=rebuild,
+            target=target
+        )
+        print("✓ Topic naming complete.")
+        
+    elif args.topic_command == 'build':
         print(f"Building topics for profile: {profile_name}")
         
-        # Get clustering parameters from args
-        l1_min_size = args.l1_min_size if hasattr(args, 'l1_min_size') else 2
-        l1_min_samples = args.l1_min_samples if hasattr(args, 'l1_min_samples') else 1
-        l1_metric = args.l1_metric if hasattr(args, 'l1_metric') else 'cosine'
-        l1_method = args.l1_method if hasattr(args, 'l1_method') else 'eom'
-        l1_epsilon = args.l1_epsilon if hasattr(args, 'l1_epsilon') else 0.0
-        
-        l2_min_size = args.l2_min_size if hasattr(args, 'l2_min_size') else 2
-        l2_min_samples = args.l2_min_samples if hasattr(args, 'l2_min_samples') else 1
-        l2_metric = args.l2_metric if hasattr(args, 'l2_metric') else 'cosine'
-        l2_method = args.l2_method if hasattr(args, 'l2_method') else 'eom'
-        l2_epsilon = args.l2_epsilon if hasattr(args, 'l2_epsilon') else 0.0
-        
         # Validate parameters
-        if l1_min_size < 2:
-            print(f"✗ Error: --l1-min-size must be at least 2 (HDBSCAN requirement), got {l1_min_size}")
-            sys.exit(1)
-        if l2_min_size < 2:
-            print(f"✗ Error: --l2-min-size must be at least 2 (HDBSCAN requirement), got {l2_min_size}")
-            sys.exit(1)
+        validate_clustering_params('l1')
+        validate_clustering_params('l2')
         
-        print(f"L1 parameters: min_cluster_size={l1_min_size}, min_samples={l1_min_samples}, "
-              f"metric={l1_metric}, method={l1_method}, epsilon={l1_epsilon}")
+        # Get clustering parameters
+        l1_params = get_clustering_params('l1')
+        l2_params = get_clustering_params('l2')
+        
+        print(f"L1 parameters: min_cluster_size={l1_params['min_cluster_size']}, min_samples={l1_params['min_samples']}, "
+              f"metric={l1_params['metric']}, method={l1_params['cluster_selection_method']}, epsilon={l1_params['cluster_selection_epsilon']}")
         print("1. Running L1 Clustering (Fine-grained)...")
         try:
-            clusterer.perform_l1_clustering(
-                min_cluster_size=l1_min_size, 
-                min_samples=l1_min_samples,
-                metric=l1_metric,
-                cluster_selection_method=l1_method,
-                cluster_selection_epsilon=l1_epsilon
-            )
+            clusterer.perform_l1_clustering(**l1_params)
         except ValueError as e:
             print(f"✗ Error: {e}")
             sys.exit(1)
         
-        print(f"L2 parameters: min_cluster_size={l2_min_size}, min_samples={l2_min_samples}, "
-              f"metric={l2_metric}, method={l2_method}, epsilon={l2_epsilon}")
+        print(f"L2 parameters: min_cluster_size={l2_params['min_cluster_size']}, min_samples={l2_params['min_samples']}, "
+              f"metric={l2_params['metric']}, method={l2_params['cluster_selection_method']}, epsilon={l2_params['cluster_selection_epsilon']}")
         print("2. Running L2 Clustering (Super-topics)...")
         try:
-            clusterer.perform_l2_clustering(
-                min_cluster_size=l2_min_size, 
-                min_samples=l2_min_samples,
-                metric=l2_metric,
-                cluster_selection_method=l2_method,
-                cluster_selection_epsilon=l2_epsilon
-            )
+            clusterer.perform_l2_clustering(**l2_params)
         except ValueError as e:
             print(f"✗ Error: {e}")
             sys.exit(1)
         
         print("3. Naming Topics (LLM)...")
-        clusterer.name_topics()
+        clusterer.name_topics(progress_callback=show_progress)
         
         print("✓ Topic build complete.")
             

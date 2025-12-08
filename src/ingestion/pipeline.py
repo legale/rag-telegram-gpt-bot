@@ -75,19 +75,21 @@ class IngestionPipeline:
         syslog2(LOG_INFO, "vector store cleanup", path=self.vector_store.persist_directory, collection=self.vector_store.collection_name, before=vector_before, removed=removed_vectors, remaining=vector_after)
         syslog2(LOG_INFO, "data cleared")
 
-    def run(self, file_path: Optional[str] = None, clear_existing: bool = False):
+    def parse_and_store(self, file_path: str, clear_existing: bool = False):
         """
-        runs the ingestion pipeline
+        Parse file and store messages/chunks in SQLite database.
+        
+        Args:
+            file_path: Path to chat dump file
+            clear_existing: Whether to clear existing data before ingestion
         """
         if clear_existing:
             self._clear_data()
-            if not file_path:
-                return
 
         if not file_path:
-            raise ValueError("file_path must be provided when not running a cleanup-only command.")
+            raise ValueError("file_path must be provided")
 
-        syslog2(LOG_INFO, "starting ingestion", file_path=file_path)
+        syslog2(LOG_INFO, "starting parse and store", file_path=file_path)
 
         # 1. parse
         messages = self.parser.parse_file(file_path)
@@ -169,7 +171,7 @@ class IngestionPipeline:
 
             session.add_all(chunk_models)
             session.commit()
-            syslog2(LOG_INFO, "chunks saved to sql database")
+            syslog2(LOG_INFO, "chunks saved to sql database", count=len(chunk_models))
         except Exception as e:
             session.rollback()
             syslog2(LOG_ERR, "sql save failed", error=str(e))
@@ -177,24 +179,68 @@ class IngestionPipeline:
         finally:
             session.close()
 
-        # 4. precompute embeddings + save to disk + load into vector db
-        if ids:
-            # Use embedding client from initialization (profile config or env defaults)
-            emb_client = self.embedding_client
-            if emb_client is None:
-                # This should not happen if initialization was correct
-                raise RuntimeError("Embedding client was not initialized. This is a bug.")
+        syslog2(LOG_INFO, "parse and store complete", chunks_count=len(chunk_models))
+
+    def generate_embeddings(self, model: Optional[str] = None, batch_size: int = 128):
+        """
+        Generate embeddings for chunks without embeddings and save to vector database.
+        
+        Args:
+            model: Embedding model to use (overrides profile config)
+            batch_size: Batch size for embedding generation
+        """
+        syslog2(LOG_INFO, "starting embedding generation", model=model, batch_size=batch_size)
+        
+        # Get embedding client (use provided model or default)
+        emb_client = self.embedding_client
+        if model:
+            # Create new client with specified model
+            from src.core.embedding import create_embedding_client
+            generator = os.getenv("EMBEDDING_PROVIDER", "openrouter")
+            emb_client = create_embedding_client(generator=generator, model=model)
+        
+        if emb_client is None:
+            raise RuntimeError("Embedding client was not initialized. This is a bug.")
+        
+        # Get all chunks from database that don't have embeddings in vector store
+        session = self.db.get_session()
+        try:
+            all_chunks = session.query(ChunkModel).all()
+            # Get existing IDs from vector store
+            vector_data = self.vector_store.get_all_embeddings()
+            existing_ids = set(vector_data.get("ids", []))
             
-            emb_path = file_path + ".embeddings.jsonl"
-
-            embeddings = emb_client.embed_and_save_jsonl(
-                ids=ids,
+            # Filter chunks without embeddings
+            chunks_to_embed = [chunk for chunk in all_chunks if chunk.id not in existing_ids]
+            
+            if not chunks_to_embed:
+                syslog2(LOG_INFO, "all chunks already have embeddings")
+                return
+            
+            syslog2(LOG_INFO, "chunks to embed", total=len(all_chunks), missing=len(chunks_to_embed))
+            
+            # Prepare data
+            ids = [chunk.id for chunk in chunks_to_embed]
+            documents = [chunk.text for chunk in chunks_to_embed]
+            metadatas = []
+            
+            for chunk in chunks_to_embed:
+                meta_dict = {}
+                if chunk.metadata_json:
+                    try:
+                        meta_dict = json.loads(chunk.metadata_json)
+                    except:
+                        pass
+                metadatas.append(meta_dict)
+            
+            # Generate embeddings
+            embeddings = emb_client.get_embeddings_batched(
                 texts=documents,
-                out_path=emb_path,
-                batch_size=128,
-                show_progress=True,
+                batch_size=batch_size,
+                show_progress=True
             )
-
+            
+            # Save to vector store
             self.vector_store.add_documents_with_embeddings(
                 ids=ids,
                 documents=documents,
@@ -202,9 +248,38 @@ class IngestionPipeline:
                 metadatas=metadatas,
                 show_progress=True,
             )
-            syslog2(LOG_INFO, "embeddings saved to vector database")
+            syslog2(LOG_INFO, "embeddings saved to vector database", count=len(ids))
+            
+        finally:
+            session.close()
+        
+        syslog2(LOG_INFO, "embedding generation complete")
 
-        syslog2(LOG_INFO, "ingestion complete")
+    def run(self, file_path: Optional[str] = None, clear_existing: bool = False):
+        """
+        Full ingestion pipeline (parse + embed) - backward compatibility.
+        
+        Args:
+            file_path: Path to chat dump file
+            clear_existing: Whether to clear existing data before ingestion
+        """
+        if clear_existing:
+            self._clear_data()
+            if not file_path:
+                return
+
+        if not file_path:
+            raise ValueError("file_path must be provided when not running a cleanup-only command.")
+
+        syslog2(LOG_INFO, "starting full ingestion pipeline", file_path=file_path)
+        
+        # Step 1: Parse and store
+        self.parse_and_store(file_path, clear_existing=False)
+        
+        # Step 2: Generate embeddings
+        self.generate_embeddings(batch_size=128)
+        
+        syslog2(LOG_INFO, "full ingestion pipeline complete")
 
 
 if __name__ == "__main__":

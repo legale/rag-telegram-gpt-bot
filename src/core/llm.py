@@ -38,10 +38,17 @@ class LLMClient:
         except KeyError:
             # Fallback to cl100k_base encoding (used by gpt-3.5-turbo and gpt-4)
             self.encoding = tiktoken.get_encoding("cl100k_base")
-            
-        if verbosity >= 3:
-            # Enable low-level HTTP logging
-            import logging
+        
+        # Control HTTP logging based on verbosity
+        import logging
+        if verbosity == 0:
+            # Completely silence HTTP logging at verbosity 0
+            logging.getLogger("httpx").setLevel(logging.WARNING)
+            logging.getLogger("httpcore").setLevel(logging.WARNING)
+            logging.getLogger("urllib3").setLevel(logging.WARNING)
+            logging.getLogger("openai").setLevel(logging.WARNING)
+        elif verbosity >= 3:
+            # Enable low-level HTTP logging only at verbosity 3+
             httpx_logger = logging.getLogger("httpx")
             httpx_logger.setLevel(logging.DEBUG)
             httpx_logger.propagate = True

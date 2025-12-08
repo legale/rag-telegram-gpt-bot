@@ -84,7 +84,17 @@ def test_run_success(pipeline, mock_dependencies):
     
     # Get the mocked embedding client (created in fixture)
     mock_embedder_instance = mock_dependencies['embedder'].return_value
-    mock_embedder_instance.embed_and_save_jsonl.return_value = [[0.1, 0.2]]
+    mock_embedder_instance.get_embeddings_batched.return_value = [[0.1, 0.2]]
+    
+    # Mock vector store get_all_embeddings to return empty (no existing embeddings)
+    pipeline.vector_store.get_all_embeddings.return_value = {"ids": []}
+    
+    # Mock ChunkModel query
+    mock_chunk_model = MagicMock()
+    mock_chunk_model.id = str(uuid.uuid4())
+    mock_chunk_model.text = "chunk text"
+    mock_chunk_model.metadata_json = '{"message_count": 5, "start_date": "2023-01-01T10:00:00", "end_date": "2023-01-01T12:00:00"}'
+    pipeline.db.get_session.return_value.query.return_value.all.return_value = [mock_chunk_model]
     
     # Run
     pipeline.run("test.json")
@@ -96,16 +106,16 @@ def test_run_success(pipeline, mock_dependencies):
     call_args = mock_chunker.chunk_messages.call_args[0]
     assert len(call_args) > 0
     
-    # Check DB save
+    # Check DB save (from parse_and_store)
     mock_session.add_all.assert_called()
     mock_session.commit.assert_called()
     mock_session.close.assert_called()
     
-    # Check Embeddings
-    mock_embedder_instance.embed_and_save_jsonl.assert_called()
+    # Check Embeddings (from generate_embeddings)
+    mock_embedder_instance.get_embeddings_batched.assert_called()
     pipeline.vector_store.add_documents_with_embeddings.assert_called_with(
         ids=ANY,
-        documents=["chunk text"],
+        documents=ANY,
         embeddings=[[0.1, 0.2]],
         metadatas=ANY,  # Metadata format may vary
         show_progress=True
