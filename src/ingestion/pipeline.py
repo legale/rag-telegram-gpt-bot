@@ -84,6 +84,142 @@ class IngestionPipeline:
         syslog2(LOG_INFO, "vector store cleanup", path=self.vector_store.persist_directory, collection=self.vector_store.collection_name, before=vector_before, removed=removed_vectors, remaining=vector_after)
         syslog2(LOG_INFO, "data cleared")
 
+    def clear_stage0(self) -> int:
+        """Clear stage0: messages from SQL database."""
+        syslog2(LOG_INFO, "clearing stage0: messages")
+        deleted = self.db.clear_messages()
+        syslog2(LOG_INFO, "stage0 cleared", deleted=deleted)
+        return deleted
+
+    def clear_stage1(self) -> int:
+        """Clear stage1: embeddings for chunks."""
+        syslog2(LOG_INFO, "clearing stage1: embeddings")
+        before = self.vector_store.count()
+        removed = self.vector_store.clear()
+        syslog2(LOG_INFO, "stage1 cleared", before=before, removed=removed)
+        return removed
+
+    def clear_stage2(self) -> int:
+        """Clear stage2: embeddings for clusters of chunk embeddings (topics_l1)."""
+        syslog2(LOG_INFO, "clearing stage2: topics_l1")
+        deleted = self.db.clear_topics_l1()
+        syslog2(LOG_INFO, "stage2 cleared", deleted=deleted)
+        return deleted
+
+    def clear_stage3(self) -> int:
+        """Clear stage3: topic names for chunk embeddings (topic_l1_id assignments)."""
+        syslog2(LOG_INFO, "clearing stage3: topic_l1_id assignments")
+        updated = self.db.clear_chunk_topic_l1_assignments()
+        syslog2(LOG_INFO, "stage3 cleared", updated=updated)
+        return updated
+
+    def clear_stage4(self) -> int:
+        """Clear stage4: topic names for cluster embeddings (topic_l2_id assignments and topics_l2)."""
+        syslog2(LOG_INFO, "clearing stage4: topic_l2_id assignments and topics_l2")
+        updated = self.db.clear_chunk_topic_l2_assignments()
+        deleted = self.db.clear_topics_l2()
+        syslog2(LOG_INFO, "stage4 cleared", updated=updated, deleted=deleted)
+        return updated + deleted
+
+    def clear_all(self):
+        """Clear all stages."""
+        # Clear in reverse order to maintain referential integrity
+        self.clear_stage4()
+        self.clear_stage3()
+        self.clear_stage2()
+        self.clear_stage1()
+        # Clear chunks before messages (chunks reference messages)
+        self.db.clear()
+        self.clear_stage0()
+        syslog2(LOG_INFO, "all stages cleared")
+
+    def run_stage0(self, file_path: str):
+        """Run stage0: parse and store messages/chunks."""
+        if not file_path:
+            raise ValueError("file_path is required for stage0")
+        self.parse_and_store(file_path, clear_existing=False)
+
+    def run_stage1(self, model: Optional[str] = None, batch_size: int = 128):
+        """Run stage1: generate embeddings for chunks."""
+        self.generate_embeddings(model=model, batch_size=batch_size)
+
+    def run_stage2(self, **clustering_params):
+        """Run stage2: cluster chunk embeddings into topics_l1."""
+        from src.ai.clustering import TopicClusterer
+        from src.core.llm import LLMClient
+        
+        clusterer = TopicClusterer(
+            db=self.db,
+            vector_store=self.vector_store,
+            llm_client=LLMClient()
+        )
+        
+        # Default parameters if not provided
+        params = {
+            'min_cluster_size': clustering_params.get('min_cluster_size', 2),
+            'min_samples': clustering_params.get('min_samples', 1),
+            'metric': clustering_params.get('metric', 'cosine'),
+            'cluster_selection_method': clustering_params.get('cluster_selection_method', 'eom'),
+            'cluster_selection_epsilon': clustering_params.get('cluster_selection_epsilon', 0.0)
+        }
+        
+        clusterer.perform_l1_clustering(**params)
+
+    def run_stage3(self, only_unnamed: bool = False, rebuild: bool = False):
+        """Run stage3: generate topic names for L1 topics."""
+        from src.ai.clustering import TopicClusterer
+        from src.core.llm import LLMClient
+        
+        clusterer = TopicClusterer(
+            db=self.db,
+            vector_store=self.vector_store,
+            llm_client=LLMClient()
+        )
+        
+        clusterer.name_topics(only_unnamed=only_unnamed, rebuild=rebuild, target='l1')
+
+    def run_stage4(self, **clustering_params):
+        """Run stage4: cluster L1 topics into L2 and generate names."""
+        from src.ai.clustering import TopicClusterer
+        from src.core.llm import LLMClient
+        
+        clusterer = TopicClusterer(
+            db=self.db,
+            vector_store=self.vector_store,
+            llm_client=LLMClient()
+        )
+        
+        # Default parameters if not provided
+        l2_params = {
+            'min_cluster_size': clustering_params.get('min_cluster_size', 2),
+            'min_samples': clustering_params.get('min_samples', 1),
+            'metric': clustering_params.get('metric', 'cosine'),
+            'cluster_selection_method': clustering_params.get('cluster_selection_method', 'eom'),
+            'cluster_selection_epsilon': clustering_params.get('cluster_selection_epsilon', 0.0)
+        }
+        
+        clusterer.perform_l2_clustering(**l2_params)
+        clusterer.name_topics(target='l2')
+
+    def run_all(self, file_path: str, model: Optional[str] = None, batch_size: int = 128, **clustering_params):
+        """Run all stages in sequence."""
+        print("Running stage0: Parse and store...")
+        self.run_stage0(file_path)
+        
+        print("\nRunning stage1: Generate embeddings...")
+        self.run_stage1(model=model, batch_size=batch_size)
+        
+        print("\nRunning stage2: Cluster L1 topics...")
+        self.run_stage2(**clustering_params)
+        
+        print("\nRunning stage3: Name L1 topics...")
+        self.run_stage3()
+        
+        print("\nRunning stage4: Cluster L2 topics and name...")
+        self.run_stage4(**clustering_params)
+        
+        print("\nAll stages complete!")
+
     def parse_and_store(self, file_path: str, clear_existing: bool = False):
         """
         Parse file and store messages/chunks in SQLite database.
@@ -130,17 +266,17 @@ class IngestionPipeline:
         
         print("Saving messages to database...")
         try:
-            self.db.add_messages_batch(db_messages)
-            print(f"Saved {len(db_messages)} messages")
-            syslog2(LOG_INFO, "messages saved to sql database", count=len(db_messages))
+            inserted_count = self.db.add_messages_batch(db_messages)
+            skipped_count = len(db_messages) - inserted_count
+            if skipped_count > 0:
+                print(f"Saved {inserted_count} new messages ({skipped_count} duplicates skipped)")
+            else:
+                print(f"Saved {inserted_count} messages")
+            syslog2(LOG_INFO, "messages saved to sql database", inserted=inserted_count, skipped=skipped_count, total=len(db_messages))
         except Exception as e:
-            # Check if it's a unique constraint violation (optional improvement)
-            print(f"Warning: some duplicates may exist")
-            syslog2(LOG_WARNING, "messages save issue (duplicates might exist)", error=str(e))
-            # We continue because chunks might still need to be generated/saved
-            # or maybe we should raise? For now, let's assume if messages exist we can proceed.
-            # But duplicate keys will rollback the specific transaction.
-            pass
+            print(f"Error saving messages: {e}")
+            syslog2(LOG_ERR, "messages save failed", error=str(e))
+            raise
 
         # 2. chunk
         print("Creating chunks...")

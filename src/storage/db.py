@@ -192,6 +192,45 @@ class Database:
         finally:
             session.close()
 
+    def clear_messages(self) -> int:
+        """Delete all messages (stage0)."""
+        session = self.get_session()
+        try:
+            deleted = session.query(MessageModel).delete()
+            session.commit()
+            return deleted
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
+
+    def clear_chunk_topic_l1_assignments(self) -> int:
+        """Clear topic_l1_id assignments in chunks (stage3)."""
+        session = self.get_session()
+        try:
+            updated = session.query(ChunkModel).update({ChunkModel.topic_l1_id: None}, synchronize_session=False)
+            session.commit()
+            return updated
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
+
+    def clear_chunk_topic_l2_assignments(self) -> int:
+        """Clear topic_l2_id assignments in chunks (stage4)."""
+        session = self.get_session()
+        try:
+            updated = session.query(ChunkModel).update({ChunkModel.topic_l2_id: None}, synchronize_session=False)
+            session.commit()
+            return updated
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
+
     def get_chunk_text(self, chunk_id: str) -> str:
         """Helper to get text for a chunk."""
         session = self.get_session()
@@ -279,20 +318,45 @@ class Database:
         finally:
             session.close()
 
-    def add_messages_batch(self, messages: List[dict]) -> None:
+    def add_messages_batch(self, messages: List[dict]) -> int:
         """
         Add multiple messages to the database in one transaction.
+        Skips messages that already exist (duplicate msg_id).
         Args:
             messages: List of dictionaries matching MessageModel fields.
+        Returns:
+            Number of messages actually inserted (excluding duplicates).
         """
+        if not messages:
+            return 0
+        
         session = self.get_session()
         try:
-            # Use bulk_insert_mappings for even better performance if needed, 
-            # but add_all is fine for now with ORM objects.
-            # To avoid creating objects manually, let's accept dicts and map them.
-            models = [MessageModel(**msg) for msg in messages]
+            # Get existing msg_ids to avoid duplicates
+            # Batch the query to avoid SQLite parameter limits (999 max)
+            msg_ids_to_insert = [msg["msg_id"] for msg in messages]
+            existing_msg_ids = set()
+            batch_size = 900  # Safe limit below SQLite's 999 parameter limit
+            
+            for i in range(0, len(msg_ids_to_insert), batch_size):
+                batch = msg_ids_to_insert[i:i + batch_size]
+                batch_existing = session.query(MessageModel.msg_id).filter(
+                    MessageModel.msg_id.in_(batch)
+                ).all()
+                existing_msg_ids.update(row[0] for row in batch_existing)
+            
+            # Filter out messages that already exist
+            new_messages = [msg for msg in messages if msg["msg_id"] not in existing_msg_ids]
+            
+            if not new_messages:
+                # All messages already exist
+                return 0
+            
+            # Insert only new messages
+            models = [MessageModel(**msg) for msg in new_messages]
             session.add_all(models)
             session.commit()
+            return len(new_messages)
         except Exception as e:
             session.rollback()
             raise e
@@ -397,12 +461,10 @@ class Database:
             session.close()
 
     def clear_topics_l1(self) -> int:
-        """Delete all L1 topics and return count."""
+        """Delete all L1 topics and return count (stage2 - without clearing assignments)."""
         session = self.get_session()
         try:
-            # Clear topic assignments in chunks first
-            session.query(ChunkModel).update({ChunkModel.topic_l1_id: None})
-            # Delete all L1 topics
+            # Delete all L1 topics (without clearing assignments - that's stage3)
             deleted = session.query(TopicL1Model).delete()
             session.commit()
             return deleted
@@ -520,14 +582,12 @@ class Database:
             session.close()
 
     def clear_topics_l2(self) -> int:
-        """Delete all L2 topics and return count."""
+        """Delete all L2 topics and return count (stage4 - without clearing assignments)."""
         session = self.get_session()
         try:
             # Clear L2 references in L1 topics
             session.query(TopicL1Model).update({TopicL1Model.parent_l2_id: None})
-            # Clear L2 assignments in chunks
-            session.query(ChunkModel).update({ChunkModel.topic_l2_id: None})
-            # Delete all L2 topics
+            # Delete all L2 topics (without clearing assignments in chunks - that's stage4)
             deleted = session.query(TopicL2Model).delete()
             session.commit()
             return deleted
@@ -635,5 +695,50 @@ class Database:
         try:
             results = session.query(TopicChunkModel.chunk_id).filter(TopicChunkModel.topic_id == topic_id).all()
             return [r[0] for r in results]
+        finally:
+            session.close()
+
+    def get_database_info(self) -> dict:
+        """
+        Get statistics for all tables in the database.
+        Returns a dictionary mapping table names to record counts.
+        """
+        session = self.get_session()
+        try:
+            info = {}
+            
+            # Main tables (may not exist if database is new)
+            try:
+                info['messages'] = session.query(MessageModel).count()
+            except Exception:
+                info['messages'] = 0
+            
+            try:
+                info['chunks'] = session.query(ChunkModel).count()
+            except Exception:
+                info['chunks'] = 0
+            
+            try:
+                info['topics_l1'] = session.query(TopicL1Model).count()
+            except Exception:
+                info['topics_l1'] = 0
+            
+            try:
+                info['topics_l2'] = session.query(TopicL2Model).count()
+            except Exception:
+                info['topics_l2'] = 0
+            
+            # Legacy tables (may not exist)
+            try:
+                info['topics'] = session.query(TopicModel).count()
+            except Exception:
+                info['topics'] = 0
+            
+            try:
+                info['topic_chunks'] = session.query(TopicChunkModel).count()
+            except Exception:
+                info['topic_chunks'] = 0
+            
+            return info
         finally:
             session.close()
