@@ -192,7 +192,10 @@ class LocalEmbeddingClient:
         """Generate embeddings for a batch of texts."""
         cleaned_texts = [text.replace("\n", " ") for text in texts]
         embeddings = self.model.encode(cleaned_texts, show_progress_bar=False)
-        return embeddings.tolist()
+        # Handle both numpy arrays and lists
+        if hasattr(embeddings, 'tolist'):
+            return embeddings.tolist()
+        return embeddings
     
     def get_embeddings_batched(
         self,

@@ -24,11 +24,15 @@ class TopicClusterer:
         self.vector_store = vector_store
         self.llm_client = llm_client
 
-    def perform_l1_clustering(self, min_cluster_size: int = 5, min_samples: int = 3):
+    def perform_l1_clustering(self, min_cluster_size: int = 2, min_samples: int = 1):
         """
         Fetches all chunks, clusters them using HDBSCAN, and saves L1 topics.
+        
+        Args:
+            min_cluster_size: Minimum number of chunks in a cluster (default: 2, was 5)
+            min_samples: Minimum samples in neighborhood (default: 1, was 3)
         """
-        syslog2(LOG_INFO, "starting l1 clustering")
+        syslog2(LOG_INFO, "starting l1 clustering", min_cluster_size=min_cluster_size, min_samples=min_samples)
 
         # 1. Fetch data
         data = self.vector_store.get_all_embeddings()
@@ -50,11 +54,13 @@ class TopicClusterer:
         syslog2(LOG_INFO, "clustering chunks", count=len(ids))
 
         # 2. Run HDBSCAN
+        # Using cosine metric for embeddings (better for semantic similarity)
+        # cluster_selection_method='eom' (Excess of Mass) works well for varying cluster sizes
         clusterer = hdbscan.HDBSCAN(
             min_cluster_size=min_cluster_size,
             min_samples=min_samples,
-            metric='euclidean', 
-            cluster_selection_method='eom' # Excess of Mass - usually good for various cluster sizes
+            metric='cosine',  # Changed from 'euclidean' - better for embeddings
+            cluster_selection_method='eom'  # Excess of Mass - usually good for various cluster sizes
         )
         labels = clusterer.fit_predict(X)
         
@@ -175,10 +181,11 @@ class TopicClusterer:
         syslog2(LOG_INFO, "clustering l1 topics", count=len(X))
 
         # 2. Run HDBSCAN
+        # Using cosine metric for embeddings (better for semantic similarity)
         clusterer = hdbscan.HDBSCAN(
             min_cluster_size=min_cluster_size,
             min_samples=min_samples,
-            metric='euclidean',
+            metric='cosine',  # Changed from 'euclidean' - better for embeddings
             cluster_selection_method='eom'
         )
         labels = clusterer.fit_predict(X)

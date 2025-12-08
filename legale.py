@@ -330,6 +330,8 @@ def cmd_chat(args, profile_manager: ProfileManager):
         cli_args.extend(['-' + 'v' * args.verbose])
     if args.chunks:
         cli_args.extend(['--chunks', str(args.chunks)])
+    if hasattr(args, 'debug_rag') and args.debug_rag:
+        cli_args.append('--debug-rag')
     
     # Override sys.argv for the CLI
     original_argv = sys.argv
@@ -530,6 +532,7 @@ For more information, visit: https://github.com/legale/rag-telegram-gpt-bot
     chat_parser = subparsers.add_parser('chat', help='Start interactive chat session')
     chat_parser.add_argument('-v', '--verbose', action='count', default=0, help='Verbosity level (-v, -vv, -vvv)')
     chat_parser.add_argument('--chunks', type=int, help='Number of context chunks to retrieve')
+    chat_parser.add_argument('--debug-rag', action='store_true', help='Show retrieved chunks and prompt before model response')
     chat_parser.add_argument('--profile', help='Profile to use (default: current active)')
     
     # ===== TELEGRAM BOT =====
@@ -583,6 +586,14 @@ For more information, visit: https://github.com/legale/rag-telegram-gpt-bot
     # topics build
     topics_build_parser = topics_subparsers.add_parser('build', help='Build topics from embeddings')
     topics_build_parser.add_argument('--profile', help='Profile to use (default: current active)')
+    topics_build_parser.add_argument('--l1-min-size', type=int, default=2, 
+                                     help='L1: Minimum chunks per cluster (default: 2, lower = more topics)')
+    topics_build_parser.add_argument('--l1-min-samples', type=int, default=1,
+                                     help='L1: Minimum samples in neighborhood (default: 1, lower = more topics)')
+    topics_build_parser.add_argument('--l2-min-size', type=int, default=2,
+                                     help='L2: Minimum L1 topics per super-topic (default: 2)')
+    topics_build_parser.add_argument('--l2-min-samples', type=int, default=1,
+                                     help='L2: Minimum samples for L2 clustering (default: 1)')
     
     # topics list
     topics_list_parser = topics_subparsers.add_parser('list', help='List existing topics')
@@ -714,11 +725,20 @@ def cmd_topics(args, profile_manager: ProfileManager):
 
     if args.topic_command == 'build':
         print(f"Building topics for profile: {profile_name}")
-        print("1. Running L1 Clustering (Fine-grained)...")
-        clusterer.perform_l1_clustering()
         
+        # Get clustering parameters from args
+        l1_min_size = args.l1_min_size if hasattr(args, 'l1_min_size') else 2
+        l1_min_samples = args.l1_min_samples if hasattr(args, 'l1_min_samples') else 1
+        l2_min_size = args.l2_min_size if hasattr(args, 'l2_min_size') else 2
+        l2_min_samples = args.l2_min_samples if hasattr(args, 'l2_min_samples') else 1
+        
+        print(f"L1 parameters: min_cluster_size={l1_min_size}, min_samples={l1_min_samples}")
+        print("1. Running L1 Clustering (Fine-grained)...")
+        clusterer.perform_l1_clustering(min_cluster_size=l1_min_size, min_samples=l1_min_samples)
+        
+        print(f"L2 parameters: min_cluster_size={l2_min_size}, min_samples={l2_min_samples}")
         print("2. Running L2 Clustering (Super-topics)...")
-        clusterer.perform_l2_clustering()
+        clusterer.perform_l2_clustering(min_cluster_size=l2_min_size, min_samples=l2_min_samples)
         
         print("3. Naming Topics (LLM)...")
         clusterer.name_topics()

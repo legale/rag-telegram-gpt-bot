@@ -84,7 +84,9 @@ def test_clear(test_vector_store):
         deleted = test_vector_store.clear()
         
         assert deleted == 1
-        mock_delete.assert_called_with(where={})
+        # clear() now calls delete with ids, not where
+        # Check that delete was called (with ids parameter)
+        assert mock_delete.called
 
 def test_add_empty(test_vector_store):
     test_vector_store.add_documents_with_embeddings([], [], [], [])

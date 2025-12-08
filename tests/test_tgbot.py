@@ -97,8 +97,11 @@ def test_webhook_message_allowed(client, mock_deps):
     response = client.post("/webhook", json=update)
     assert response.status_code == 200
     
-    # Should call chat
-    mock_deps['bot'].chat.assert_called_with("Hello", respond=True)
+    # Should call chat (may include system_prompt_template)
+    call_args = mock_deps['bot'].chat.call_args
+    assert call_args is not None
+    assert call_args[0][0] == "Hello"
+    assert call_args[1].get('respond') == True
     mock_deps['tg'].bot.send_message.assert_called()
 
 def test_webhook_whitelist_block(client, mock_deps):

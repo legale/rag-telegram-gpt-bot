@@ -313,3 +313,49 @@ class LegaleBot:
         self.chat_history.append({"role": "assistant", "content": response})
 
         return auto_reset_warning + response
+
+    def get_rag_debug_info(self, user_input: str, n_results: int = 3) -> Dict:
+        """
+        Get debug information about RAG retrieval without actually calling the model.
+        Useful for debugging what chunks are retrieved and what prompt is constructed.
+        
+        Args:
+            user_input: User query string
+            n_results: Number of chunks to retrieve
+            
+        Returns:
+            Dictionary with 'chunks', 'prompt', and 'token_count'
+        """
+        # Retrieve context chunks
+        context_chunks = self.retrieval_service.retrieve(
+            user_input, n_results=n_results
+        )
+        
+        # Build history for prompt
+        history_for_prompt = []
+        for msg in self.chat_history[-5:]:
+            sender = "User" if msg["role"] == "user" else "Bot"
+            history_for_prompt.append(
+                {"sender": sender, "content": msg["content"]}
+            )
+        
+        # Construct prompt
+        system_prompt = self.prompt_engine.construct_prompt(
+            context_chunks=context_chunks,
+            chat_history=history_for_prompt,
+            user_task=user_input,
+        )
+        
+        # Count tokens
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_input},
+        ]
+        token_count = self.llm_client.count_tokens(messages)
+        
+        return {
+            "chunks": context_chunks,
+            "prompt": system_prompt,
+            "token_count": token_count,
+            "chunks_count": len(context_chunks)
+        }

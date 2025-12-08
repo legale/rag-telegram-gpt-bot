@@ -33,7 +33,7 @@ except ImportError as e:
         sys.exit(1)
 
 from dotenv import load_dotenv
-from src.core.syslog2 import syslog2, setup_log, LogLevel
+from src.core.syslog2 import syslog2, setup_log, LogLevel, LOG_DEBUG, LOG_INFO, LOG_WARNING, LOG_ERR, LOG_CRIT, LOG_ALERT
 
 def main():
     # Load .env from project root
@@ -50,6 +50,7 @@ def main():
     parser = argparse.ArgumentParser(description="Legale Bot CLI")
     parser.add_argument("-v", "--verbose", action="count", default=0, help="Increase verbosity level (-v, -vv, -vvv)")
     parser.add_argument("--chunks", type=int, default=5, help="Number of context chunks to retrieve (default: 5)")
+    parser.add_argument("--debug-rag", action="store_true", help="Show retrieved chunks and prompt before model response")
     parser.add_argument("-V", "--log-level", type=str, choices=["DEBUG", "INFO", "WARNING", "ERR", "CRIT", "ALERT"], help="Set logging level")
     args = parser.parse_args()
 
@@ -126,7 +127,34 @@ def main():
             
             if not user_input.strip():
                 continue
+            
+            # Debug RAG mode - show retrieved chunks and prompt
+            if args.debug_rag:
+                debug_info = bot.get_rag_debug_info(user_input, n_results=args.chunks)
+                print("\n" + "=" * 70)
+                print("🔍 RAG DEBUG INFO")
+                print("=" * 70)
                 
+                print(f"\n📊 Retrieved Chunks: {len(debug_info['chunks'])}")
+                for i, chunk in enumerate(debug_info['chunks'], 1):
+                    print(f"\n--- Chunk {i} (score: {chunk.get('score', 'N/A'):.3f}, source: {chunk.get('source', 'unknown')}) ---")
+                    meta = chunk.get('metadata', {})
+                    if meta.get('topic_l2_title'):
+                        print(f"Category: {meta['topic_l2_title']}")
+                    if meta.get('topic_l1_title'):
+                        print(f"Topic: {meta['topic_l1_title']}")
+                    print(f"Text preview: {chunk['text'][:200]}...")
+                    if len(chunk['text']) > 200:
+                        print(f"  (full length: {len(chunk['text'])} chars)")
+                
+                print("\n" + "-" * 70)
+                print(f"📝 System Prompt ({len(debug_info['prompt'])} chars):")
+                print("-" * 70)
+                print(debug_info['prompt'])
+                print("-" * 70)
+                print(f"📊 Token count: {debug_info.get('token_count', 'N/A')}")
+                print("=" * 70 + "\n")
+            
             response = bot.chat(user_input, n_results=args.chunks)
             print(f"Bot: {response}")
             print("-" * 50)

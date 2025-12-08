@@ -128,7 +128,7 @@ poetry based python program
     - [ ] Test graceful shutdown
     - [ ] Verify persistent memory (no DB reload on requests)
 
-### Phase 4.5: Token Management & Context Control ✅
+### Phase 4.5: Token Management & Context Control [x]
 **Status: COMPLETE**
 
 - [x] **User Commands**:
@@ -155,24 +155,24 @@ poetry based python program
 
 - [x] **Testing**:
     - [x] Fix failing tests (test_prompt.py, test_retrieval.py)
-    - [x] All 22 tests passing ✅
+    - [x] All 22 tests passing [x]
 
 **Result**: Solved token limit error (17,336 > 16,385):
 - Input tokens: ~12,000 (was 16,336)
 - Output tokens: 500 (was 1,000)
-- **Total: ~12,500 < 16,385** ✅
+- **Total: ~12,500 < 16,385** [x]
 
 ### Phase 5: Test Coverage Improvement
 **Current Coverage: 41% (787 lines, 465 uncovered)** ⬆️ from 25%
 **Target Coverage: 75%+**
-**Tests: 87 (was 22)** ✅
+**Tests: 87 (was 22)** [x]
 
 **Progress:**
-- ✅ `src/bot/core.py`: **98%** coverage (was 0%)
-- ✅ `src/core/llm.py`: **100%** coverage (was 0%)
-- ✅ **Milestone 1 COMPLETE**: Core modules to 50%+
+- [x] `src/bot/core.py`: **98%** coverage (was 0%)
+- [x] `src/core/llm.py`: **100%** coverage (was 0%)
+- [x] **Milestone 1 COMPLETE**: Core modules to 50%+
 
-#### 5.1 Core Bot Logic Tests (`src/bot/core.py` - 0% → 98% ✅)
+#### 5.1 Core Bot Logic Tests (`src/bot/core.py` - 0% → 98% [x])
 - [x] **Model Management Tests** (`test_bot_core_models.py`):
     - [x] Test `_load_available_models()` with valid models.txt
     - [x] Test `_load_available_models()` with missing models.txt (fallback)
@@ -200,7 +200,7 @@ poetry based python program
     - [x] Test `chat()` - error handling (LLM failure)
     - [x] Test `chat()` - error handling (retrieval failure)
 
-#### 5.2 LLM Client Tests (`src/core/llm.py` - 0% → 100% ✅)
+#### 5.2 LLM Client Tests (`src/core/llm.py` - 0% → 100% [x])
 - [x] **Initialization Tests** (`test_llm.py`):
     - [x] Test `__init__()` - with OPENROUTER_API_KEY
     - [x] Test `__init__()` - with OPENAI_API_KEY
@@ -312,13 +312,13 @@ poetry based python program
     - [ ] Set minimum coverage threshold (75%)
 
 #### Coverage Milestones
-- [x] **Milestone 1**: Core modules to 50%+ (src/bot/core.py 98%, src/core/llm.py 100%) ✅
+- [x] **Milestone 1**: Core modules to 50%+ (src/bot/core.py 98%, src/core/llm.py 100%) [x]
 - [ ] **Milestone 2**: Bot handlers to 70% (src/bot/tgbot.py)
 - [ ] **Milestone 3**: Ingestion to 85% (src/ingestion/*)
 - [ ] **Milestone 4**: Overall coverage to 75%+
 - [ ] **Milestone 5**: Add integration and E2E tests
 
-### Phase 6: CLI Orchestrator & Profile Management ✅
+### Phase 6: CLI Orchestrator & Profile Management [x]
 **Status: COMPLETE**
 
 - [x] **Profile System**:
@@ -344,12 +344,12 @@ poetry based python program
     - [x] Add common workflows and examples
 
 **Features:**
-- ✅ Multiple bot instances with separate data
-- ✅ Easy switching between environments (dev/prod/test)
-- ✅ Profile-specific Telegram sessions
-- ✅ Automatic default profile creation
-- ✅ Self-documenting CLI with built-in help
-- ✅ Consistent interface across all operations
+- [x] Multiple bot instances with separate data
+- [x] Easy switching between environments (dev/prod/test)
+- [x] Profile-specific Telegram sessions
+- [x] Automatic default profile creation
+- [x] Self-documenting CLI with built-in help
+- [x] Consistent interface across all operations
 
 **Usage:**
 ```bash
@@ -610,10 +610,10 @@ legale bot run
 - [ ] Clear monitoring and logging per bot
 
 ### Phase 8: Admin Bot Interface (Telegram Admin Panel)
-**Status: COMPLETED** ✅
+**Status: COMPLETED** [x]
 **Goal**: Provide full orchestrator functionality through Telegram bot interface for administrators.
 
-#### 8.1 Admin Command Architecture ✅
+#### 8.1 Admin Command Architecture [x]
 - [x] **Command Router**:
     - [x] Create `AdminCommandHandler` class
     - [x] Implement command parsing and routing
@@ -641,7 +641,7 @@ legale bot run
     - [x] Implement callback query handlers
     - [x] Add confirmation dialogs for destructive actions
 
-#### 8.2 Profile Management via Bot ✅
+#### 8.2 Profile Management via Bot [x]
 - [x] **Profile Commands**:
     - [x] `/admin profile list` - List all profiles
         - [x] Show profile name, status, DB size
@@ -673,7 +673,7 @@ legale bot run
         - [x] Last activity timestamp
         - [x] Bot configuration (if configured)
 
-#### 8.3 Data Ingestion via Bot ✅
+#### 8.3 Data Ingestion via Bot [x]
 - [x] **File Upload Handling**:
     - [x] Accept JSON file uploads
     - [x] Validate file format (JSON)
@@ -702,7 +702,7 @@ legale bot run
         - [x] Chunks created
         - [x] Errors (if any)
 
-#### 8.4 Bot Statistics & Monitoring ✅
+#### 8.4 Bot Statistics & Monitoring [x]
 - [x] **Statistics Commands**:
     - [x] `/admin stats` - Show comprehensive stats
         - [x] Active profile info
@@ -738,7 +738,7 @@ legale bot run
         - [x] Search in logs
         - [x] Download logs as file
 
-#### 8.5 Bot Control & Management ✅
+#### 8.5 Bot Control & Management [x]
 - [x] **Control Commands**:
     - [x] `/admin restart` - Restart bot
         - [x] Graceful shutdown
@@ -747,7 +747,7 @@ legale bot run
         - [ ] Allow admin access only
         - [ ] Log maintenance periods
 
-#### 8.6 Advanced Configuration ✅
+#### 8.6 Advanced Configuration [x]
 - [x] **Config Management**:
     - [x] `config.json` per profile
     - [x] Store admin password in config (migrated from env)
@@ -768,7 +768,7 @@ legale bot run
 
 ### Phase 9: Testing & Stabilization
 
-#### 9.1 Test Suite Improvements ✅
+#### 9.1 Test Suite Improvements [x]
 - [x] Fix existing test failures
 - [x] Improve mocking for admin commands
 - [x] Add tests for new admin features (profiles, config, ingestion)
@@ -802,7 +802,7 @@ legale bot run
 - Cyclomatic complexity: `handle_message()` ~8, `health_check()` ~3, `show_stats()` ~5 (50-70% reduction)
 - Test coverage: 55%+
 
-#### 10.1 Utility Modules ✅
+#### 10.1 Utility Modules [x]
 **Status: COMPLETE**
 
 - [x] **Create `src/bot/utils/` package**:
@@ -852,12 +852,12 @@ legale bot run
         - [x] `format_health_report()` - format report
 
 **Results:**
-- ✅ Eliminated ~15 instances of file size formatting duplication
-- ✅ Eliminated ~8 instances of SQL query duplication
-- ✅ Centralized validation logic for all admin commands
-- ✅ Prepared utilities for `handle_message()` refactoring
+- [x] Eliminated ~15 instances of file size formatting duplication
+- [x] Eliminated ~8 instances of SQL query duplication
+- [x] Centralized validation logic for all admin commands
+- [x] Prepared utilities for `handle_message()` refactoring
 
-#### 10.2 Base Admin Command Class ✅
+#### 10.2 Base Admin Command Class [x]
 **Status: COMPLETE**
 
 - [x] **Create `BaseAdminCommand` class** in `admin_commands.py`:
@@ -867,14 +867,14 @@ legale bot run
     - [x] `validate_profile_exists()` - profile existence check
 
 **Results:**
-- ✅ All admin command classes can inherit common functionality
-- ✅ Unified error handling across all commands
-- ✅ Simplified access to utilities
+- [x] All admin command classes can inherit common functionality
+- [x] Unified error handling across all commands
+- [x] Simplified access to utilities
 
 #### 10.3 Refactor Admin Commands ⏳
 **Status: PARTIAL (1/5 classes complete)**
 
-- [x] **`StatsCommands` class** - COMPLETE ✅:
+- [x] **`StatsCommands` class** - COMPLETE [x]:
     - [x] Inherit from `BaseAdminCommand`
     - [x] Refactor `show_stats()`:
         - [x] Use `DatabaseStatsService` for DB stats
@@ -979,11 +979,11 @@ legale bot run
 #### Progress Tracking
 
 **Completed:**
-- ✅ 6 utility modules created
-- ✅ BaseAdminCommand class created
-- ✅ StatsCommands refactored (1/5 admin command classes)
-- ✅ ~150 lines of duplicated code eliminated
-- ✅ Complexity reduced by 50-80% in refactored methods
+- [x] 6 utility modules created
+- [x] BaseAdminCommand class created
+- [x] StatsCommands refactored (1/5 admin command classes)
+- [x] ~150 lines of duplicated code eliminated
+- [x] Complexity reduced by 50-80% in refactored methods
 
 **In Progress:**
 - 🔄 Refactoring remaining admin command classes (4/5 remaining)
@@ -1257,50 +1257,50 @@ legale bot run
 **Goal**: Improve test coverage for modules below 80%, focusing on critical business logic and user-facing functionality.
 
 **Progress Summary:**
-- ✅ Added 81 new tests (196 passing total)
-- ✅ Coverage increased by 6 percentage points (58% → 64%)
-- ✅ 2 modules reached 100% coverage
-- ✅ `tgbot.py` improved from 30% → 48% (+18%)
+- [x] Added 81 new tests (196 passing total)
+- [x] Coverage increased by 6 percentage points (58% → 64%)
+- [x] 2 modules reached 100% coverage
+- [x] `tgbot.py` improved from 30% → 48% (+18%)
 
 #### 11.1 Critical Priority Modules (0-35% coverage)
 
 - [/] **`src/bot/tgbot.py`** - 49% coverage ⬆️ from 30% (376 lines, 190 uncovered)
-    - [x] Test `MessageHandler` class methods (24/24 tests passing) ✅
-        - [x] `handle_start_command()` ✅
-        - [x] `handle_help_command()` ✅
-        - [x] `handle_reset_command()` ✅
-        - [x] `handle_tokens_command()` ✅
-        - [x] `handle_model_command()` ✅
-        - [x] `handle_admin_set_command()` ✅
-        - [x] `handle_admin_get_command()` ✅
-        - [x] `handle_user_query()` ✅
-        - [x] `route_command()` ✅
-    - [x] Test `is_bot_mentioned()` function (11/11 tests passing) ✅
-    - [x] Test `handle_message()` function (5/5 tests passing) ✅
+    - [x] Test `MessageHandler` class methods (24/24 tests passing) [x]
+        - [x] `handle_start_command()` [x]
+        - [x] `handle_help_command()` [x]
+        - [x] `handle_reset_command()` [x]
+        - [x] `handle_tokens_command()` [x]
+        - [x] `handle_model_command()` [x]
+        - [x] `handle_admin_set_command()` [x]
+        - [x] `handle_admin_get_command()` [x]
+        - [x] `handle_user_query()` [x]
+        - [x] `route_command()` [x]
+    - [x] Test `is_bot_mentioned()` function (11/11 tests passing) [x]
+    - [x] Test `handle_message()` function (5/5 tests passing) [x]
     - [ ] Test webhook error handling
     - [ ] Test lifespan startup/shutdown
     - [ ] Test `init_runtime_for_current_profile()`
     - [ ] Test `reload_for_current_profile()`
     - [ ] **Target: 70%+** (Current: 49%, +19% progress)
 
-- [x] **`src/bot/utils/access_control.py`** - **100% coverage** ✅ (was 25%)
-    - [x] Test `is_admin()` method (3/3 tests) ✅
-    - [x] Test `is_allowed()` with different scenarios (8/8 tests) ✅
-    - [x] Test `check_admin_access()` method (3/3 tests) ✅
-    - [x] Test `get_access_denial_message()` method (5/5 tests) ✅
-    - [x] Test private chat logic ✅
-    - [x] Test group chat logic ✅
-    - [x] Test command vs text message logic ✅
-    - [x] **Target: 90%+** → **ACHIEVED: 100%** ✅
+- [x] **`src/bot/utils/access_control.py`** - **100% coverage** [x] (was 25%)
+    - [x] Test `is_admin()` method (3/3 tests) [x]
+    - [x] Test `is_allowed()` with different scenarios (8/8 tests) [x]
+    - [x] Test `check_admin_access()` method (3/3 tests) [x]
+    - [x] Test `get_access_denial_message()` method (5/5 tests) [x]
+    - [x] Test private chat logic [x]
+    - [x] Test group chat logic [x]
+    - [x] Test command vs text message logic [x]
+    - [x] **Target: 90%+** → **ACHIEVED: 100%** [x]
 
-- [x] **`src/bot/utils/frequency_controller.py`** - **100% coverage** ✅ (was 35%)
-    - [x] Test `should_respond()` with different frequencies (9/9 tests) ✅
-    - [x] Test mention detection logic ✅
-    - [x] Test counter increment ✅
-    - [x] Test `reset_counter()` method (3/3 tests) ✅
-    - [x] Test `get_counter()` method (5/5 tests) ✅
-    - [x] Test private vs group chat behavior ✅
-    - [x] **Target: 90%+** → **ACHIEVED: 100%** ✅
+- [x] **`src/bot/utils/frequency_controller.py`** - **100% coverage** [x] (was 35%)
+    - [x] Test `should_respond()` with different frequencies (9/9 tests) [x]
+    - [x] Test mention detection logic [x]
+    - [x] Test counter increment [x]
+    - [x] Test `reset_counter()` method (3/3 tests) [x]
+    - [x] Test `get_counter()` method (5/5 tests) [x]
+    - [x] Test private vs group chat behavior [x]
+    - [x] **Target: 90%+** → **ACHIEVED: 100%** [x]
 
 - [ ] **`src/ingestion/telegram.py`** - 0% coverage (134 lines, 134 uncovered)
     - [ ] Test `TelegramFetcher` initialization
@@ -1487,7 +1487,7 @@ legale bot run
 
 **Total:** 27 modules, 17 below 80% coverage
 ### Phase 12: Coverage Analysis (Generated)
-**Current Overall Coverage: 80%** ✅ 
+**Current Overall Coverage: 80%** [x] 
 
 **Modules Ranked by Coverage (Ascending):**
 
@@ -1529,47 +1529,56 @@ legale bot run
 **Status: IN PROGRESS** 🔄
 **Goal**: Implement two-level hierarchical topic clustering (L1/L2) with HDBSCAN for improved RAG retrieval.
 
-#### 14.1 Database Schema & Models ✅
+#### 14.1 Database Schema & Models [x]
 - [x] New Models: MessageModel, updated ChunkModel, TopicL1Model, TopicL2Model
 - [x] 20+ CRUD methods for messages and hierarchical topics
 - [x] Testing: 18/18 tests passing in test_db_hierarchical.py
 - [x] Dependencies: hdbscan>=0.8.33, scikit-learn>=1.3.0
 
-#### 14.2 Message Storage & Chunking ✅
+#### 14.2 Message Storage & Chunking [x]
 - [x] Create chunker_v2.py for 10-message chunking (Done as chunker.py)
 - [x] Update pipeline.py to store messages
 - [x] CLI command: legale chunks build (Already covered by existing ingest command for now)
 
-#### 14.3 L1 Topic Clustering (HDBSCAN) ✅
+#### 14.3 L1 Topic Clustering (HDBSCAN) [x]
 - [x] Implement TopicClusterer with HDBSCAN
 - [x] Fetch embeddings from VectorStore
 - [x] Save L1 topics and update chunk assignments
 - [x] Calculate topic stats (centroid, msg_count, time range)
 - [x] Unit test with synthetic data (passing)
 
-#### 14.4 L2 Super-Topic Clustering ✅
+#### 14.4 L2 Super-Topic Clustering [x]
 - [x] Implement L2 clustering logic (cluster L1 centroids)
 - [x] Create L2 topics and link L1 topics -> L2
 - [x] Propagate L2 topic ID to chunks
 - [x] Unit test L2 clustering (passing)
 
-#### 14.5 Topic Naming with LLM ✅
+#### 14.5 Topic Naming with LLM [x]
 - [x] Implement topic naming with LLM
 - [x] Generate titles and descriptions for L1 (from chunks) and L2 (from L1 subtopics) topics
 - [x] Integrate prompts into PromptEngine (prompt.py)
 - [x] Add DB update methods for topic info
 
-#### 14.6 RAG Integration
-- [ ] RAG Integration (hierarchical retrieval)
-- [ ] Update Retriever to use topics match if useful or vector search only? (TBD)
+#### 14.6 RAG Integration ✅
+- [x] RAG Integration (hierarchical retrieval)
+    - [x] Implement hybrid retrieval combining vector search and topic-based search
+    - [x] Add `_find_similar_topics()` method to find topics by embedding similarity
+    - [x] Add `_retrieve_chunks_from_topics()` method to get chunks from matching topics
+    - [x] Update `retrieve()` method with hybrid approach (vector + topic search)
+    - [x] Add configuration options: `use_topic_retrieval` and `topic_retrieval_weight`
+    - [x] Merge and deduplicate results from both sources
+    - [x] Weighted scoring system for combined results
+- [x] Update Retriever to use topics match if useful or vector search only? (Implemented as hybrid)
 
 - [ ] Incremental Updates
 - [ ] Admin Commands (/admin topics rebuild/list/show)
 - [x] CLI Commands (legale topics build/list/show)
-- [ ] Testing & Documentation
+- [x] Testing & Documentation
+    - [x] Updated test_retrieval.py for new hybrid retrieval
+    - [x] Added test for topic-based retrieval
 
-**Progress**: Phase 14.1-14.5 Complete (Topic Naming CLI) ✅
-**Next**: Phase 14.6 (RAG Integration)
+**Progress**: Phase 14.1-14.6 Complete ✅
+**Next**: Incremental Updates & Admin Commands
 
 See implementation_plan.md for full details.
 

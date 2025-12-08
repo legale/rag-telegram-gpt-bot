@@ -1,5 +1,5 @@
 from sqlalchemy import create_engine, Column, String, Integer, Text, DateTime, ForeignKey, Float
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from datetime import datetime
 from typing import List, Optional, Tuple
 import json
@@ -22,7 +22,7 @@ class MessageModel(Base):
 
 
 class ChunkModel(Base):
-    """Stores text chunks with message references and topic assignments."""
+    """Stores text chunks with message reference and topic assignments."""
     __tablename__ = 'chunks'
     
     id = Column(String, primary_key=True)
@@ -41,6 +41,10 @@ class ChunkModel(Base):
     topic_l1_id = Column(Integer, ForeignKey('topics_l1.id', ondelete='SET NULL'), nullable=True, index=True)
     topic_l2_id = Column(Integer, ForeignKey('topics_l2.id', ondelete='SET NULL'), nullable=True, index=True)
 
+    # Relationships
+    topic_l1 = relationship("TopicL1Model", back_populates="chunks")
+    topic_l2 = relationship("TopicL2Model", back_populates="chunks")
+
 
 class TopicL1Model(Base):
     """L1 topics (fine-grained topics from chunk clustering)."""
@@ -57,6 +61,10 @@ class TopicL1Model(Base):
     ts_to = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    # Relationships
+    chunks = relationship("ChunkModel", back_populates="topic_l1")
+    parent_l2 = relationship("TopicL2Model", back_populates="topics_l1")
+
 
 class TopicL2Model(Base):
     """L2 topics (super-topics from L1 clustering)."""
@@ -68,6 +76,10 @@ class TopicL2Model(Base):
     chunk_count = Column(Integer, nullable=False, default=0)
     center_vec = Column(Text, nullable=True)  # JSON-serialized vector
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    chunks = relationship("ChunkModel", back_populates="topic_l2")
+    topics_l1 = relationship("TopicL1Model", back_populates="parent_l2")
 
 
 # Legacy models (kept for backward compatibility)

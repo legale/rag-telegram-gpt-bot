@@ -135,20 +135,22 @@ async def test_init_runtime_for_current_profile():
          patch("src.bot.tgbot.ControlCommands"), \
          patch("src.bot.tgbot.SettingsCommands"), \
          patch("src.bot.tgbot.HelpCommands"):
-         
-         # Mock AdminManager config
-         mock_admin_instance = MockAdmin.return_value
-         mock_admin_instance.config.current_model = "gpt-4"
-         
-         paths = await init_runtime_for_current_profile()
-         
-         assert paths == mock_pm.get_profile_paths.return_value
-         MockAdmin.assert_called_with("prof_dir")
-         MockBot.assert_called_with(
-             db_url="sqlite:///test.db", 
-             vector_db_path="vec_path",
-             model_name="gpt-4"
-         )
+        
+        # Mock AdminManager config
+        mock_admin_instance = MockAdmin.return_value
+        mock_admin_instance.config.current_model = "gpt-4"
+        
+        paths = await init_runtime_for_current_profile()
+        
+        assert paths == mock_pm.get_profile_paths.return_value
+        MockAdmin.assert_called_with("prof_dir")
+        # Check that LegaleBot was called with correct args (profile_dir is now included)
+        call_args = MockBot.call_args
+        assert call_args is not None
+        assert call_args[1]['db_url'] == "sqlite:///test.db"
+        assert call_args[1]['vector_db_path'] == "vec_path"
+        assert call_args[1]['model_name'] == "gpt-4"
+        assert 'profile_dir' in call_args[1]  # profile_dir is now passed
 
 @pytest.mark.asyncio
 async def test_init_runtime_no_profile_manager():
