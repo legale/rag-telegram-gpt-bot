@@ -38,29 +38,55 @@ class IngestionPipeline:
         self.db = Database(db_url)
         self.profile_dir = Path(profile_dir) if profile_dir else None
         
-        # Load profile config if available
-        embedding_client = None
-        if self.profile_dir and self.profile_dir.exists():
-            try:
-                from src.bot.config import BotConfig
-                config = BotConfig(self.profile_dir)
-                embedding_client = create_embedding_client(
-                    generator=config.embedding_generator,
-                    model=config.embedding_model
-                )
-            except SystemExit:
-                # Already handled in create_embedding_client
-                raise
-            except Exception as e:
-                import sys
-                print(f"Error: Could not load profile config: {e}", file=sys.stderr)
-                sys.exit(1)
+        # Load profile config - REQUIRED
+        if not self.profile_dir or not self.profile_dir.exists():
+            import sys
+            print("Error: Profile directory not found. Cannot initialize ingestion pipeline.", file=sys.stderr)
+            sys.exit(1)
         
-        # If no profile config, use defaults from environment
-        if embedding_client is None:
-            generator = os.getenv("EMBEDDING_PROVIDER", "openrouter")
-            model = os.getenv("EMBEDDING_MODEL")
-            embedding_client = create_embedding_client(generator=generator, model=model)
+        try:
+            from src.bot.config import BotConfig
+            config = BotConfig(self.profile_dir)
+            
+            # Check that embedding_model is explicitly set in config (not using default)
+            if "embedding_model" not in config.data:
+                import sys
+                print("Error: 'embedding_model' is not set in profile config.", file=sys.stderr)
+                print(f"\nPlease add it to: {config.config_file}", file=sys.stderr)
+                print("\nExample config.json:", file=sys.stderr)
+                print('{', file=sys.stderr)
+                print('  "embedding_model": "paraphrase-multilingual-MiniLM-L12-v2",', file=sys.stderr)
+                print('  "embedding_generator": "local",', file=sys.stderr)
+                print('  "current_model": "openai/gpt-oss-20b:free"', file=sys.stderr)
+                print('}', file=sys.stderr)
+                sys.exit(1)
+            
+            embedding_model = config.data.get("embedding_model")
+            if not embedding_model:
+                import sys
+                print("Error: 'embedding_model' is empty in profile config.", file=sys.stderr)
+                print(f"\nPlease set a valid value in: {config.config_file}", file=sys.stderr)
+                print("\nExample config.json:", file=sys.stderr)
+                print('{', file=sys.stderr)
+                print('  "embedding_model": "paraphrase-multilingual-MiniLM-L12-v2",', file=sys.stderr)
+                print('  "embedding_generator": "local",', file=sys.stderr)
+                print('  "current_model": "openai/gpt-oss-20b:free"', file=sys.stderr)
+                print('}', file=sys.stderr)
+                sys.exit(1)
+            
+            embedding_generator = config.embedding_generator
+            
+            embedding_client = create_embedding_client(
+                generator=embedding_generator,
+                model=embedding_model
+            )
+        except SystemExit:
+            # Already handled in create_embedding_client
+            raise
+        except Exception as e:
+            import sys
+            print(f"Error: Could not load profile config: {e}", file=sys.stderr)
+            sys.exit(1)
         
         self.vector_store = VectorStore(
             persist_directory=vector_db_path,
@@ -144,34 +170,46 @@ class IngestionPipeline:
         self.generate_embeddings(model=model, batch_size=batch_size)
 
     def _get_llm_client(self):
-        """Get LLM client using model from profile config."""
+        """Get LLM client using model from profile config. Model must be explicitly set."""
         from src.core.llm import LLMClient
+        import sys
         
-        model_name = None
-        if self.profile_dir and self.profile_dir.exists():
-            try:
-                from src.bot.config import BotConfig
-                config = BotConfig(self.profile_dir)
-                model_name = config.current_model
-            except Exception as e:
-                syslog2(LOG_WARNING, "failed to load model from profile config", error=str(e))
+        if not self.profile_dir or not self.profile_dir.exists():
+            print("Error: Profile directory not found.", file=sys.stderr)
+            sys.exit(1)
         
-        # Fallback to models.txt if no model found
-        if not model_name:
-            try:
-                models_file = Path(__file__).parent.parent.parent / "models.txt"
-                if models_file.exists():
-                    with open(models_file, "r") as f:
-                        model_name = f.readline().strip()
-            except Exception as e:
-                syslog2(LOG_WARNING, "failed to load model from models.txt", error=str(e))
-        
-        # Final fallback to default
-        if not model_name:
-            model_name = "openai/gpt-oss-20b:free"
-            syslog2(LOG_INFO, "using default LLM model", model=model_name)
-        
-        return LLMClient(model=model_name, verbosity=0)
+        try:
+            from src.bot.config import BotConfig
+            config = BotConfig(self.profile_dir)
+            
+            # Check that current_model is explicitly set in config
+            if "current_model" not in config.data:
+                print("Error: 'current_model' is not set in profile config.", file=sys.stderr)
+                print(f"\nPlease add it to: {config.config_file}", file=sys.stderr)
+                print("\nExample config.json:", file=sys.stderr)
+                print('{', file=sys.stderr)
+                print('  "embedding_model": "paraphrase-multilingual-MiniLM-L12-v2",', file=sys.stderr)
+                print('  "embedding_generator": "local",', file=sys.stderr)
+                print('  "current_model": "openai/gpt-oss-20b:free"', file=sys.stderr)
+                print('}', file=sys.stderr)
+                sys.exit(1)
+            
+            model_name = config.data.get("current_model")
+            if not model_name:
+                print("Error: 'current_model' is empty in profile config.", file=sys.stderr)
+                print(f"\nPlease set a valid value in: {config.config_file}", file=sys.stderr)
+                print("\nExample config.json:", file=sys.stderr)
+                print('{', file=sys.stderr)
+                print('  "embedding_model": "paraphrase-multilingual-MiniLM-L12-v2",', file=sys.stderr)
+                print('  "embedding_generator": "local",', file=sys.stderr)
+                print('  "current_model": "openai/gpt-oss-20b:free"', file=sys.stderr)
+                print('}', file=sys.stderr)
+                sys.exit(1)
+            
+            return LLMClient(model=model_name, verbosity=0)
+        except Exception as e:
+            print(f"Error: Failed to load model from profile config: {e}", file=sys.stderr)
+            sys.exit(1)
 
     def run_stage2(self, **clustering_params):
         """Run stage2: cluster chunk embeddings into topics_l1."""
