@@ -25,7 +25,11 @@ from datetime import datetime
 import os
 import argparse
 import sys
+import logging
 from src.core.syslog2 import *
+
+# Suppress Telethon debug logging messages
+logging.getLogger('telethon').setLevel(logging.WARNING)
 
 # Helper to serialize datetime
 def json_serial(obj):
@@ -112,11 +116,10 @@ class TelegramFetcher:
                 if message.date:
                     last_date = message.date
                 
-                # Progress update every 100 messages
-                if count % 100 == 0:
-                    date_str = last_date.strftime('%Y-%m-%d %H:%M') if last_date else "Unknown"
-                    sys.stdout.write(f"\rFetched {count} messages... (Last: {date_str})")
-                    sys.stdout.flush()
+                # Progress update on every message (overwrites same line)
+                date_str = last_date.strftime('%Y-%m-%d %H:%M') if last_date else "Unknown"
+                sys.stdout.write(f"\rFetched {count} messages... (Last: {date_str})")
+                sys.stdout.flush()
 
                 if message.text:
                     sender_name = "Unknown"
@@ -141,18 +144,19 @@ class TelegramFetcher:
             messages_data.sort(key=lambda x: x['date'])
             
             # Form output filename based on chat ID
+            chat_id = abs(chat.id)  # Use absolute value for negative IDs
+            
             if not output_file:
-                # Default filename in current directory
-                chat_id = abs(chat.id)  # Use absolute value for negative IDs
+                # Default: save in current directory
                 output_file = f"telegram_dump_{chat_id}.json"
             elif os.path.isdir(output_file):
                 # If output_file is a directory, create filename with chat ID in that directory
-                chat_id = abs(chat.id)  # Use absolute value for negative IDs
                 output_file = os.path.join(output_file, f"telegram_dump_{chat_id}.json")
             # If output_file is already a full path to a file, use it as is
                 
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump(messages_data, f, default=json_serial, ensure_ascii=False, indent=2)
+            print(f"Saved {len(messages_data)} messages to {output_file}")
             syslog2(LOG_INFO, "saved messages", count=len(messages_data), path=output_file)
 
 if __name__ == "__main__":

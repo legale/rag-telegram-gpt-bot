@@ -271,15 +271,61 @@ def cmd_ingest(args, profile_manager: ProfileManager):
     print(f"Vector store: {paths['vector_db_path']}")
     print()
     
-    # Create pipeline with profile-specific paths
+    # Route to appropriate subcommand
+    ingest_command = getattr(args, 'ingest_command', None)
+    
+    # For 'info' command, we don't need the full pipeline - just DB and vector store count
+    if ingest_command == 'info':
+        from src.storage.db import Database
+        
+        db = Database(paths['db_url'])
+        
+        # Get database info
+        db_info = db.get_database_info()
+        
+        # Get vector store count directly from ChromaDB without creating embedding client
+        # Import chromadb only when needed to avoid initializing OpenAI SDK components
+        try:
+            import chromadb
+            from chromadb.config import Settings
+            
+            chroma_client = chromadb.PersistentClient(
+                path=str(paths['vector_db_path']),
+                settings=Settings(anonymized_telemetry=False)
+            )
+            # Try to get collection, if it doesn't exist, count is 0
+            try:
+                collection = chroma_client.get_collection(name="default")
+                vector_count = collection.count()
+            except Exception:
+                # Collection doesn't exist yet
+                vector_count = 0
+        except Exception:
+            # Vector store directory doesn't exist or is inaccessible
+            vector_count = 0
+        
+        # Format output: бд - таблица - кол-во записей
+        db_name = paths['db_path'].name
+        print(f"{'Database':30} {'Table':20} {'Records':>15}")
+        print("-" * 65)
+        
+        # SQLite database tables
+        for table_name, count in sorted(db_info.items()):
+            print(f"{db_name:30} {table_name:20} {count:>15,}")
+        
+        # Vector store
+        vec_db_name = paths['vector_db_path'].name if paths['vector_db_path'].is_dir() else str(paths['vector_db_path'])
+        print(f"{vec_db_name:30} {'embeddings':20} {vector_count:>15,}")
+        
+        print()
+        return
+    
+    # Create pipeline with profile-specific paths (for all other commands)
     pipeline = IngestionPipeline(
         db_url=paths['db_url'],
         vector_db_path=str(paths['vector_db_path']),
         profile_dir=str(paths['profile_dir'])
     )
-    
-    # Route to appropriate subcommand
-    ingest_command = getattr(args, 'ingest_command', None)
     
     if ingest_command == 'all':
         if not args.file:
@@ -346,7 +392,7 @@ def cmd_ingest(args, profile_manager: ProfileManager):
         pipeline.run_stage2(**clustering_params)
         print("Stage2 complete.")
         
-    elif ingest_command == 'stage2b':
+    elif ingest_command == 'stage3':
         # Check if there are L1 topics
         from src.storage.db import Database
         db = Database(paths['db_url'])
@@ -355,11 +401,11 @@ def cmd_ingest(args, profile_manager: ProfileManager):
             print("Error: No L1 topics found. Run 'ingest stage2' first.")
             sys.exit(1)
         
-        print("Running stage2b: Assign topics to chunks...")
-        pipeline.run_stage2b()
-        print("Stage2b complete.")
+        print("Running stage3: Create embeddings for clusters and assign topics...")
+        pipeline.run_stage3()
+        print("Stage3 complete.")
         
-    elif ingest_command == 'stage3':
+    elif ingest_command == 'stage4':
         # Check if there are L1 topics
         from src.storage.db import Database, ChunkModel
         db = Database(paths['db_url'])
@@ -373,18 +419,18 @@ def cmd_ingest(args, profile_manager: ProfileManager):
         try:
             chunks_with_topics = session.query(ChunkModel).filter(ChunkModel.topic_l1_id.isnot(None)).count()
             if chunks_with_topics == 0:
-                print("Error: No chunks have topic assignments. Run 'ingest stage2b' first.")
+                print("Error: No chunks have topic assignments. Run 'ingest stage3' first.")
                 sys.exit(1)
         finally:
             session.close()
         
         only_unnamed = getattr(args, 'only_unnamed', False)
         rebuild = getattr(args, 'rebuild', False)
-        print("Running stage3: Name L1 topics...")
-        pipeline.run_stage3(only_unnamed=only_unnamed, rebuild=rebuild)
-        print("Stage3 complete.")
+        print("Running stage4: Name L1 topics...")
+        pipeline.run_stage4(only_unnamed=only_unnamed, rebuild=rebuild)
+        print("Stage4 complete.")
         
-    elif ingest_command == 'stage4':
+    elif ingest_command == 'stage5':
         # Check if there are L1 topics
         from src.storage.db import Database
         db = Database(paths['db_url'])
@@ -405,9 +451,9 @@ def cmd_ingest(args, profile_manager: ProfileManager):
         if hasattr(args, 'cluster_selection_epsilon') and args.cluster_selection_epsilon is not None:
             clustering_params['cluster_selection_epsilon'] = args.cluster_selection_epsilon
         
-        print("Running stage4: Cluster L2 topics and name...")
-        pipeline.run_stage4(**clustering_params)
-        print("Stage4 complete.")
+        print("Running stage5: Cluster L2 topics and name...")
+        pipeline.run_stage5(**clustering_params)
+        print("Stage5 complete.")
         
     elif ingest_command == 'clear_all':
         print("Clearing all stages...")
@@ -429,47 +475,21 @@ def cmd_ingest(args, profile_manager: ProfileManager):
         deleted = pipeline.clear_stage2()
         print(f"Stage2 cleared: {deleted} topics_l1 deleted.")
         
-    elif ingest_command == 'clear_stage2b':
-        print("Clearing stage2b: topic_l1_id assignments...")
-        updated = pipeline.clear_stage2b()
-        print(f"Stage2b cleared: {updated} chunks updated.")
-        
     elif ingest_command == 'clear_stage3':
-        print("Clearing stage3: topic names (no data to clear)...")
-        pipeline.clear_stage3()
-        print("Stage3 cleared.")
+        print("Clearing stage3: topic_l1_id assignments...")
+        updated = pipeline.clear_stage3()
+        print(f"Stage3 cleared: {updated} chunks updated.")
         
     elif ingest_command == 'clear_stage4':
-        print("Clearing stage4: topic_l2_id assignments and topics_l2...")
-        result = pipeline.clear_stage4()
-        print(f"Stage4 cleared: {result} items updated/deleted.")
+        print("Clearing stage4: topic names (no data to clear)...")
+        pipeline.clear_stage4()
+        print("Stage4 cleared.")
+        
+    elif ingest_command == 'clear_stage5':
+        print("Clearing stage5: topic_l2_id assignments and topics_l2...")
+        result = pipeline.clear_stage5()
+        print(f"Stage5 cleared: {result} items updated/deleted.")
     
-    elif ingest_command == 'info':
-        from src.storage.db import Database
-        
-        db = Database(paths['db_url'])
-        
-        # Get database info
-        db_info = db.get_database_info()
-        
-        # Get vector store count
-        vector_count = pipeline.vector_store.count()
-        
-        # Format output: бд - таблица - кол-во записей
-        db_name = paths['db_path'].name
-        print(f"{'Database':30} {'Table':20} {'Records':>15}")
-        print("-" * 65)
-        
-        # SQLite database tables
-        for table_name, count in sorted(db_info.items()):
-            print(f"{db_name:30} {table_name:20} {count:>15,}")
-        
-        # Vector store
-        vec_db_name = paths['vector_db_path'].name if paths['vector_db_path'].is_dir() else str(paths['vector_db_path'])
-        print(f"{vec_db_name:30} {'embeddings':20} {vector_count:>15,}")
-        
-        print()
-        
     else:
         # Should not happen due to routing logic, but handle gracefully
         print("Error: Unknown ingest command")
@@ -665,9 +685,9 @@ def cmd_test_embedding(args):
         print(f"Dimensions: {len(emb)}")
         print(f"First 5 values: {emb[:5]}")
     except Exception as e:
-        print(f"\nError: {e}")
-        import traceback
-        traceback.print_exc()
+        from src.core.syslog2 import syslog2, LogLevel, setup_log
+        setup_log(LogLevel.LOG_WARNING)
+        syslog2(LogLevel.LOG_ERR, f"Error: {e}")
         sys.exit(1)
 
 
@@ -768,22 +788,22 @@ def parse_ingest_stage2(stream: ArgStream) -> dict:
     }
 
 
-def parse_ingest_stage2b(stream: ArgStream) -> dict:
-    """Parse ingest stage2b command."""
-    profile = parse_option(stream, "profile")
-    return {"profile": profile, "ingest_command": "stage2b"}
-
-
 def parse_ingest_stage3(stream: ArgStream) -> dict:
     """Parse ingest stage3 command."""
-    only_unnamed = parse_flag(stream, "only-unnamed")
-    rebuild = parse_flag(stream, "rebuild")
     profile = parse_option(stream, "profile")
-    return {"only_unnamed": only_unnamed, "rebuild": rebuild, "profile": profile, "ingest_command": "stage3"}
+    return {"profile": profile, "ingest_command": "stage3"}
 
 
 def parse_ingest_stage4(stream: ArgStream) -> dict:
     """Parse ingest stage4 command."""
+    only_unnamed = parse_flag(stream, "only-unnamed")
+    rebuild = parse_flag(stream, "rebuild")
+    profile = parse_option(stream, "profile")
+    return {"only_unnamed": only_unnamed, "rebuild": rebuild, "profile": profile, "ingest_command": "stage4"}
+
+
+def parse_ingest_stage5(stream: ArgStream) -> dict:
+    """Parse ingest stage5 command."""
     min_cluster_size = parse_int_option(stream, "min-cluster-size", 2)
     min_samples = parse_int_option(stream, "min-samples", 1)
     metric = parse_option(stream, "metric")
@@ -797,7 +817,7 @@ def parse_ingest_stage4(stream: ArgStream) -> dict:
         "cluster_selection_method": cluster_selection_method,
         "cluster_selection_epsilon": cluster_selection_epsilon,
         "profile": profile,
-        "ingest_command": "stage4"
+        "ingest_command": "stage5"
     }
 
 
@@ -825,12 +845,6 @@ def parse_ingest_clear_stage2(stream: ArgStream) -> dict:
     return {"profile": profile, "ingest_command": "clear_stage2"}
 
 
-def parse_ingest_clear_stage2b(stream: ArgStream) -> dict:
-    """Parse ingest clear stage2b command."""
-    profile = parse_option(stream, "profile")
-    return {"profile": profile, "ingest_command": "clear_stage2b"}
-
-
 def parse_ingest_clear_stage3(stream: ArgStream) -> dict:
     """Parse ingest clear stage3 command."""
     profile = parse_option(stream, "profile")
@@ -841,6 +855,12 @@ def parse_ingest_clear_stage4(stream: ArgStream) -> dict:
     """Parse ingest clear stage4 command."""
     profile = parse_option(stream, "profile")
     return {"profile": profile, "ingest_command": "clear_stage4"}
+
+
+def parse_ingest_clear_stage5(stream: ArgStream) -> dict:
+    """Parse ingest clear stage5 command."""
+    profile = parse_option(stream, "profile")
+    return {"profile": profile, "ingest_command": "clear_stage5"}
 
 
 def parse_ingest_info(stream: ArgStream) -> dict:
@@ -856,7 +876,7 @@ def parse_ingest(stream: ArgStream) -> dict:
     
     # Check if first argument is a subcommand
     first = stream.peek().lower()
-    if first in ("all", "stage0", "stage1", "stage2", "stage3", "stage4", "clear", "info"):
+    if first in ("all", "stage0", "stage1", "stage2", "stage3", "stage4", "stage5", "clear", "info"):
         raise CLIError(f"ingest subcommand '{first}' requires explicit subcommand syntax")
     
     # Treat as 'all' with file path
@@ -1068,6 +1088,8 @@ def _parse_ingest_subcommand(stream: ArgStream) -> dict:
         return parse_ingest_stage3(stream)
     elif subcmd == "stage4":
         return parse_ingest_stage4(stream)
+    elif subcmd == "stage5":
+        return parse_ingest_stage5(stream)
     elif subcmd == "clear":
         # Parse clear subcommand
         if not stream.has_next():
@@ -1081,18 +1103,18 @@ def _parse_ingest_subcommand(stream: ArgStream) -> dict:
             return parse_ingest_clear_stage1(stream)
         elif clear_subcmd == "stage2":
             return parse_ingest_clear_stage2(stream)
-        elif clear_subcmd == "stage2b":
-            return parse_ingest_clear_stage2b(stream)
         elif clear_subcmd == "stage3":
             return parse_ingest_clear_stage3(stream)
         elif clear_subcmd == "stage4":
             return parse_ingest_clear_stage4(stream)
+        elif clear_subcmd == "stage5":
+            return parse_ingest_clear_stage5(stream)
         else:
-            raise CLIError(f"unknown clear subcommand: {clear_subcmd}. Use: all, stage0, stage1, stage2, stage2b, stage3, stage4")
+            raise CLIError(f"unknown clear subcommand: {clear_subcmd}. Use: all, stage0, stage1, stage2, stage3, stage4, stage5")
     elif subcmd == "info":
         return parse_ingest_info(stream)
     else:
-        raise CLIError(f"unknown ingest subcommand: {subcmd}. Use: all, stage0, stage1, stage2, stage2b, stage3, stage4, clear all/stage0/stage1/stage2/stage2b/stage3/stage4, info")
+        raise CLIError(f"unknown ingest subcommand: {subcmd}. Use: all, stage0, stage1, stage2, stage3, stage4, stage5, clear all/stage0/stage1/stage2/stage3/stage4/stage5, info")
 
 
 def _parse_ingest_subcommand_with_args(args):
@@ -1233,7 +1255,7 @@ def main():
         CommandSpec(
             "ingest", 
             lambda s: _parse_ingest_subcommand(s),
-            help_text="ingest <subcommand>\n\nSubcommands:\n  all <file> [model <name>] [batch-size <n>] [profile <name>] - Run all stages\n  stage0 <file> [profile <name>] - Parse and store messages/chunks\n  stage1 [model <name>] [batch-size <n>] [profile <name>] - Generate embeddings\n  stage2 [min-cluster-size <n>] [min-samples <n>] [metric <name>] [cluster-selection-method <name>] [cluster-selection-epsilon <f>] [profile <name>] - Cluster chunk embeddings into L1 topics (HDBSCAN)\n  stage2b [profile <name>] - Assign topic_l1_id to chunks\n  stage3 [only-unnamed] [rebuild] [profile <name>] - Generate topic names for L1 topics\n  stage4 [min-cluster-size <n>] [min-samples <n>] [metric <name>] [cluster-selection-method <name>] [cluster-selection-epsilon <f>] [profile <name>] - Cluster L1 topics into L2 and generate names\n  clear all [profile <name>] - Clear all stages\n  clear stage0 [profile <name>] - Clear messages\n  clear stage1 [profile <name>] - Clear embeddings\n  clear stage2 [profile <name>] - Clear topics_l1\n  clear stage2b [profile <name>] - Clear topic_l1_id assignments\n  clear stage3 [profile <name>] - Clear topic names (no-op, names stored in topics_l1)\n  clear stage4 [profile <name>] - Clear topic_l2_id assignments and topics_l2\n  info [profile <name>] - Show database statistics"
+            help_text="ingest <subcommand>\n\nSubcommands:\n  all <file> [model <name>] [batch-size <n>] [profile <name>] - Run all stages\n  stage0 <file> [profile <name>] - Parse and store messages/chunks\n  stage1 [model <name>] [batch-size <n>] [profile <name>] - Generate embeddings\n  stage2 [min-cluster-size <n>] [min-samples <n>] [metric <name>] [cluster-selection-method <name>] [cluster-selection-epsilon <f>] [profile <name>] - Cluster chunk embeddings into L1 topics (HDBSCAN)\n  stage3 [profile <name>] - Create embeddings for clusters and assign topic_l1_id to chunks\n  stage4 [only-unnamed] [rebuild] [profile <name>] - Generate topic names for L1 topics\n  stage5 [min-cluster-size <n>] [min-samples <n>] [metric <name>] [cluster-selection-method <name>] [cluster-selection-epsilon <f>] [profile <name>] - Cluster L1 topics into L2 and generate names\n  clear all [profile <name>] - Clear all stages\n  clear stage0 [profile <name>] - Clear messages\n  clear stage1 [profile <name>] - Clear embeddings\n  clear stage2 [profile <name>] - Clear L1 topics\n  clear stage3 [profile <name>] - Clear topic_l1_id assignments\n  clear stage4 [profile <name>] - Clear L1 topic names\n  clear stage5 [profile <name>] - Clear L2 topics and assignments\n  info [profile <name>] - Show database statistics"
         ),
         
         # Telegram commands
@@ -1268,7 +1290,9 @@ def main():
             print(parser.get_help())
         sys.exit(0)
     except CLIError as e:
-        print(f"Error: {e}")
+        # Setup logging early for error messages
+        setup_log(LOG_WARNING)  # Use default level for error messages
+        syslog2(LOG_ERR, f"Error: {e}")
         sys.exit(1)
     
     # Handle subcommands that need routing
@@ -1286,18 +1310,10 @@ def main():
         cmd_name, args = _parse_topics_subcommand_with_args(args)
 
     # Setup global logging
-    syslog_level = LogLevel.LOG_WARNING
+    syslog_level = LOG_WARNING
     log_level = getattr(args, 'log_level', None)
     if log_level:
-        level_map = {
-            "LOG_DEBUG": LogLevel.LOG_DEBUG,
-            "LOG_INFO": LogLevel.LOG_INFO,
-            "LOG_WARNING": LogLevel.LOG_WARNING,
-            "LOG_ERR": LogLevel.LOG_ERR,
-            "LOG_CRIT": LogLevel.LOG_CRIT,
-            "LOG_ALERT": LogLevel.LOG_ALERT
-        }
-        syslog_level = level_map.get(log_level, LogLevel.LOG_WARNING)
+        syslog_level = log_level
     
     setup_log(syslog_level)
     
@@ -1313,32 +1329,36 @@ def main():
             print()
     
     # Route to appropriate command handler
-    if cmd_name == 'test-embedding':
-        cmd_test_embedding(args)
-    
-    elif cmd_name.startswith('profile_'):
-        cmd_profile(args, profile_manager)
-    
-    elif cmd_name.startswith('ingest_'):
-        cmd_ingest(args, profile_manager)
-    
-    elif cmd_name.startswith('telegram_'):
-        cmd_telegram(args, profile_manager)
-    
-    elif cmd_name == 'chat':
-        cmd_chat(args, profile_manager)
-    
-    elif cmd_name.startswith('bot_'):
-        cmd_bot(args, profile_manager)
+    try:
+        if cmd_name == 'test-embedding':
+            cmd_test_embedding(args)
+        
+        elif cmd_name.startswith('profile_'):
+            cmd_profile(args, profile_manager)
+        
+        elif cmd_name.startswith('ingest_'):
+            cmd_ingest(args, profile_manager)
+        
+        elif cmd_name.startswith('telegram_'):
+            cmd_telegram(args, profile_manager)
+        
+        elif cmd_name == 'chat':
+            cmd_chat(args, profile_manager)
+        
+        elif cmd_name.startswith('bot_'):
+            cmd_bot(args, profile_manager)
 
-    elif cmd_name.startswith('config_'):
-        cmd_config(args, profile_manager)
+        elif cmd_name.startswith('config_'):
+            cmd_config(args, profile_manager)
 
-    elif cmd_name.startswith('topics_'):
-        cmd_topics(args, profile_manager)
+        elif cmd_name.startswith('topics_'):
+            cmd_topics(args, profile_manager)
 
-    else:
-        print(f"Error: Unknown command: {cmd_name}")
+        else:
+            syslog2(LOG_ERR, f"Unknown command: {cmd_name}")
+            sys.exit(1)
+    except Exception as e:
+        syslog2(LOG_ERR, f"Command execution failed", command=cmd_name, error=str(e))
         sys.exit(1)
 
 
@@ -1358,28 +1378,35 @@ def cmd_topics(args, profile_manager: ProfileManager):
         sys.exit(1)
         
     db = Database(paths['db_url'])
-    vector_store = VectorStore(persist_directory=str(paths['vector_db_path']))
     
-    # Init LLM Client
-    config = BotConfig(paths['profile_dir'])
-    model_name = config.current_model
-    if not model_name:
-         # Fallback to models.txt
-         try:
-             if os.path.exists("models.txt"):
-                 with open("models.txt", "r") as f:
-                     model_name = f.readline().strip()
-         except:
-             pass
-    if not model_name:
-        model_name = "openai/gpt-3.5-turbo"
+    # For 'list' and 'show' commands, we don't need VectorStore or LLMClient
+    # Initialize them only for commands that need clustering/naming
+    needs_clustering = args.topic_command in ('cluster-l1', 'cluster-l2', 'name', 'build')
+    
+    if needs_clustering:
+        vector_store = VectorStore(persist_directory=str(paths['vector_db_path']))
         
-    # For topic naming, always use verbosity=0 to suppress raw LLM output
-    # This ensures clean progress bar output without HTTP request/response spam
-    llm_verbosity = 0
-    llm_client = LLMClient(model=model_name, verbosity=llm_verbosity)
-
-    clusterer = TopicClusterer(db, vector_store, llm_client)
+        # Init LLM Client
+        config = BotConfig(paths['profile_dir'])
+        model_name = config.current_model
+        if not model_name:
+             # Fallback to models.txt
+             try:
+                 if os.path.exists("models.txt"):
+                     with open("models.txt", "r") as f:
+                         model_name = f.readline().strip()
+             except:
+                 pass
+        if not model_name:
+            model_name = "openai/gpt-3.5-turbo"
+            
+        # For topic naming, always use verbosity=0 to suppress raw LLM output
+        # This ensures clean progress bar output without HTTP request/response spam
+        llm_verbosity = 0
+        llm_client = LLMClient(model=model_name, verbosity=llm_verbosity)
+        clusterer = TopicClusterer(db, vector_store, llm_client)
+    else:
+        clusterer = None
 
     # Helper function to get clustering parameters
     def get_clustering_params(prefix):
@@ -1502,13 +1529,11 @@ def cmd_topics(args, profile_manager: ProfileManager):
             l2_topics = db.get_all_topics_l2()
             l1_topics = db.get_all_topics_l1()
             
-            if not l1_topics:
-                print("No topics found. Run 'legale topics build' first.")
+            if not l1_topics and not l2_topics:
+                print("No topics found. Run 'legale ingest stage2' or 'legale topics build' first.")
                 return
-                
-            print(f"\n{'ID':<5} {'L2 Topic Title':<40} {'L1 Count':<10} {'Chunks'}")
-            print("-" * 75)
             
+            # Group L1 topics by L2 parent
             l1_by_l2 = {}
             orphans = []
             for t in l1_topics:
@@ -1518,19 +1543,42 @@ def cmd_topics(args, profile_manager: ProfileManager):
                     l1_by_l2[t.parent_l2_id].append(t)
                 else:
                     orphans.append(t)
-                    
-            for l2 in l2_topics:
-                children = l1_by_l2.get(l2.id, [])
-                chunks_count = sum(c.chunk_count for c in children)
-                title = l2.title or f"Topic L2-{l2.id}"
-                print(f"{l2.id:<5} {title[:38]:<40} {len(children):<10} {chunks_count}")
+            
+            # Show L2 topics with their L1 children
+            if l2_topics:
+                print(f"\n{'ID':<5} {'L2 Topic Title':<40} {'L1 Count':<10} {'Chunks'}")
+                print("-" * 75)
                 
+                for l2 in l2_topics:
+                    children = l1_by_l2.get(l2.id, [])
+                    chunks_count = sum(c.chunk_count for c in children)
+                    title = l2.title or f"Topic L2-{l2.id}"
+                    print(f"{l2.id:<5} {title[:38]:<40} {len(children):<10} {chunks_count}")
+                    
+                    # Show L1 topics under each L2 topic
+                    if children:
+                        for l1 in children:
+                            l1_title = l1.title or f"Topic L1-{l1.id}"
+                            print(f"  └─ {l1.id:<3} {l1_title[:35]:<35} {l1.chunk_count:<10} chunks")
+            
+            # Show orphaned L1 topics
             if orphans:
-                print("\nOrphaned L1 Topics (No Super-Topic):")
-                print(f"{'ID':<5} {'Title':<40} {'Chunks':<10}")
+                if l2_topics:
+                    print("\nOrphaned L1 Topics (No Super-Topic):")
+                else:
+                    print(f"\n{'ID':<5} {'L1 Topic Title':<40} {'Chunks':<10}")
                 print("-" * 60)
                 for t in orphans:
-                     print(f"{t.id:<5} {t.title[:38]:<40} {t.chunk_count:<10}")
+                    title = t.title or f"Topic L1-{t.id}"
+                    print(f"{t.id:<5} {title[:38]:<40} {t.chunk_count:<10}")
+            
+            # If no L2 topics but L1 topics exist, show all L1 topics
+            if not l2_topics and l1_topics:
+                print(f"\n{'ID':<5} {'L1 Topic Title':<40} {'Chunks':<10}")
+                print("-" * 60)
+                for t in l1_topics:
+                    title = t.title or f"Topic L1-{t.id}"
+                    print(f"{t.id:<5} {title[:38]:<40} {t.chunk_count:<10}")
 
                 
         except Exception as e:
@@ -1603,9 +1651,10 @@ def cmd_profile_option(args, profile_manager: ProfileManager):
         ],
         "local": [
             "all-MiniLM-L6-v2",
+            "all-MiniLM-L12-v2",
             "all-mpnet-base-v2",
             "paraphrase-multilingual-MiniLM-L12-v2",
-            "paraphrase-multilingual-MiniLM-L12-v2"
+            "paraphrase-multilingual-mpnet-base-v2"
         ]
     }
     
