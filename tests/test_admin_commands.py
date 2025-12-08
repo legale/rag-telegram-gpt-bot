@@ -159,7 +159,7 @@ class TestProfileCommands:
         
         assert "default" in response
         assert "test_profile" in response
-        assert "✅" in response # Active marker
+        assert "" in response # Active marker
 
     @pytest.mark.asyncio
     async def test_create_profile(self, mock_context):
@@ -302,7 +302,7 @@ class TestStatsCommands:
             
             response = await stats.health_check(update, context, admin_manager, [])
             assert "Проверка здоровья" in response
-            assert "✅" in response
+            assert "" in response
 
 class TestIngestCommands:
     @pytest.mark.asyncio

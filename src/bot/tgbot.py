@@ -105,17 +105,17 @@ class MessageHandler:
         try:
             usage = self.bot.get_token_usage()
             response = (
-                f"📊 Использование токенов:\n\n"
+                f"Использование токенов:\n\n"
                 f"Текущее: {usage['current_tokens']:,}\n"
                 f"Максимум: {usage['max_tokens']:,}\n"
                 f"Использовано: {usage['percentage']}%\n\n"
             )
             if usage["percentage"] > 80:
-                response += "⚠️ Приближаетесь к лимиту! Используйте /reset для сброса."
+                response += "Приближаетесь к лимиту! Используйте /reset для сброса."
             elif usage["percentage"] > 50:
-                response += "ℹ️ Контекст заполнен наполовину."
+                response += "Контекст заполнен наполовину."
             else:
-                response += "✅ Достаточно места для разговора."
+                response += "Достаточно места для разговора."
             return response
         except Exception as e:
             syslog2(LOG_ERR, "get token usage failed", error=str(e))
@@ -136,12 +136,12 @@ class MessageHandler:
     async def handle_admin_set_command(self, text: str, message) -> str:
         """Handle /admin_set command."""
         if not self.admin_manager:
-            return "❌ Система администрирования недоступна. Установите ADMIN_PASSWORD в .env файле."
+            return "Система администрирования недоступна. Установите ADMIN_PASSWORD в .env файле."
         
         parts = text.split(maxsplit=1)
         if len(parts) < 2:
             return (
-                "❌ Неверный формат команды.\n\n"
+                "Неверный формат команды.\n\n"
                 "Использование: /admin_set <пароль>\n\n"
                 "Пример: /admin_set my_secret_password"
             )
@@ -160,48 +160,48 @@ class MessageHandler:
                 full_name = f"{first_name} {last_name}".strip() if last_name else first_name
                 syslog2(LOG_INFO, "admin set", full_name=full_name, user_id=user_id)
                 return (
-                    f"✅ Вы успешно назначены администратором!\n\n"
-                    f"👤 Имя: {full_name}\n"
+                    f"Вы успешно назначены администратором!\n\n"
+                    f"Имя: {full_name}\n"
                     f"🆔 ID: {user_id}\n"
-                    f"📝 Username: @{username}"
+                    f"Username: @{username}"
                 )
             except Exception as e:
                 syslog2(LOG_ERR, "set admin failed", error=str(e))
-                return "❌ Ошибка при назначении администратора."
+                return "Ошибка при назначении администратора."
         else:
             syslog2(LOG_WARNING, "failed admin set attempt", user_id=message.from_user.id)
-            return "❌ Неверный пароль."
+            return "Неверный пароль."
     
     async def handle_admin_get_command(self, user_id: int) -> str:
         """Handle /admin_get command."""
         if not self.admin_manager:
-            return "❌ Система администрирования недоступна."
+            return "Система администрирования недоступна."
         
         if not self.admin_manager.is_admin(user_id):
             syslog2(LOG_WARNING, "unauthorized admin get attempt", user_id=user_id)
-            return "❌ Эта команда доступна только администратору."
+            return "Эта команда доступна только администратору."
         
         admin_info = self.admin_manager.get_admin()
         if admin_info:
             return (
-                f"👤 Администратор бота:\n\n"
+                f"Администратор бота:\n\n"
                 f"Имя: {admin_info['full_name']}\n"
                 f"ID: {admin_info['user_id']}\n"
                 f"Username: @{admin_info['username']}"
             )
         else:
-            return "❌ Администратор не назначен."
+            return "Администратор не назначен."
     
     async def handle_admin_command(self, update: Update) -> str:
         """Handle /admin command."""
         if not self.admin_router:
-            return "❌ Админ-панель недоступна. Проверьте конфигурацию бота."
+            return "Админ-панель недоступна. Проверьте конфигурацию бота."
         
         try:
             return await self.admin_router.route(update, None, self.admin_manager)
         except Exception as e:
             syslog2(LOG_ERR, "admin command failed", error=str(e))
-            return f"❌ Ошибка при выполнении админ-команды: {e}"
+            return f"Ошибка при выполнении админ-команды: {e}"
     
     async def handle_user_query(self, text: str, respond: bool) -> str:
         """Handle regular user query to bot."""
@@ -479,7 +479,7 @@ async def webhook(request: Request):
                     if update.message:
                         await telegram_app.bot.send_message(
                             chat_id=update.message.chat_id,
-                            text="❌ Произошла ошибка при обработке сообщения. Попробуйте позже."
+                            text="Произошла ошибка при обработке сообщения. Попробуйте позже."
                         )
                 except:
                     pass
@@ -666,13 +666,13 @@ def register_webhook(url: str, token: str):
     if response.status_code == 200:
         result = response.json()
         if result.get("ok"):
-            print(f"✓ Webhook registered successfully: {url}")
+            print(f"Webhook registered successfully: {url}")
             print(f"  Description: {result.get('description', 'N/A')}")
         else:
-            print(f"✗ Failed to register webhook: {result.get('description')}")
+            print(f"Failed to register webhook: {result.get('description')}")
             sys.exit(1)
     else:
-        print(f"✗ HTTP error: {response.status_code}")
+        print(f"HTTP error: {response.status_code}")
         sys.exit(1)
 
 
@@ -688,12 +688,12 @@ def delete_webhook(token: str):
     if response.status_code == 200:
         result = response.json()
         if result.get("ok"):
-            print("✓ Webhook deleted successfully")
+            print("Webhook deleted successfully")
         else:
-            print(f"✗ Failed to delete webhook: {result.get('description')}")
+            print(f"Failed to delete webhook: {result.get('description')}")
             sys.exit(1)
     else:
-        print(f"✗ HTTP error: {response.status_code}")
+        print(f"HTTP error: {response.status_code}")
         sys.exit(1)
 
 

@@ -151,7 +151,7 @@ class TestTokenCounting:
     def test_count_tokens_special_characters(self, llm_client):
         """Test counting tokens with special characters."""
         messages = [
-            {"role": "user", "content": "Hello! 你好 🌟 @#$%"}
+            {"role": "user", "content": "Hello! 你好 @#$%"}
         ]
         
         count = llm_client.count_tokens(messages)

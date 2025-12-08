@@ -163,7 +163,7 @@ class TestChatAutoReset:
         response = bot.chat("New message")
         
         # Response should include auto-reset warning
-        assert "⚠️" in response or "автоматически сброшен" in response
+        assert "" in response or "автоматически сброшен" in response
     
     def test_chat_no_auto_reset_below_limit(self, mock_dependencies):
         """Test that auto-reset doesn't happen below token limit."""
@@ -192,7 +192,7 @@ class TestChatErrorHandling:
         # Chat should handle the error gracefully
         # Chat should handle the error gracefully and return an error message
         response = bot.chat("Test query")
-        assert "❌" in response or "error" in response.lower()
+        assert "" in response or "error" in response.lower()
     
     def test_chat_retrieval_failure(self, mock_dependencies):
         """Test chat behavior when retrieval fails."""

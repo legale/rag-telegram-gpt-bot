@@ -94,7 +94,7 @@ class ProfileManager:
         
         # Update or add ACTIVE_PROFILE
         set_key(env_path, "ACTIVE_PROFILE", profile_name)
-        print(f"✓ Active profile set to: {profile_name}")
+        print(f"Active profile set to: {profile_name}")
     
     def get_profile_dir(self, profile_name: Optional[str] = None) -> Path:
         """Get the directory path for a profile."""
@@ -109,14 +109,14 @@ class ProfileManager:
         profile_dir = self.get_profile_dir(profile_name)
         
         if profile_dir.exists():
-            print(f"⚠️  Profile '{profile_name}' already exists at: {profile_dir}")
+            print(f"Warning: Profile '{profile_name}' already exists at: {profile_dir}")
             return profile_dir
         
         # Create profile directory structure
         profile_dir.mkdir(parents=True, exist_ok=True)
         (profile_dir / "chroma_db").mkdir(exist_ok=True)
         
-        print(f"✓ Created profile '{profile_name}' at: {profile_dir}")
+        print(f"Created profile '{profile_name}' at: {profile_dir}")
         print(f"  - Database will be: {profile_dir / 'legale_bot.db'}")
         print(f"  - Vector store will be: {profile_dir / 'chroma_db'}")
         
@@ -145,7 +145,7 @@ class ProfileManager:
             marker = " (active)" if profile == current else ""
             profile_dir = self.profiles_dir / profile
             db_path = profile_dir / "legale_bot.db"
-            db_exists = "✓" if db_path.exists() else "✗"
+            db_exists = "OK" if db_path.exists() else "MISSING"
             print(f"  {db_exists} {profile}{marker}")
         
         print(f"\nActive profile: {current}")
@@ -153,14 +153,14 @@ class ProfileManager:
     def delete_profile(self, profile_name: str, force: bool = False):
         """Delete a profile and all its data."""
         if profile_name == self.get_current_profile() and not force:
-            print(f"⚠️  Cannot delete active profile '{profile_name}'")
+            print(f"Warning: Cannot delete active profile '{profile_name}'")
             print("   Switch to another profile first or use --force")
             return
         
         profile_dir = self.get_profile_dir(profile_name)
         
         if not profile_dir.exists():
-            print(f"✗ Profile '{profile_name}' does not exist")
+            print(f"Error: Profile '{profile_name}' does not exist")
             return
         
         if not force:
@@ -171,7 +171,7 @@ class ProfileManager:
         
         import shutil
         shutil.rmtree(profile_dir)
-        print(f"✓ Deleted profile '{profile_name}'")
+        print(f"Deleted profile '{profile_name}'")
     
     def get_profile_paths(self, profile_name: Optional[str] = None) -> dict:
         """Get all relevant paths for a profile."""
@@ -198,7 +198,7 @@ def cmd_profile(args, profile_manager: ProfileManager):
         # Check if profile exists
         profile_dir = profile_manager.get_profile_dir(args.name)
         if not profile_dir.exists():
-            print(f"✗ Profile '{args.name}' does not exist")
+            print(f"Profile '{args.name}' does not exist")
             print(f"  Create it with: legale profile create {args.name}")
             sys.exit(1)
         
@@ -253,9 +253,8 @@ def cmd_ingest(args, profile_manager: ProfileManager):
         if not args.file:
             print("Error: file path is required for 'ingest parse'")
             sys.exit(1)
-        print("Parsing file and storing in SQLite...")
         pipeline.parse_and_store(args.file, clear_existing=getattr(args, 'clear', False))
-        print("Parse complete. Run 'ingest embed' to generate embeddings.")
+        print("\nParse complete. Run 'ingest embed' to generate embeddings.")
         
     elif ingest_command == 'embed':
         # Check if there are chunks in database
@@ -270,24 +269,24 @@ def cmd_ingest(args, profile_manager: ProfileManager):
         batch_size = getattr(args, 'batch_size', 128)
         print(f"Generating embeddings for chunks (batch size: {batch_size})...")
         pipeline.generate_embeddings(model=model, batch_size=batch_size)
-        print("✓ Embedding generation complete.")
+        print("Embedding generation complete.")
         
     elif ingest_command == 'all':
         if not args.file:
-            print("✗ Error: file path is required for 'ingest all'")
+            print("Error: file path is required for 'ingest all'")
             sys.exit(1)
         print("Running full ingestion pipeline...")
         pipeline.run(args.file, clear_existing=getattr(args, 'clear', False))
-        print("✓ Full ingestion complete.")
+        print("Full ingestion complete.")
         
     elif ingest_command == 'clear':
         print("Clearing all data...")
         pipeline._clear_data()
-        print("✓ Data cleared.")
+        print("Data cleared.")
         
     else:
         # Should not happen due to routing logic, but handle gracefully
-        print("✗ Error: Unknown ingest command")
+        print("Error: Unknown ingest command")
         sys.exit(1)
 
 
@@ -302,13 +301,13 @@ def cmd_telegram(args, profile_manager: ProfileManager):
     API_HASH = os.getenv("TELEGRAM_API_HASH")
     
     if not API_ID or not API_HASH:
-        print("✗ Error: TELEGRAM_API_ID and TELEGRAM_API_HASH must be set in .env file")
+        print("Error: TELEGRAM_API_ID and TELEGRAM_API_HASH must be set in .env file")
         sys.exit(1)
     
     try:
         API_ID = int(API_ID)
     except ValueError:
-        print("✗ Error: TELEGRAM_API_ID must be an integer")
+        print("Error: TELEGRAM_API_ID must be an integer")
         sys.exit(1)
     
     # Get profile-specific session file
@@ -355,7 +354,7 @@ def cmd_chat(args, profile_manager: ProfileManager):
     
     # Check if database exists
     if not paths['db_path'].exists():
-        print(f"✗ Error: No database found for profile '{profile_name}'")
+        print(f"Error: No database found for profile '{profile_name}'")
         print(f"  Create one by ingesting data first:")
         print(f"  legale ingest <file>")
         sys.exit(1)
@@ -411,7 +410,7 @@ def cmd_bot(args, profile_manager: ProfileManager):
     if args.bot_command == 'register':
         token = args.token or os.getenv("TELEGRAM_BOT_TOKEN")
         if not token:
-            print("✗ Error: TELEGRAM_BOT_TOKEN must be set in .env or passed via --token")
+            print("Error: TELEGRAM_BOT_TOKEN must be set in .env or passed via --token")
             sys.exit(1)
         
         register_webhook(args.url, token)
@@ -419,7 +418,7 @@ def cmd_bot(args, profile_manager: ProfileManager):
     elif args.bot_command == 'delete':
         token = args.token or os.getenv("TELEGRAM_BOT_TOKEN")
         if not token:
-            print("✗ Error: TELEGRAM_BOT_TOKEN must be set in .env or passed via --token")
+            print("Error: TELEGRAM_BOT_TOKEN must be set in .env or passed via --token")
             sys.exit(1)
         
         delete_webhook(token)
@@ -967,7 +966,7 @@ def main():
             print(parser.get_help())
         sys.exit(0)
     except CLIError as e:
-        print(f"✗ Error: {e}")
+        print(f"Error: {e}")
         sys.exit(1)
     
     # Handle subcommands that need routing
@@ -1037,7 +1036,7 @@ def main():
         cmd_topics(args, profile_manager)
 
     else:
-        print(f"✗ Error: Unknown command: {cmd_name}")
+        print(f"Error: Unknown command: {cmd_name}")
         sys.exit(1)
 
 
@@ -1053,7 +1052,7 @@ def cmd_topics(args, profile_manager: ProfileManager):
     paths = profile_manager.get_profile_paths(profile_name)
     
     if not paths['db_path'].exists():
-        print(f"✗ Error: No database found for profile '{profile_name}'")
+        print(f"Error: No database found for profile '{profile_name}'")
         sys.exit(1)
         
     db = Database(paths['db_url'])
@@ -1094,7 +1093,7 @@ def cmd_topics(args, profile_manager: ProfileManager):
     def validate_clustering_params(prefix):
         min_size = getattr(args, f'{prefix}_min_size', 2)
         if min_size < 2:
-            print(f"✗ Error: --{prefix}-min-size must be at least 2 (HDBSCAN requirement), got {min_size}")
+            print(f"Error: --{prefix}-min-size must be at least 2 (HDBSCAN requirement), got {min_size}")
             sys.exit(1)
     
     # Progress bar callback for naming
@@ -1117,9 +1116,9 @@ def cmd_topics(args, profile_manager: ProfileManager):
               f"metric={params['metric']}, method={params['cluster_selection_method']}, epsilon={params['cluster_selection_epsilon']}")
         try:
             clusterer.perform_l1_clustering(**params)
-            print("✓ L1 clustering complete. Run 'topics cluster-l2' for super-topics.")
+            print("L1 clustering complete. Run 'topics cluster-l2' for super-topics.")
         except ValueError as e:
-            print(f"✗ Error: {e}")
+            print(f"Error: {e}")
             sys.exit(1)
             
     elif args.topic_command == 'cluster-l2':
@@ -1127,7 +1126,7 @@ def cmd_topics(args, profile_manager: ProfileManager):
         # Check if L1 topics exist
         l1_topics = db.get_all_topics_l1()
         if not l1_topics:
-            print("✗ Error: No L1 topics found. Run 'topics cluster-l1' first.")
+            print("Error: No L1 topics found. Run 'topics cluster-l1' first.")
             sys.exit(1)
         validate_clustering_params('l2')
         params = get_clustering_params('l2')
@@ -1135,9 +1134,9 @@ def cmd_topics(args, profile_manager: ProfileManager):
               f"metric={params['metric']}, method={params['cluster_selection_method']}, epsilon={params['cluster_selection_epsilon']}")
         try:
             clusterer.perform_l2_clustering(**params)
-            print("✓ L2 clustering complete. Run 'topics name' to generate topic names.")
+            print("L2 clustering complete. Run 'topics name' to generate topic names.")
         except ValueError as e:
-            print(f"✗ Error: {e}")
+            print(f"Error: {e}")
             sys.exit(1)
             
     elif args.topic_command == 'name':
@@ -1146,7 +1145,7 @@ def cmd_topics(args, profile_manager: ProfileManager):
         l1_topics = db.get_all_topics_l1()
         l2_topics = db.get_all_topics_l2()
         if not l1_topics and not l2_topics:
-            print("✗ Error: No topics found. Run 'topics cluster-l1' first.")
+            print("Error: No topics found. Run 'topics cluster-l1' first.")
             sys.exit(1)
         
         only_unnamed = getattr(args, 'only_unnamed', False)
@@ -1160,7 +1159,7 @@ def cmd_topics(args, profile_manager: ProfileManager):
             rebuild=rebuild,
             target=target
         )
-        print("✓ Topic naming complete.")
+        print("Topic naming complete.")
         
     elif args.topic_command == 'build':
         print(f"Building topics for profile: {profile_name}")
@@ -1179,7 +1178,7 @@ def cmd_topics(args, profile_manager: ProfileManager):
         try:
             clusterer.perform_l1_clustering(**l1_params)
         except ValueError as e:
-            print(f"✗ Error: {e}")
+            print(f"Error: {e}")
             sys.exit(1)
         
         print(f"L2 parameters: min_cluster_size={l2_params['min_cluster_size']}, min_samples={l2_params['min_samples']}, "
@@ -1188,13 +1187,13 @@ def cmd_topics(args, profile_manager: ProfileManager):
         try:
             clusterer.perform_l2_clustering(**l2_params)
         except ValueError as e:
-            print(f"✗ Error: {e}")
+            print(f"Error: {e}")
             sys.exit(1)
         
         print("3. Naming Topics (LLM)...")
         clusterer.name_topics(progress_callback=show_progress)
         
-        print("✓ Topic build complete.")
+        print("Topic build complete.")
             
     elif args.topic_command == 'list':
         try:
@@ -1233,7 +1232,7 @@ def cmd_topics(args, profile_manager: ProfileManager):
 
                 
         except Exception as e:
-                print(f"✗ Error listing topics: {e}")
+                print(f"Error listing topics: {e}")
                 
     elif args.topic_command == 'show':
         try:
@@ -1274,7 +1273,7 @@ def cmd_topics(args, profile_manager: ProfileManager):
         except ValueError:
             print("Error: Topic ID must be an integer.")
         except Exception as e:
-            print(f"✗ Error showing topic: {e}")
+            print(f"Error showing topic: {e}")
 
 
 
@@ -1286,7 +1285,7 @@ def cmd_profile_option(args, profile_manager: ProfileManager):
     profile_dir = profile_manager.get_profile_dir(profile_name)
     
     if not profile_dir.exists():
-        print(f"✗ Profile '{profile_name}' does not exist")
+        print(f"Error: Profile '{profile_name}' does not exist")
         sys.exit(1)
     
     config = BotConfig(profile_dir)
@@ -1328,14 +1327,14 @@ def cmd_profile_option(args, profile_manager: ProfileManager):
         
         elif action == 'set':
             if not args.value:
-                print("✗ Error: value is required for 'set' action")
+                print("Error: value is required for 'set' action")
                 sys.exit(1)
             if args.value not in all_models:
-                print(f"✗ Error: Unknown model '{args.value}'")
+                print(f"Error: Unknown model '{args.value}'")
                 print(f"  Available models: {', '.join(all_models)}")
                 sys.exit(1)
             config.embedding_model = args.value
-            print(f"✓ Embedding model set to: {args.value}")
+            print(f"Embedding model set to: {args.value}")
     
     elif option == 'generator':
         if action == 'list':
@@ -1352,17 +1351,17 @@ def cmd_profile_option(args, profile_manager: ProfileManager):
         
         elif action == 'set':
             if not args.value:
-                print("✗ Error: value is required for 'set' action")
+                print("Error: value is required for 'set' action")
                 sys.exit(1)
             if args.value.lower() not in available_generators:
-                print(f"✗ Error: Unknown generator '{args.value}'")
+                print(f"Error: Unknown generator '{args.value}'")
                 print(f"  Available generators: {', '.join(available_generators)}")
                 sys.exit(1)
             try:
                 config.embedding_generator = args.value.lower()
-                print(f"✓ Embedding generator set to: {args.value.lower()}")
+                print(f"Embedding generator set to: {args.value.lower()}")
             except ValueError as e:
-                print(f"✗ Error: {e}")
+                print(f"Error: {e}")
                 sys.exit(1)
     
     elif option == 'frequency':
@@ -1385,17 +1384,17 @@ def cmd_profile_option(args, profile_manager: ProfileManager):
         
         elif action == 'set':
             if not args.value:
-                print("✗ Error: value is required for 'set' action")
+                print("Error: value is required for 'set' action")
                 sys.exit(1)
             try:
                 freq_value = int(args.value)
                 if freq_value < 0:
-                    print("✗ Error: frequency must be >= 0")
+                    print("Error: frequency must be >= 0")
                     sys.exit(1)
                 config.response_frequency = freq_value
-                print(f"✓ Response frequency set to: {freq_value}")
+                print(f"Response frequency set to: {freq_value}")
             except ValueError:
-                print(f"✗ Error: frequency must be an integer")
+                print(f"Error: frequency must be an integer")
                 sys.exit(1)
 
 
@@ -1407,7 +1406,7 @@ def cmd_config(args, profile_manager: ProfileManager):
     profile_dir = profile_manager.get_profile_dir(profile_name)
     
     if not profile_dir.exists():
-         print(f"✗ Profile '{profile_name}' does not exist")
+         print(f"Error: Profile '{profile_name}' does not exist")
          sys.exit(1)
          
     config = BotConfig(profile_dir)
@@ -1425,7 +1424,7 @@ def cmd_config(args, profile_manager: ProfileManager):
     elif args.config_command == 'set':
         if args.key == 'system_prompt':
              config.system_prompt = args.value
-             print(f"✓ System prompt updated for profile '{profile_name}'")
+             print(f"System prompt updated for profile '{profile_name}'")
         else:
              print(f"Unknown config key: {args.key}")
 

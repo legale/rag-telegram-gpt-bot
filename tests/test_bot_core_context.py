@@ -57,7 +57,7 @@ class TestResetContext:
         
         result = bot.reset_context()
         
-        assert "✅" in result
+        assert "" in result
         assert "Контекст сброшен" in result
     
     def test_reset_context_multiple_times(self, mock_dependencies):

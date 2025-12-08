@@ -111,7 +111,7 @@ class LegaleBot:
             Message with the new model name.
         """
         if not self.available_models:
-            return "❌ Нет доступных моделей для переключения."
+            return "Нет доступных моделей для переключения."
         
         # Move to next model (cyclic)
         self.current_model_index = (self.current_model_index + 1) % len(self.available_models)
@@ -123,7 +123,7 @@ class LegaleBot:
         if self.verbosity >= 1:
             syslog2(LOG_INFO, "model switched", new_model=new_model)
         
-        return f"✅ Модель переключена на: {new_model}\n({self.current_model_index + 1}/{len(self.available_models)})"
+        return f"Модель переключена на: {new_model}\n({self.current_model_index + 1}/{len(self.available_models)})"
 
     def set_model(self, model_name: str) -> str:
         """
@@ -136,7 +136,7 @@ class LegaleBot:
             Success message or error message.
         """
         if model_name not in self.available_models:
-            return f"❌ Модель `{model_name}` не найдена в списке доступных."
+            return f"Модель `{model_name}` не найдена в списке доступных."
         
         self.current_model_index = self.available_models.index(model_name)
         
@@ -146,7 +146,7 @@ class LegaleBot:
         if self.verbosity >= 1:
             syslog2(LOG_INFO, "model set", new_model=model_name)
             
-        return f"✅ Модель успешно установлена: {model_name}"
+        return f"Модель успешно установлена: {model_name}"
     
     @property
     def current_model_name(self) -> str:
@@ -164,10 +164,10 @@ class LegaleBot:
             Current model name and position in the list.
         """
         if not self.available_models:
-            return "❌ Нет доступных моделей."
+            return "Нет доступных моделей."
         
         current_model = self.available_models[self.current_model_index]
-        return f"🤖 Текущая модель: {current_model}\n({self.current_model_index + 1}/{len(self.available_models)})"
+        return f"Текущая модель: {current_model}\n({self.current_model_index + 1}/{len(self.available_models)})"
         
     def reset_context(self) -> str:
         """
@@ -177,7 +177,7 @@ class LegaleBot:
             Confirmation message.
         """
         self.chat_history = []
-        return "✅ Контекст сброшен!"
+        return "Контекст сброшен!"
     
     def get_token_usage(self) -> Dict[str, int]:
         """
@@ -231,7 +231,7 @@ class LegaleBot:
             if token_usage["current_tokens"] >= self.max_context_tokens:
                 self.reset_context()
                 auto_reset_warning = (
-                    "⚠️ Контекст был автоматически сброшен из-за достижения лимита токенов.\n\n"
+                    "Контекст был автоматически сброшен из-за достижения лимита токенов.\n\n"
                 )
                 if self.verbosity >= 1:
                     syslog2(LOG_WARNING, "auto reset context", token_usage=f"{token_usage['current_tokens']}/{self.max_context_tokens}")
@@ -295,19 +295,19 @@ class LegaleBot:
                 ]
                 
                 # Append warning to result
-                auto_reset_warning = "⚠️ Ошибка лимита токенов/баланса. Контекст сброшен.\n\n"
+                auto_reset_warning = "Ошибка лимита токенов/баланса. Контекст сброшен.\n\n"
                 
                 try:
                     # Retry
                     response = self.llm_client.complete(messages)
                 except Exception as retry_e:
                      syslog2(LOG_ERR, "retry failed", error=str(retry_e))
-                     return "❌ Ошибка: Не удалось получить ответ даже после сброса контекста (лимит токенов или баланс исчерпан)."
+                     return "Ошибка: Не удалось получить ответ даже после сброса контекста (лимит токенов или баланс исчерпан)."
             else:
                  # Other errors
                  syslog2(LOG_ERR, "llm call failed", error=str(e))
                  # In verbose mode, might want to show error, but for user safety keep it generic or specific if needed
-                 return f"❌ Произошла ошибка при обращении к нейросети: {e}"
+                 return f"Произошла ошибка при обращении к нейросети: {e}"
 
         self.chat_history.append({"role": "user", "content": user_input})
         self.chat_history.append({"role": "assistant", "content": response})

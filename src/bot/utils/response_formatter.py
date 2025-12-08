@@ -89,8 +89,8 @@ class ResponseFormatter:
             Formatted error message
         """
         if context:
-            return f"❌ Ошибка при {context}: {error}"
-        return f"❌ Ошибка: {error}"
+            return f"Ошибка при {context}: {error}"
+        return f"Ошибка: {error}"
     
     @staticmethod
     def format_success_message(message: str, details: Optional[Dict[str, Any]] = None) -> str:
@@ -104,7 +104,7 @@ class ResponseFormatter:
         Returns:
             Formatted success message
         """
-        result = f"✅ {message}"
+        result = f"{message}"
         
         if details:
             result += "\n\n"
@@ -124,7 +124,7 @@ class ResponseFormatter:
         Returns:
             Formatted info message
         """
-        return f"ℹ️ {message}"
+        return f"{message}"
     
     @staticmethod
     def format_warning_message(message: str) -> str:
@@ -137,7 +137,7 @@ class ResponseFormatter:
         Returns:
             Formatted warning message
         """
-        return f"⚠️ {message}"
+        return f"{message}"
     
     @staticmethod
     def format_number(number: int) -> str:

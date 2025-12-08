@@ -94,11 +94,11 @@ class AccessControlService:
             Tuple of (has_access, error_message)
         """
         if not self.admin_manager:
-            return False, "❌ Система администрирования недоступна."
+            return False, "Система администрирования недоступна."
         
         if not self.is_admin(user_id):
             syslog2(LOG_WARNING, "unauthorized admin command", user_id=user_id)
-            return False, "❌ Эта команда доступна только администратору."
+            return False, "Эта команда доступна только администратору."
         
         return True, None
     
@@ -114,17 +114,17 @@ class AccessControlService:
         """
         messages = {
             "private_non_admin": (
-                "❌ Доступ запрещен.\n\n"
+                "Доступ запрещен.\n\n"
                 "В личных сообщениях бот доступен только администратору.\n"
                 "Используйте команду /admin_set для назначения администратора."
             ),
             "chat_not_whitelisted": (
-                "❌ Этот чат не авторизован.\n\n"
+                "Этот чат не авторизован.\n\n"
                 "Администратор должен добавить чат в белый список:\n"
                 "`/admin allowed add <chat_id>`"
             ),
-            "admin_only": "❌ Эта команда доступна только администратору.",
-            "unknown": "❌ Доступ запрещен.",
+            "admin_only": "Эта команда доступна только администратору.",
+            "unknown": "Доступ запрещен.",
         }
         
         return messages.get(reason, messages["unknown"])

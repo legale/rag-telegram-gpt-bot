@@ -14,7 +14,7 @@ class TestTgBotCLI:
             register_webhook("https://example.com", "token123")
             
             captured = capsys.readouterr()
-            assert "✓ Webhook registered successfully" in captured.out
+            assert "Webhook registered successfully" in captured.out
             mock_post.assert_called_with(
                 "https://api.telegram.org/bottoken123/setWebhook", 
                 json={"url": "https://example.com"}
@@ -29,7 +29,7 @@ class TestTgBotCLI:
                 register_webhook("https://example.com", "token123")
             
             captured = capsys.readouterr()
-            assert "✗ Failed to register webhook: Error info" in captured.out
+            assert "Failed to register webhook: Error info" in captured.out
 
     def test_register_webhook_failure_http(self, capsys):
         with patch('requests.post') as mock_post:
@@ -39,7 +39,7 @@ class TestTgBotCLI:
                 register_webhook("https://example.com", "token123")
             
             captured = capsys.readouterr()
-            assert "✗ HTTP error: 404" in captured.out
+            assert "HTTP error: 404" in captured.out
 
     def test_delete_webhook_success(self, capsys):
         with patch('requests.post') as mock_post:
@@ -49,7 +49,7 @@ class TestTgBotCLI:
             delete_webhook("token123")
             
             captured = capsys.readouterr()
-            assert "✓ Webhook deleted successfully" in captured.out
+            assert "Webhook deleted successfully" in captured.out
 
     def test_delete_webhook_failure(self, capsys):
         with patch('requests.post') as mock_post:
@@ -60,7 +60,7 @@ class TestTgBotCLI:
                 delete_webhook("token123")
             
             captured = capsys.readouterr()
-            assert "✗ Failed to delete webhook" in captured.out
+            assert "Failed to delete webhook" in captured.out
 
     def test_main_register(self):
         with patch('sys.argv', ['tgbot.py', 'register', '--url', 'http://url', '--token', 'tok']), \

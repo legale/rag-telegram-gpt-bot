@@ -42,7 +42,7 @@ class AdminCommandRouter:
         """
         if not admin_manager or not admin_manager.is_admin(user_id):
             syslog2(LOG_WARNING, "unauthorized admin command", user_id=user_id)
-            return False, "❌ Эта команда доступна только администратору."
+            return False, "Эта команда доступна только администратору."
         return True, None
     
     def _parse_command(self, text: str) -> Tuple[Optional[str], Optional[str], List[str]]:
@@ -88,7 +88,7 @@ class AdminCommandRouter:
             return await handler(update, context, admin_manager, args)
         except Exception as e:
             syslog2(LOG_ERR, "handler failed", command=command_name, error=str(e))
-            return f"❌ Ошибка при выполнении команды: {e}"
+            return f"Ошибка при выполнении команды: {e}"
     
     async def _route_with_subcommand(self, command: str, subcommand: str, 
                                      args: List[str], update: Update,
@@ -112,9 +112,9 @@ class AdminCommandRouter:
         
         # Command exists but subcommand is invalid
         if command in self.subcommand_handlers:
-            return f"❌ Неизвестная подкоманда: {subcommand}\n\nИспользуйте /admin help {command}"
+            return f"Неизвестная подкоманда: {subcommand}\n\nИспользуйте /admin help {command}"
         
-        return f"❌ Команда '{command}' не найдена."
+        return f"Команда '{command}' не найдена."
     
     async def _route_without_subcommand(self, command: str, update: Update,
                                         context: ContextTypes.DEFAULT_TYPE,
@@ -130,9 +130,9 @@ class AdminCommandRouter:
         # Command requires subcommand
         if command in self.subcommand_handlers:
             subcommands = ", ".join(self.subcommand_handlers[command].keys())
-            return f"❌ Команда '{command}' требует подкоманду.\n\nДоступные: {subcommands}"
+            return f"Команда '{command}' требует подкоманду.\n\nДоступные: {subcommands}"
         
-        return f"❌ Неизвестная команда: {command}\n\nИспользуйте /admin help"
+        return f"Неизвестная команда: {command}\n\nИспользуйте /admin help"
     
     async def route(self, update: Update, context: ContextTypes.DEFAULT_TYPE, admin_manager) -> str:
         """
@@ -174,7 +174,7 @@ class AdminCommandRouter:
     def _main_menu(self) -> str:
         """Generate main admin menu."""
         return (
-            "🔧 **Панель администратора**\n\n"
+            "**Панель администратора**\n\n"
             "**Управление профилями:**\n"
             "• `/admin profile list` - список профилей\n"
             "• `/admin profile create <name>` - создать профиль\n"

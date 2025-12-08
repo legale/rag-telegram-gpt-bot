@@ -62,7 +62,7 @@ class IngestionTask:
             await bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=message_id,
-                text="⏳ Начинаю загрузку данных...\n\nЧтение файла..."
+                text="Начинаю загрузку данных...\n\nЧтение файла..."
             )
             
             # Parse file
@@ -73,7 +73,7 @@ class IngestionTask:
             await bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=message_id,
-                text=f"⏳ Загрузка данных...\n\nНайдено сообщений: {self.total:,}\nСоздание чанков..."
+                text=f"Загрузка данных...\n\nНайдено сообщений: {self.total:,}\nСоздание чанков..."
             )
             
             # Chunk messages
@@ -83,7 +83,7 @@ class IngestionTask:
             await bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=message_id,
-                text=f"⏳ Загрузка данных...\n\nСообщений: {self.total:,}\nЧанков: {chunk_count:,}\n\nСохранение в базу данных..."
+                text=f"Загрузка данных...\n\nСообщений: {self.total:,}\nЧанков: {chunk_count:,}\n\nСохранение в базу данных..."
             )
             
             # Clear if requested
@@ -92,7 +92,7 @@ class IngestionTask:
                 await bot.edit_message_text(
                     chat_id=chat_id,
                     message_id=message_id,
-                    text=f"⏳ Загрузка данных...\n\n✅ Старые данные очищены\n\nСохранение новых данных..."
+                    text=f"Загрузка данных...\n\nСтарые данные очищены\n\nСохранение новых данных..."
                 )
             
             # Store in database
@@ -130,7 +130,7 @@ class IngestionTask:
                         await bot.edit_message_text(
                             chat_id=chat_id,
                             message_id=message_id,
-                            text=f"⏳ Загрузка данных...\n\nПрогресс: {self.progress:,}/{chunk_count:,} ({progress_pct:.1f}%)\n\n{'▓' * int(progress_pct / 5)}{'░' * (20 - int(progress_pct / 5))}"
+                            text=f"Загрузка данных...\n\nПрогресс: {self.progress:,}/{chunk_count:,} ({progress_pct:.1f}%)\n\n{'▓' * int(progress_pct / 5)}{'░' * (20 - int(progress_pct / 5))}"
                         )
                 
                 session.add_all(chunk_models)
@@ -146,7 +146,7 @@ class IngestionTask:
             await bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=message_id,
-                text=f"⏳ Загрузка данных...\n\n✅ Данные сохранены в БД\n\nСоздание векторных эмбеддингов..."
+                text=f"Загрузка данных...\n\nДанные сохранены в БД\n\nСоздание векторных эмбеддингов..."
             )
             
             # Store in vector DB
@@ -165,11 +165,11 @@ class IngestionTask:
                 chat_id=chat_id,
                 message_id=message_id,
                 text=(
-                    f"✅ **Загрузка завершена!**\n\n"
-                    f"📨 Обработано сообщений: {self.total:,}\n"
-                    f"📦 Создано чанков: {chunk_count:,}\n"
-                    f"💾 Сохранено в БД: {chunk_count:,}\n"
-                    f"🔍 Создано эмбеддингов: {len(ids):,}\n\n"
+                    f"**Загрузка завершена!**\n\n"
+                    f"Обработано сообщений: {self.total:,}\n"
+                    f"Создано чанков: {chunk_count:,}\n"
+                    f"Сохранено в БД: {chunk_count:,}\n"
+                    f"Создано эмбеддингов: {len(ids):,}\n\n"
                     f"Данные готовы к использованию!"
                 ),
                 parse_mode='Markdown'
@@ -183,7 +183,7 @@ class IngestionTask:
             await bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=message_id,
-                text=f"❌ **Ошибка при загрузке данных:**\n\n`{e}`",
+                text=f"**Ошибка при загрузке данных:**\n\n`{e}`",
                 parse_mode='Markdown'
             )
         

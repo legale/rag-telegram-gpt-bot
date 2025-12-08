@@ -21,6 +21,15 @@ import uuid
 import json
 from src.core.syslog2 import *
 
+try:
+    from tqdm import tqdm
+except ImportError:
+    # Fallback if tqdm is not available
+    def tqdm(iterable=None, desc=None, total=None, **kwargs):
+        if iterable is None:
+            return range(total) if total else []
+        return iterable
+
 
 class IngestionPipeline:
     def __init__(self, db_url: str, vector_db_path: str, collection_name: str = "default", profile_dir: Optional[str] = None):
@@ -92,7 +101,9 @@ class IngestionPipeline:
         syslog2(LOG_INFO, "starting parse and store", file_path=file_path)
 
         # 1. parse
+        print("Parsing file...")
         messages = self.parser.parse_file(file_path)
+        print(f"Parsed {len(messages)} messages")
         syslog2(LOG_INFO, "files parsed", messages_count=len(messages))
 
         # Determine chat_id from filename or default
@@ -102,8 +113,9 @@ class IngestionPipeline:
         syslog2(LOG_INFO, "identified chat_id", chat_id=chat_id)
 
         # 1.5. store messages in sql db
+        print("Preparing messages for database...")
         db_messages = []
-        for msg in messages:
+        for msg in tqdm(messages, desc="  Processing messages", unit="msg"):
             # Composite ID: {chat_id}_{msg_id} to ensure global uniqueness
             # Note: msg.id from parser is usually the telegram integer ID as string
             composite_id = f"{chat_id}_{msg.id}"
@@ -114,12 +126,16 @@ class IngestionPipeline:
                 "from_id": msg.sender, # Using sender name as ID for now since parser doesn't provide user ID
                 "text": msg.content
             })
+        print(f"Prepared {len(db_messages)} messages")
         
+        print("Saving messages to database...")
         try:
             self.db.add_messages_batch(db_messages)
+            print(f"Saved {len(db_messages)} messages")
             syslog2(LOG_INFO, "messages saved to sql database", count=len(db_messages))
         except Exception as e:
             # Check if it's a unique constraint violation (optional improvement)
+            print(f"Warning: some duplicates may exist")
             syslog2(LOG_WARNING, "messages save issue (duplicates might exist)", error=str(e))
             # We continue because chunks might still need to be generated/saved
             # or maybe we should raise? For now, let's assume if messages exist we can proceed.
@@ -127,7 +143,9 @@ class IngestionPipeline:
             pass
 
         # 2. chunk
+        print("Creating chunks...")
         chunks = self.chunker.chunk_messages(messages)
+        print(f"Created {len(chunks)} chunks")
         syslog2(LOG_INFO, "chunks created", chunks_count=len(chunks))
 
         # 3. store in sql db
@@ -138,7 +156,8 @@ class IngestionPipeline:
 
         session = self.db.get_session()
         try:
-            for chunk in chunks:
+            print("Preparing chunks for database...")
+            for chunk in tqdm(chunks, desc="  Processing chunks", unit="chunk"):
                 chunk_id = str(uuid.uuid4())
                 
                 # Prepare metadata (enhanced fields)
@@ -168,17 +187,22 @@ class IngestionPipeline:
                 ids.append(chunk_id)
                 documents.append(chunk.text)
                 metadatas.append(meta_dict)
+            print(f"Prepared {len(chunk_models)} chunks")
 
+            print("Saving chunks to database...")
             session.add_all(chunk_models)
             session.commit()
+            print(f"Saved {len(chunk_models)} chunks")
             syslog2(LOG_INFO, "chunks saved to sql database", count=len(chunk_models))
         except Exception as e:
             session.rollback()
+            print(f"Error: {e}")
             syslog2(LOG_ERR, "sql save failed", error=str(e))
             raise
         finally:
             session.close()
 
+        print(f"\nParse and store complete: {len(chunk_models)} chunks saved")
         syslog2(LOG_INFO, "parse and store complete", chunks_count=len(chunk_models))
 
     def generate_embeddings(self, model: Optional[str] = None, batch_size: int = 128):

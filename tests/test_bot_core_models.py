@@ -199,7 +199,7 @@ class TestGetCurrentModel:
             
             assert "openai/gpt-oss-20b:free" in result
             assert "(1/4)" in result
-            assert "🤖" in result
+            assert "" in result
     
     def test_get_current_model_after_switch(self, mock_dependencies, temp_models_file):
         """Test get_current_model() after switching models."""

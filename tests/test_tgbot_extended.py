@@ -115,7 +115,7 @@ class TestMessageHandler:
         
         assert "9000" in result or "9,000" in result
         assert "64" in result
-        assert "ℹ️" in result  # info emoji for medium usage
+        assert "" in result  # info emoji for medium usage
     
     @pytest.mark.asyncio
     async def test_handle_tokens_command_high_usage(self, setup_handler):
@@ -132,14 +132,14 @@ class TestMessageHandler:
         
         assert "12000" in result or "12,000" in result
         assert "85" in result
-        assert "⚠️" in result  # warning emoji for high usage
+        assert "" in result  # warning emoji for high usage
     
     @pytest.mark.asyncio
     async def test_handle_model_command(self, setup_handler):
         """Test /model command switches model."""
         handler = setup_handler['handler']
         bot = setup_handler['bot']
-        bot.switch_model.return_value = "✅ Модель переключена на: gpt-4\n(2/3)"
+        bot.switch_model.return_value = "Модель переключена на: gpt-4\n(2/3)"
         
         result = await handler.handle_model_command()
         

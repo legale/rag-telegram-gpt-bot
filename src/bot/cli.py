@@ -132,10 +132,10 @@ def main():
             if args.debug_rag:
                 debug_info = bot.get_rag_debug_info(user_input, n_results=args.chunks)
                 print("\n" + "=" * 70)
-                print("🔍 RAG DEBUG INFO")
+                print("RAG DEBUG INFO")
                 print("=" * 70)
                 
-                print(f"\n📊 Retrieved Chunks: {len(debug_info['chunks'])}")
+                print(f"\nRetrieved Chunks: {len(debug_info['chunks'])}")
                 for i, chunk in enumerate(debug_info['chunks'], 1):
                     print(f"\n--- Chunk {i} (score: {chunk.get('score', 'N/A'):.3f}, source: {chunk.get('source', 'unknown')}) ---")
                     meta = chunk.get('metadata', {})
@@ -148,11 +148,11 @@ def main():
                         print(f"  (full length: {len(chunk['text'])} chars)")
                 
                 print("\n" + "-" * 70)
-                print(f"📝 System Prompt ({len(debug_info['prompt'])} chars):")
+                print(f"System Prompt ({len(debug_info['prompt'])} chars):")
                 print("-" * 70)
                 print(debug_info['prompt'])
                 print("-" * 70)
-                print(f"📊 Token count: {debug_info.get('token_count', 'N/A')}")
+                print(f"Token count: {debug_info.get('token_count', 'N/A')}")
                 print("=" * 70 + "\n")
             
             response = bot.chat(user_input, n_results=args.chunks)

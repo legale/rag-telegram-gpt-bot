@@ -31,7 +31,7 @@ class HealthChecker:
             Tuple of (check_name, status_message)
         """
         if not db_path.exists():
-            return ("💾 База данных", "⚠️ Не создана")
+            return ("База данных", "Не создана")
         
         try:
             import sqlite3
@@ -39,9 +39,9 @@ class HealthChecker:
             cursor = conn.cursor()
             cursor.execute("SELECT 1")
             conn.close()
-            return ("💾 База данных", "✅ OK")
+            return ("База данных", "OK")
         except Exception as e:
-            return ("💾 База данных", f"❌ Ошибка: {e}")
+            return ("База данных", f"Ошибка: {e}")
     
     @staticmethod
     def check_vector_store(vector_path: Path) -> Tuple[str, str]:
@@ -55,9 +55,9 @@ class HealthChecker:
             Tuple of (check_name, status_message)
         """
         if not vector_path.exists():
-            return ("🔍 Векторное хранилище", "⚠️ Не создано")
+            return ("Векторное хранилище", "Не создано")
         
-        return ("🔍 Векторное хранилище", "✅ OK")
+        return ("Векторное хранилище", "OK")
     
     @staticmethod
     def check_llm_api_key() -> Tuple[str, str]:
@@ -70,11 +70,11 @@ class HealthChecker:
         try:
             api_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
             if api_key:
-                return ("🤖 LLM API ключ", "✅ Установлен")
+                return ("LLM API ключ", "Установлен")
             else:
-                return ("🤖 LLM API ключ", "❌ Не установлен")
+                return ("LLM API ключ", "Не установлен")
         except Exception as e:
-            return ("🤖 LLM API ключ", f"❌ Ошибка: {e}")
+            return ("LLM API ключ", f"Ошибка: {e}")
     
     @staticmethod
     def check_embedding_api_key() -> Tuple[str, str]:
@@ -88,11 +88,11 @@ class HealthChecker:
             # Uses same key as LLM currently
             emb_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
             if emb_key:
-                return ("🔤 Embedding API ключ", "✅ Установлен")
+                return ("Embedding API ключ", "Установлен")
             else:
-                return ("🔤 Embedding API ключ", "❌ Не установлен")
+                return ("Embedding API ключ", "Не установлен")
         except Exception as e:
-            return ("🔤 Embedding API ключ", f"❌ Ошибка: {e}")
+            return ("Embedding API ключ", f"Ошибка: {e}")
     
     @staticmethod
     def check_memory() -> Tuple[str, str]:
@@ -106,11 +106,11 @@ class HealthChecker:
             import psutil
             memory = psutil.virtual_memory()
             if memory.percent < 90:
-                return ("💾 Память", f"✅ {memory.percent:.1f}% использовано")
+                return ("Память", f"{memory.percent:.1f}% использовано")
             else:
-                return ("💾 Память", f"⚠️ {memory.percent:.1f}% использовано")
+                return ("Память", f"{memory.percent:.1f}% использовано")
         except Exception as e:
-            return ("💾 Память", f"❌ Ошибка: {e}")
+            return ("Память", f"Ошибка: {e}")
     
     @staticmethod
     def check_disk(path: Path) -> Tuple[str, str]:
@@ -127,11 +127,11 @@ class HealthChecker:
             import psutil
             disk = psutil.disk_usage(str(path))
             if disk.percent < 90:
-                return ("💿 Диск", f"✅ {disk.percent:.1f}% использовано")
+                return ("Диск", f"{disk.percent:.1f}% использовано")
             else:
-                return ("💿 Диск", f"⚠️ {disk.percent:.1f}% использовано")
+                return ("Диск", f"{disk.percent:.1f}% использовано")
         except Exception as e:
-            return ("💿 Диск", f"❌ Ошибка: {e}")
+            return ("Диск", f"Ошибка: {e}")
     
     @staticmethod
     def run_all_checks(db_path: Path, vector_path: Path, profile_dir: Path) -> List[Tuple[str, str]]:
@@ -168,21 +168,21 @@ class HealthChecker:
         Returns:
             Formatted health report string
         """
-        response = "🏥 **Проверка здоровья системы**\n\n"
+        response = "**Проверка здоровья системы**\n\n"
         
         for name, status in checks:
             response += f"{name}: {status}\n"
         
         # Overall status
-        failed = sum(1 for _, status in checks if "❌" in status)
-        warnings = sum(1 for _, status in checks if "⚠️" in status)
+        failed = sum(1 for _, status in checks if "" in status)
+        warnings = sum(1 for _, status in checks if "" in status)
         
         response += "\n"
         if failed == 0 and warnings == 0:
-            response += "✅ **Все системы работают нормально**"
+            response += "**Все системы работают нормально**"
         elif failed == 0:
-            response += f"⚠️ **Обнаружено {warnings} предупреждений**"
+            response += f"**Обнаружено {warnings} предупреждений**"
         else:
-            response += f"❌ **Обнаружено {failed} ошибок, {warnings} предупреждений**"
+            response += f"**Обнаружено {failed} ошибок, {warnings} предупреждений**"
         
         return response
