@@ -23,7 +23,7 @@ class BotConfig:
         self.data = self._load()
         
     def _load(self) -> Dict:
-        """Load configuration from file or return defaults."""
+        """Load configuration from file or return defaults. Auto-save missing defaults."""
         defaults = {
             "admin_password": "",
             "allowed_chats": [],
@@ -34,14 +34,37 @@ class BotConfig:
         }
         
         if not self.config_file.exists():
+            # Create file with defaults
+            self.profile_dir.mkdir(parents=True, exist_ok=True)
+            with open(self.config_file, 'w') as f:
+                json.dump(defaults, f, indent=2)
+            os.chmod(self.config_file, 0o600)
             return defaults
             
         try:
             with open(self.config_file, 'r') as f:
                 data = json.load(f)
-                # Merge with defaults to ensure all keys exist
-                return {**defaults, **data}
+            
+            # Check if any defaults are missing and add them
+            updated = False
+            for key, default_value in defaults.items():
+                if key not in data:
+                    data[key] = default_value
+                    updated = True
+            
+            # Save updated config if defaults were added
+            if updated:
+                with open(self.config_file, 'w') as f:
+                    json.dump(data, f, indent=2)
+                os.chmod(self.config_file, 0o600)
+            
+            return data
         except (json.JSONDecodeError, IOError):
+            # If file is corrupted, create new one with defaults
+            self.profile_dir.mkdir(parents=True, exist_ok=True)
+            with open(self.config_file, 'w') as f:
+                json.dump(defaults, f, indent=2)
+            os.chmod(self.config_file, 0o600)
             return defaults
 
     def save(self):

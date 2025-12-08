@@ -70,10 +70,42 @@ if str(project_root) not in sys.path:
 class ProfileManager:
     """Manages bot profiles and their configurations."""
     
+    # Default values for .env file
+    ENV_DEFAULTS = {
+        "ACTIVE_PROFILE": "default",
+        "OPENROUTER_BASE_URL": "https://openrouter.ai/api/v1",
+        "MAX_CONTEXT_TOKENS": "14000"
+    }
+    
     def __init__(self, project_root: Path):
         self.project_root = project_root
         self.profiles_dir = project_root / "profiles"
         self.env_file = project_root / ".env"
+        # Ensure .env has default values
+        self._ensure_env_defaults()
+    
+    def _ensure_env_defaults(self):
+        """Ensure .env file has all default values. Add missing ones."""
+        env_path = str(self.env_file)
+        
+        # Create .env if it doesn't exist
+        if not self.env_file.exists():
+            self.env_file.touch()
+        
+        # Load current .env
+        load_dotenv(self.env_file, override=False)
+        
+        # Add missing defaults
+        updated = False
+        for key, default_value in self.ENV_DEFAULTS.items():
+            current_value = os.getenv(key)
+            if current_value is None:
+                set_key(env_path, key, default_value)
+                updated = True
+        
+        # Reload if updated
+        if updated:
+            load_dotenv(self.env_file, override=True)
         
     def get_current_profile(self) -> str:
         """Get the currently active profile name from .env file."""
