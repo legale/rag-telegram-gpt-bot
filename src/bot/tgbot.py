@@ -396,7 +396,11 @@ async def lifespan(app: FastAPI):
             sys.path.insert(0, str(project_root))
         from legale import ProfileManager
         
+        # Create ProfileManager instance
+        profile_manager = ProfileManager(project_root)
+        
         logger.info("Profile manager initialized")
+        syslog2(LOG_INFO, "profile manager initialized", profile=profile_manager.get_current_profile())
     except Exception as e:
         syslog2(LOG_ERR, "profile manager init failed", error=str(e))
         profile_manager = None
@@ -466,7 +470,19 @@ async def webhook(request: Request):
         
         # Handle message
         if update.message and update.message.text:
-            await handle_message(update)
+            try:
+                await handle_message(update)
+            except Exception as e:
+                syslog2(LOG_ERR, "handle_message failed", error=str(e), update_id=update.update_id)
+                # Try to send error message to user
+                try:
+                    if update.message:
+                        await telegram_app.bot.send_message(
+                            chat_id=update.message.chat_id,
+                            text="❌ Произошла ошибка при обработке сообщения. Попробуйте позже."
+                        )
+                except:
+                    pass
         
         return Response(status_code=200)
     
@@ -518,7 +534,11 @@ async def handle_message(update: Update):
     is_command = text.startswith("/")
     is_private = (message.chat.type == "private")
 
-    # /id always responds, bypassing other logic
+    # Public commands that should always respond, bypassing access control
+    # These commands are available to everyone, including non-admins
+    public_commands = ["/id", "/help", "/admin_set"]
+    
+    # Handle /id command
     if text == "/id":
         await telegram_app.bot.send_message(
             chat_id=chat_id,
@@ -526,8 +546,41 @@ async def handle_message(update: Update):
             parse_mode="Markdown",
         )
         return
+    
+    # Handle /help command - need admin_manager for handler
+    if text == "/help" or (is_command and text.startswith("/help")):
+        if not admin_manager:
+            syslog2(LOG_ERR, "admin manager missing", action="drop_message")
+            return
+        
+        # Create handler and process /help
+        if not bot_instance:
+            syslog2(LOG_ERR, "bot instance missing", action="drop_message")
+            return
+        
+        handler = MessageHandler(bot_instance, admin_manager, admin_router)
+        response = await handler.handle_help_command()
+        if response:
+            await telegram_app.bot.send_message(chat_id=chat_id, text=response)
+        return
+    
+    # Handle /admin_set command - must be available to everyone to set themselves as admin
+    if is_command and text.startswith("/admin_set"):
+        if not admin_manager:
+            syslog2(LOG_ERR, "admin manager missing", action="drop_message")
+            return
+        
+        if not bot_instance:
+            syslog2(LOG_ERR, "bot instance missing", action="drop_message")
+            return
+        
+        handler = MessageHandler(bot_instance, admin_manager, admin_router)
+        response = await handler.handle_admin_set_command(text, message)
+        if response:
+            await telegram_app.bot.send_message(chat_id=chat_id, text=response)
+        return
 
-    # admin_manager is required
+    # admin_manager is required for other commands
     if not admin_manager:
         syslog2(LOG_ERR, "admin manager missing", action="drop_message")
         return
@@ -545,7 +598,8 @@ async def handle_message(update: Update):
     )
     
     if not is_allowed:
-        # Access denied - silently ignore or log
+        # Access denied - log reason
+        syslog2(LOG_DEBUG, "access denied", chat_id=chat_id, user_id=user_id, reason=denial_reason)
         return
 
     # Determine if bot should respond using FrequencyController
@@ -561,10 +615,18 @@ async def handle_message(update: Update):
         is_command=is_command,
         is_private=is_private
     )
+    
+    syslog2(LOG_DEBUG, "response decision", chat_id=chat_id, respond=respond, reason=reason, is_command=is_command, is_private=is_private, has_mention=has_mention)
 
+    # Check if bot_instance is available
+    if not bot_instance:
+        syslog2(LOG_ERR, "bot instance missing", action="drop_message")
+        return
+    
     # Route message to appropriate handler
     handler = MessageHandler(bot_instance, admin_manager, admin_router)
     
+    response = None
     if is_command:
         response = await handler.route_command(text, update)
         if response is None:
@@ -583,8 +645,13 @@ async def handle_message(update: Update):
 
     # Send response if available
     if response:
-        await telegram_app.bot.send_message(chat_id=chat_id, text=response)
-        syslog2(LOG_INFO, "response sent", chat_id=chat_id)
+        try:
+            await telegram_app.bot.send_message(chat_id=chat_id, text=response)
+            syslog2(LOG_INFO, "response sent", chat_id=chat_id, response_length=len(response))
+        except Exception as e:
+            syslog2(LOG_ERR, "failed to send response", chat_id=chat_id, error=str(e))
+    else:
+        syslog2(LOG_DEBUG, "no response generated", chat_id=chat_id, is_command=is_command, respond=respond)
 
 
 def register_webhook(url: str, token: str):

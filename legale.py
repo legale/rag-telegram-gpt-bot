@@ -48,9 +48,13 @@ if not is_in_virtualenv():
 
 # Now we're in the virtualenv, continue with normal imports
 import argparse
+import warnings
 from typing import Optional
 from dotenv import load_dotenv, set_key, find_dotenv
 from src.core.syslog2 import syslog2, setup_log, LogLevel
+
+# Suppress sklearn deprecation warnings from hdbscan and other libraries
+warnings.filterwarnings('ignore', category=FutureWarning, module='sklearn')
 
 # Add project root to path
 current_dir = Path(__file__).parent.absolute()
@@ -586,14 +590,30 @@ For more information, visit: https://github.com/legale/rag-telegram-gpt-bot
     # topics build
     topics_build_parser = topics_subparsers.add_parser('build', help='Build topics from embeddings')
     topics_build_parser.add_argument('--profile', help='Profile to use (default: current active)')
+    
+    # L1 clustering parameters
     topics_build_parser.add_argument('--l1-min-size', type=int, default=2, 
-                                     help='L1: Minimum chunks per cluster (default: 2, lower = more topics)')
+                                     help='L1: Minimum chunks per cluster (default: 2, minimum: 2, lower = more topics)')
     topics_build_parser.add_argument('--l1-min-samples', type=int, default=1,
                                      help='L1: Minimum samples in neighborhood (default: 1, lower = more topics)')
+    topics_build_parser.add_argument('--l1-metric', choices=['cosine', 'euclidean', 'manhattan'], default='cosine',
+                                     help='L1: Distance metric (default: cosine, euclidean may find more clusters)')
+    topics_build_parser.add_argument('--l1-method', choices=['eom', 'leaf'], default='eom',
+                                     help='L1: Cluster selection method (default: eom, leaf creates more clusters)')
+    topics_build_parser.add_argument('--l1-epsilon', type=float, default=0.0,
+                                     help='L1: Distance threshold for merging clusters (default: 0.0 = auto)')
+    
+    # L2 clustering parameters
     topics_build_parser.add_argument('--l2-min-size', type=int, default=2,
                                      help='L2: Minimum L1 topics per super-topic (default: 2)')
     topics_build_parser.add_argument('--l2-min-samples', type=int, default=1,
                                      help='L2: Minimum samples for L2 clustering (default: 1)')
+    topics_build_parser.add_argument('--l2-metric', choices=['cosine', 'euclidean', 'manhattan'], default='cosine',
+                                     help='L2: Distance metric (default: cosine)')
+    topics_build_parser.add_argument('--l2-method', choices=['eom', 'leaf'], default='eom',
+                                     help='L2: Cluster selection method (default: eom)')
+    topics_build_parser.add_argument('--l2-epsilon', type=float, default=0.0,
+                                     help='L2: Distance threshold for merging clusters (default: 0.0 = auto)')
     
     # topics list
     topics_list_parser = topics_subparsers.add_parser('list', help='List existing topics')
@@ -729,16 +749,53 @@ def cmd_topics(args, profile_manager: ProfileManager):
         # Get clustering parameters from args
         l1_min_size = args.l1_min_size if hasattr(args, 'l1_min_size') else 2
         l1_min_samples = args.l1_min_samples if hasattr(args, 'l1_min_samples') else 1
+        l1_metric = args.l1_metric if hasattr(args, 'l1_metric') else 'cosine'
+        l1_method = args.l1_method if hasattr(args, 'l1_method') else 'eom'
+        l1_epsilon = args.l1_epsilon if hasattr(args, 'l1_epsilon') else 0.0
+        
         l2_min_size = args.l2_min_size if hasattr(args, 'l2_min_size') else 2
         l2_min_samples = args.l2_min_samples if hasattr(args, 'l2_min_samples') else 1
+        l2_metric = args.l2_metric if hasattr(args, 'l2_metric') else 'cosine'
+        l2_method = args.l2_method if hasattr(args, 'l2_method') else 'eom'
+        l2_epsilon = args.l2_epsilon if hasattr(args, 'l2_epsilon') else 0.0
         
-        print(f"L1 parameters: min_cluster_size={l1_min_size}, min_samples={l1_min_samples}")
+        # Validate parameters
+        if l1_min_size < 2:
+            print(f"✗ Error: --l1-min-size must be at least 2 (HDBSCAN requirement), got {l1_min_size}")
+            sys.exit(1)
+        if l2_min_size < 2:
+            print(f"✗ Error: --l2-min-size must be at least 2 (HDBSCAN requirement), got {l2_min_size}")
+            sys.exit(1)
+        
+        print(f"L1 parameters: min_cluster_size={l1_min_size}, min_samples={l1_min_samples}, "
+              f"metric={l1_metric}, method={l1_method}, epsilon={l1_epsilon}")
         print("1. Running L1 Clustering (Fine-grained)...")
-        clusterer.perform_l1_clustering(min_cluster_size=l1_min_size, min_samples=l1_min_samples)
+        try:
+            clusterer.perform_l1_clustering(
+                min_cluster_size=l1_min_size, 
+                min_samples=l1_min_samples,
+                metric=l1_metric,
+                cluster_selection_method=l1_method,
+                cluster_selection_epsilon=l1_epsilon
+            )
+        except ValueError as e:
+            print(f"✗ Error: {e}")
+            sys.exit(1)
         
-        print(f"L2 parameters: min_cluster_size={l2_min_size}, min_samples={l2_min_samples}")
+        print(f"L2 parameters: min_cluster_size={l2_min_size}, min_samples={l2_min_samples}, "
+              f"metric={l2_metric}, method={l2_method}, epsilon={l2_epsilon}")
         print("2. Running L2 Clustering (Super-topics)...")
-        clusterer.perform_l2_clustering(min_cluster_size=l2_min_size, min_samples=l2_min_samples)
+        try:
+            clusterer.perform_l2_clustering(
+                min_cluster_size=l2_min_size, 
+                min_samples=l2_min_samples,
+                metric=l2_metric,
+                cluster_selection_method=l2_method,
+                cluster_selection_epsilon=l2_epsilon
+            )
+        except ValueError as e:
+            print(f"✗ Error: {e}")
+            sys.exit(1)
         
         print("3. Naming Topics (LLM)...")
         clusterer.name_topics()

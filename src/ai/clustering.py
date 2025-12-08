@@ -5,12 +5,16 @@ from typing import List, Dict, Optional, Tuple
 from datetime import datetime
 import json
 import random
+import warnings
 
 from src.storage.db import Database
 from src.storage.vector_store import VectorStore
-from src.core.syslog2 import syslog2, LOG_INFO, LOG_WARNING, LOG_ERR, LOG_DEBUG
+from src.core.syslog2 import syslog2, LOG_INFO, LOG_WARNING, LOG_ERR, LOG_DEBUG, LOG_NOTICE
 from src.core.llm import LLMClient
 from src.core.prompt import TOPIC_L1_NAMING_PROMPT, TOPIC_L2_NAMING_PROMPT
+
+# Suppress sklearn deprecation warnings from hdbscan
+warnings.filterwarnings('ignore', category=FutureWarning, module='sklearn')
 
 class TopicClusterer:
     """
@@ -24,15 +28,35 @@ class TopicClusterer:
         self.vector_store = vector_store
         self.llm_client = llm_client
 
-    def perform_l1_clustering(self, min_cluster_size: int = 2, min_samples: int = 1):
+    def perform_l1_clustering(
+        self, 
+        min_cluster_size: int = 2, 
+        min_samples: int = 1,
+        metric: str = 'cosine',
+        cluster_selection_method: str = 'eom',
+        cluster_selection_epsilon: float = 0.0
+    ):
         """
         Fetches all chunks, clusters them using HDBSCAN, and saves L1 topics.
         
         Args:
-            min_cluster_size: Minimum number of chunks in a cluster (default: 2, was 5)
-            min_samples: Minimum samples in neighborhood (default: 1, was 3)
+            min_cluster_size: Minimum number of chunks in a cluster (default: 2)
+                Lower values = more topics, but may create noise clusters
+            min_samples: Minimum samples in neighborhood (default: 1)
+                Lower values = more topics, but may be less stable
+            metric: Distance metric ('cosine', 'euclidean', 'manhattan', etc.)
+                'cosine' works well for embeddings, 'euclidean' may find more clusters
+            cluster_selection_method: 'eom' (Excess of Mass) or 'leaf' (Leaf)
+                'leaf' tends to create more, smaller clusters
+                'eom' is more conservative and creates fewer, larger clusters
+            cluster_selection_epsilon: A distance threshold (0.0 = automatic)
+                Higher values merge more clusters, creating fewer topics
         """
-        syslog2(LOG_INFO, "starting l1 clustering", min_cluster_size=min_cluster_size, min_samples=min_samples)
+        syslog2(LOG_INFO, "starting l1 clustering", 
+                min_cluster_size=min_cluster_size, 
+                min_samples=min_samples,
+                metric=metric,
+                method=cluster_selection_method)
 
         # 1. Fetch data
         data = self.vector_store.get_all_embeddings()
@@ -51,18 +75,53 @@ class TopicClusterer:
              syslog2(LOG_ERR, "invalid embeddings shape", shape=str(X.shape))
              return
 
-        syslog2(LOG_INFO, "clustering chunks", count=len(ids))
+        n_samples = len(ids)
+        syslog2(LOG_INFO, "clustering chunks", count=n_samples)
+
+        # Validate min_cluster_size (HDBSCAN requires >= 2)
+        if min_cluster_size < 2:
+            syslog2(LOG_ERR, "min_cluster_size must be at least 2 (HDBSCAN requirement)", 
+                    provided=min_cluster_size)
+            raise ValueError(f"min_cluster_size must be at least 2, got {min_cluster_size}")
+
+        # Auto-adjust min_cluster_size if too large for dataset
+        if min_cluster_size > n_samples:
+            syslog2(LOG_WARNING, "min_cluster_size too large, adjusting", 
+                    original=min_cluster_size, adjusted=n_samples)
+            min_cluster_size = max(2, n_samples // 2)
+
+        # Normalize embeddings if using cosine metric
+        # HDBSCAN doesn't support cosine directly, but euclidean on normalized vectors is equivalent
+        actual_metric = metric
+        if metric == 'cosine':
+            # Normalize vectors to unit length
+            norms = np.linalg.norm(X, axis=1, keepdims=True)
+            # Avoid division by zero
+            norms = np.where(norms == 0, 1, norms)
+            X = X / norms
+            actual_metric = 'euclidean'
+            syslog2(LOG_DEBUG, "normalized embeddings for cosine similarity, using euclidean metric")
 
         # 2. Run HDBSCAN
-        # Using cosine metric for embeddings (better for semantic similarity)
-        # cluster_selection_method='eom' (Excess of Mass) works well for varying cluster sizes
-        clusterer = hdbscan.HDBSCAN(
-            min_cluster_size=min_cluster_size,
-            min_samples=min_samples,
-            metric='cosine',  # Changed from 'euclidean' - better for embeddings
-            cluster_selection_method='eom'  # Excess of Mass - usually good for various cluster sizes
-        )
-        labels = clusterer.fit_predict(X)
+        try:
+            clusterer = hdbscan.HDBSCAN(
+                min_cluster_size=min_cluster_size,
+                min_samples=min_samples,
+                metric=actual_metric,
+                cluster_selection_method=cluster_selection_method,
+                cluster_selection_epsilon=cluster_selection_epsilon
+            )
+            labels = clusterer.fit_predict(X)
+        except (ValueError, KeyError) as e:
+            error_msg = str(e)
+            if "Min cluster size must be greater than one" in error_msg:
+                syslog2(LOG_ERR, "HDBSCAN requires min_cluster_size >= 2", provided=min_cluster_size)
+                raise ValueError(f"min_cluster_size must be at least 2, got {min_cluster_size}") from None
+            elif "metric" in error_msg.lower() or "unrecognized" in error_msg.lower():
+                # Metric not supported - this shouldn't happen if we normalized for cosine
+                raise ValueError(f"Metric '{actual_metric}' not supported by HDBSCAN: {error_msg}") from None
+            else:
+                raise
         
         # 3. Process clusters
         # Group chunk IDs by label
@@ -72,8 +131,21 @@ class TopicClusterer:
             if label not in clusters:
                 clusters[label] = []
             clusters[label].append(idx)
-            
-        syslog2(LOG_INFO, "clustering complete", clusters_found=len(clusters) - (1 if -1 in clusters else 0))
+        
+        # Statistics
+        noise_count = len(clusters.get(-1, []))
+        valid_clusters = len(clusters) - (1 if -1 in clusters else 0)
+        noise_percentage = (noise_count / n_samples * 100) if n_samples > 0 else 0
+        
+        syslog2(LOG_INFO, "clustering complete", 
+                clusters_found=valid_clusters,
+                noise_count=noise_count,
+                noise_percentage=f"{noise_percentage:.1f}%")
+        
+        # Warn if too much noise
+        if noise_percentage > 50:
+            syslog2(LOG_WARNING, "high noise percentage, consider lowering min_cluster_size or min_samples",
+                    noise_percentage=f"{noise_percentage:.1f}%")
 
         # 4. Save topics and update chunks
         # First, clear existing L1 topics? Maybe we should be additive or replace?
@@ -142,9 +214,23 @@ class TopicClusterer:
                 
         syslog2(LOG_INFO, "l1 topics saved")
 
-    def perform_l2_clustering(self, min_cluster_size: int = 3, min_samples: int = 1):
+    def perform_l2_clustering(
+        self, 
+        min_cluster_size: int = 3, 
+        min_samples: int = 1,
+        metric: str = 'cosine',
+        cluster_selection_method: str = 'eom',
+        cluster_selection_epsilon: float = 0.0
+    ):
         """
         Fetches L1 topics, clusters their centroids to form L2 topics.
+        
+        Args:
+            min_cluster_size: Minimum L1 topics per super-topic (default: 3)
+            min_samples: Minimum samples in neighborhood (default: 1)
+            metric: Distance metric ('cosine', 'euclidean', etc.)
+            cluster_selection_method: 'eom' or 'leaf'
+            cluster_selection_epsilon: Distance threshold (0.0 = automatic)
         """
         syslog2(LOG_INFO, "starting l2 clustering")
         
@@ -171,24 +257,53 @@ class TopicClusterer:
             return
             
         X = np.array(embeddings)
+        n_l1_topics = len(X)
+        
+        # Validate min_cluster_size (HDBSCAN requires >= 2)
+        if min_cluster_size < 2:
+            syslog2(LOG_ERR, "min_cluster_size must be at least 2 (HDBSCAN requirement)", 
+                    provided=min_cluster_size)
+            raise ValueError(f"min_cluster_size must be at least 2, got {min_cluster_size}")
         
         # If too few points for clustering, maybe skip or just put all in one if requested?
-        # For now, let's respect min_cluster_size.
-        if len(X) < min_cluster_size:
-             syslog2(LOG_NOTICE, "not enough l1 topics for clustering", count=len(X), min_required=min_cluster_size)
+        if n_l1_topics < min_cluster_size:
+             syslog2(LOG_NOTICE, "not enough l1 topics for clustering", 
+                     count=n_l1_topics, min_required=min_cluster_size)
              return
 
-        syslog2(LOG_INFO, "clustering l1 topics", count=len(X))
+        syslog2(LOG_INFO, "clustering l1 topics", count=n_l1_topics)
+
+        # Normalize embeddings if using cosine metric
+        actual_metric = metric
+        if metric == 'cosine':
+            # Normalize vectors to unit length
+            norms = np.linalg.norm(X, axis=1, keepdims=True)
+            # Avoid division by zero
+            norms = np.where(norms == 0, 1, norms)
+            X = X / norms
+            actual_metric = 'euclidean'
+            syslog2(LOG_DEBUG, "normalized embeddings for cosine similarity, using euclidean metric")
 
         # 2. Run HDBSCAN
-        # Using cosine metric for embeddings (better for semantic similarity)
-        clusterer = hdbscan.HDBSCAN(
-            min_cluster_size=min_cluster_size,
-            min_samples=min_samples,
-            metric='cosine',  # Changed from 'euclidean' - better for embeddings
-            cluster_selection_method='eom'
-        )
-        labels = clusterer.fit_predict(X)
+        try:
+            clusterer = hdbscan.HDBSCAN(
+                min_cluster_size=min_cluster_size,
+                min_samples=min_samples,
+                metric=actual_metric,
+                cluster_selection_method=cluster_selection_method,
+                cluster_selection_epsilon=cluster_selection_epsilon
+            )
+            labels = clusterer.fit_predict(X)
+        except (ValueError, KeyError) as e:
+            error_msg = str(e)
+            if "Min cluster size must be greater than one" in error_msg:
+                syslog2(LOG_ERR, "HDBSCAN requires min_cluster_size >= 2", provided=min_cluster_size)
+                raise ValueError(f"min_cluster_size must be at least 2, got {min_cluster_size}") from None
+            elif "metric" in error_msg.lower() or "unrecognized" in error_msg.lower():
+                # Metric not supported - this shouldn't happen if we normalized for cosine
+                raise ValueError(f"Metric '{actual_metric}' not supported by HDBSCAN: {error_msg}") from None
+            else:
+                raise
 
         # 3. Process Clusters
         self.db.clear_topics_l2()
@@ -198,8 +313,15 @@ class TopicClusterer:
             if label not in clusters:
                 clusters[label] = []
             clusters[label].append(idx)
+        
+        noise_count = len(clusters.get(-1, []))
+        valid_clusters = len(clusters) - (1 if -1 in clusters else 0)
+        noise_percentage = (noise_count / n_l1_topics * 100) if n_l1_topics > 0 else 0
             
-        syslog2(LOG_INFO, "l2 clustering complete", clusters_found=len(clusters) - (1 if -1 in clusters else 0))
+        syslog2(LOG_INFO, "l2 clustering complete", 
+                clusters_found=valid_clusters,
+                noise_count=noise_count,
+                noise_percentage=f"{noise_percentage:.1f}%")
 
         # 4. Save L2 topics and update L1 parents
         for label, indices in clusters.items():
