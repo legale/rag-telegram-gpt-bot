@@ -155,7 +155,7 @@ class ProfileCommands(BaseAdminCommand):
                     "Векторное хранилище": f"`{paths['vector_db_path']}`",
                 }
             )
-            response += f"\nДля переключения на этот профиль:\n`/admin profile switch {profile_name}`"
+            response += f"\nДля переключения на этот профиль:\n`/admin profile set {profile_name}`"
             
             syslog2(LOG_INFO, "profile created", profile=profile_name, admin_id=update.message.from_user.id)
             return response
@@ -163,13 +163,20 @@ class ProfileCommands(BaseAdminCommand):
         except Exception as e:
             return await self.handle_error(e, f"создании профиля '{profile_name}'")
     
-    async def switch_profile(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
+    async def get_profile(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
                             admin_manager, args: List[str]) -> str:
-        """Handle /admin profile switch <name> command."""
+        """Handle /admin profile get command - returns current profile name."""
+        # No arguments needed
+        current_profile = self.profile_manager.get_current_profile()
+        return self.formatter.format_info_message(f"Текущий активный профиль: `{current_profile}`")
+    
+    async def set_profile(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
+                            admin_manager, args: List[str]) -> str:
+        """Handle /admin profile set <name> command."""
         # Validate arguments
         is_valid, error = self.validator.validate_args_count(
             args, 1, 1,
-            usage="/admin profile switch <name>"
+            usage="/admin profile set <name>"
         )
         if not is_valid:
             return error
@@ -187,7 +194,7 @@ class ProfileCommands(BaseAdminCommand):
             return self.formatter.format_info_message(f"Профиль `{profile_name}` уже активен.")
         
         try:
-            # Switch profile
+            # set profile
             self.profile_manager.set_current_profile(profile_name)
             
             response = (
@@ -196,7 +203,7 @@ class ProfileCommands(BaseAdminCommand):
                 f"`/admin restart`"
             )
             
-            syslog2(LOG_INFO, "profile switched", profile=profile_name, admin_id=update.message.from_user.id)
+            syslog2(LOG_INFO, "profile set", profile=profile_name, admin_id=update.message.from_user.id)
             return response
             
         except Exception as e:
@@ -220,7 +227,7 @@ class ProfileCommands(BaseAdminCommand):
             return (
                 f"Невозможно удалить активный профиль `{profile_name}`.\n\n"
                 f"Сначала переключитесь на другой профиль:\n"
-                f"`/admin profile switch <другой_профиль>`"
+                f"`/admin profile get <другой_профиль>`"
             )
         
         # Validate profile exists
@@ -342,7 +349,7 @@ class HelpCommands:
                 "**Управление профилями:**\n"
                 "• `profile list` - список всех профилей\n"
                 "• `profile create <name>` - создать новый профиль\n"
-                "• `profile switch <name>` - переключиться на профиль\n"
+                "• `profile get <name>` - переключиться на профиль\n"
                 "• `profile delete <name>` - удалить профиль\n"
                 "• `profile info [name]` - информация о профиле\n\n"
                 "**Загрузка данных:**\n"
@@ -374,12 +381,12 @@ class HelpCommands:
                 "**Команды:**\n"
                 "• `/admin profile list` - показать все профили\n"
                 "• `/admin profile create <name>` - создать профиль\n"
-                "• `/admin profile switch <name>` - переключить профиль\n"
+                "• `/admin profile get <name>` - переключить профиль\n"
                 "• `/admin profile delete <name>` - удалить профиль\n"
                 "• `/admin profile info [name]` - информация о профиле\n\n"
                 "**Примеры:**\n"
                 "`/admin profile create production`\n"
-                "`/admin profile switch production`\n"
+                "`/admin profile get production`\n"
                 "`/admin profile info production`"
             ),
             "ingest": (
@@ -549,9 +556,9 @@ class IngestCommands(BaseAdminCommand):
             temp_dir = Path(tempfile.gettempdir()) / "legale_bot"
             temp_dir.mkdir(exist_ok=True)
             
-            # Save file
+            # Save file - convert Path to string to avoid MagicMock issues in tests
             temp_file = temp_dir / f"{user_id}_{document.file_name}"
-            await file.download_to_drive(temp_file)
+            await file.download_to_drive(str(temp_file))
             
             file_size_str = self.formatter.format_file_size(document.file_size)
             syslog2(LOG_INFO, "file downloaded for ingestion", path=str(temp_file), size=file_size_str)
@@ -561,8 +568,8 @@ class IngestCommands(BaseAdminCommand):
                 "Файл получен!\n\nПодготовка к загрузке..."
             )
             
-            # Start ingestion task
-            task = self.task_manager.start_ingestion(temp_file, self.profile_manager)
+            # Start ingestion task - convert Path to string to avoid MagicMock issues in tests
+            task = self.task_manager.start_ingestion(str(temp_file), self.profile_manager)
             
             # Run task in background
             import asyncio

@@ -186,7 +186,19 @@ class TestProfileCommands:
         assert "буквы, цифры" in response.lower()
 
     @pytest.mark.asyncio
-    async def test_switch_profile(self, mock_context):
+    async def test_get_profile(self, mock_context):
+        update, context, admin_manager, pm = mock_context
+        profiles = ProfileCommands(pm)
+        
+        pm.get_current_profile.return_value = "current_profile"
+        
+        # Get current profile (no args)
+        response = await profiles.get_profile(update, context, admin_manager, [])
+        assert "current_profile" in response
+        assert "текущий" in response.lower() or "активный" in response.lower()
+    
+    @pytest.mark.asyncio
+    async def test_set_profile(self, mock_context):
         update, context, admin_manager, pm = mock_context
         profiles = ProfileCommands(pm)
         
@@ -194,18 +206,18 @@ class TestProfileCommands:
         pm.get_profile_dir.return_value.exists.return_value = True
         
         # Success
-        response = await profiles.switch_profile(update, context, admin_manager, ['new'])
+        response = await profiles.set_profile(update, context, admin_manager, ['new'])
         assert "Переключено" in response
         pm.set_current_profile.assert_called_with('new')
         
         # Already active
         pm.get_current_profile.return_value = "new"
-        response = await profiles.switch_profile(update, context, admin_manager, ['new'])
+        response = await profiles.set_profile(update, context, admin_manager, ['new'])
         assert "уже активен" in response.lower()
         
         # Not found
         pm.get_profile_dir.return_value.exists.return_value = False
-        response = await profiles.switch_profile(update, context, admin_manager, ['missing'])
+        response = await profiles.set_profile(update, context, admin_manager, ['missing'])
         assert "не существует" in response.lower()
 
     @pytest.mark.asyncio

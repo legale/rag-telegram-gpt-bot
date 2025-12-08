@@ -124,13 +124,13 @@ class MessageHandler:
     async def handle_model_command(self) -> str:
         """Handle /model command."""
         try:
-            msg = self.bot.switch_model()
+            msg = self.bot.get_model()
             # Save new model to config
             if self.admin_manager:
                 self.admin_manager.config.current_model = self.bot.current_model_name
             return msg
         except Exception as e:
-            syslog2(LOG_ERR, "switch model failed", error=str(e))
+            syslog2(LOG_ERR, "get model failed", error=str(e))
             return "Ошибка при переключении модели."
     
     async def handle_admin_set_command(self, text: str, message) -> str:
@@ -277,7 +277,8 @@ async def init_runtime_for_current_profile():
     profile_commands = ProfileCommands(profile_manager)
     admin_router_local.register("profile", profile_commands.list_profiles, "list")
     admin_router_local.register("profile", profile_commands.create_profile, "create")
-    admin_router_local.register("profile", profile_commands.switch_profile, "switch")
+    admin_router_local.register("profile", profile_commands.get_profile, "get")
+    admin_router_local.register("profile", profile_commands.set_profile, "set")
     admin_router_local.register("profile", profile_commands.delete_profile, "delete")
     admin_router_local.register("profile", profile_commands.profile_info, "info")
 
