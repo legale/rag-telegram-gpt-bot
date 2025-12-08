@@ -57,8 +57,13 @@ def _format_params(params: dict) -> str:
         return ""
     parts = []
     for k, v in params.items():
-        parts.append(f"{k}={repr(v)}")
-    return " " + " ".join(parts)
+        if isinstance(v, str) and '\n' in v:
+            # Multiline string - format specially
+            parts.append(f"{k}=")
+            parts.append(v)  # Will be handled in syslog2
+        else:
+            parts.append(f"{k}={repr(v)}")
+    return " " + " ".join(parts) if parts else ""
 
 
 def _get_caller_info():
@@ -94,5 +99,42 @@ def syslog2(level: int, msg: str, **params) -> None:
             msg = first.lower() + msg[1:]
 
     prefix = f"{ts} {file_name}:{line_no} {func_name}:"
-    body = msg + _format_params(params)
-    log.log(py_level, f"{prefix} {body}")
+    
+    # Format parameters, handling multiline values
+    params_parts = []
+    for k, v in params.items():
+        if isinstance(v, str) and '\n' in v:
+            params_parts.append((k, v, True))  # (key, value, is_multiline)
+        else:
+            params_parts.append((k, repr(v), False))
+    
+    # Build the full message body
+    if not params_parts:
+        full_body = msg
+    else:
+        # Start with message and first param
+        first_key, first_val, first_multiline = params_parts[0]
+        if first_multiline:
+            full_body = f"{msg} {first_key}=\n{first_val}"
+        else:
+            full_body = f"{msg} {first_key}={first_val}"
+        
+        # Add remaining params
+        for k, v, is_multiline in params_parts[1:]:
+            if is_multiline:
+                full_body += f" {k}=\n{v}"
+            else:
+                full_body += f" {k}={v}"
+    
+    # Handle multiline messages
+    lines = full_body.split('\n')
+    
+    if len(lines) == 1:
+        # Single line - output as before
+        log.log(py_level, f"{prefix} {full_body}")
+    else:
+        # Multiline - first line with prefix, subsequent lines with indentation
+        log.log(py_level, f"{prefix} {lines[0]}")
+        indent = " " * len(prefix)
+        for line in lines[1:]:
+            log.log(py_level, f"{indent} {line}")
