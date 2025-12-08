@@ -280,9 +280,14 @@ def cmd_ingest(args, profile_manager: ProfileManager):
         pipeline.run(args.file, clear_existing=getattr(args, 'clear', False))
         print("✓ Full ingestion complete.")
         
+    elif ingest_command == 'clear':
+        print("Clearing all data...")
+        pipeline._clear_data()
+        print("✓ Data cleared.")
+        
     else:
         # Should not happen due to routing logic, but handle gracefully
-        print("Error: Unknown ingest command")
+        print("✗ Error: Unknown ingest command")
         sys.exit(1)
 
 
@@ -559,6 +564,35 @@ def parse_ingest_all(stream: ArgStream) -> dict:
     return {"file": file, "clear": clear, "profile": profile, "ingest_command": "all"}
 
 
+def parse_ingest_clear(stream: ArgStream) -> dict:
+    """Parse ingest clear command."""
+    profile = parse_option(stream, "profile")
+    return {"profile": profile, "ingest_command": "clear"}
+
+
+def parse_ingest_clear(stream: ArgStream) -> dict:
+    """Parse ingest clear command."""
+    profile = parse_option(stream, "profile")
+    return {"profile": profile, "ingest_command": "clear"}
+
+
+def parse_ingest(stream: ArgStream) -> dict:
+    """Parse ingest command without subcommand (treats as 'all')."""
+    if not stream.has_next():
+        raise CLIError("ingest subcommand required (parse, embed, all, clear) or file path")
+    
+    # Check if first argument is a subcommand
+    first = stream.peek().lower()
+    if first in ("parse", "embed", "all", "clear"):
+        raise CLIError(f"ingest subcommand '{first}' requires explicit subcommand syntax")
+    
+    # Treat as 'all' with file path
+    file = stream.next()
+    clear = parse_flag(stream, "clear")
+    profile = parse_option(stream, "profile")
+    return {"file": file, "clear": clear, "profile": profile, "ingest_command": "all"}
+
+
 
 
 def parse_telegram_list(stream: ArgStream) -> dict:
@@ -744,7 +778,8 @@ def _parse_profile_subcommand_with_args(args):
 def _parse_ingest_subcommand(stream: ArgStream) -> dict:
     """Parse ingest subcommand."""
     if not stream.has_next():
-        raise CLIError("ingest subcommand required (parse, embed, all)")
+        # Show help if no arguments
+        raise CLIHelp()
     
     subcmd = stream.next().lower()
     if subcmd == "parse":
@@ -753,8 +788,10 @@ def _parse_ingest_subcommand(stream: ArgStream) -> dict:
         return parse_ingest_embed(stream)
     elif subcmd == "all":
         return parse_ingest_all(stream)
+    elif subcmd == "clear":
+        return parse_ingest_clear(stream)
     else:
-        raise CLIError(f"unknown ingest subcommand: {subcmd}")
+        raise CLIError(f"unknown ingest subcommand: {subcmd}. Use: parse, embed, all, clear")
 
 
 def _parse_ingest_subcommand_with_args(args):
@@ -892,7 +929,11 @@ def main():
         CommandSpec("profile", lambda s: _parse_profile_subcommand(s)),
         
         # Ingest commands
-        CommandSpec("ingest", lambda s: _parse_ingest_subcommand(s)),
+        CommandSpec(
+            "ingest", 
+            lambda s: _parse_ingest_subcommand(s),
+            help_text="ingest <subcommand>\n\nSubcommands:\n  parse <file> [clear] [profile <name>] - Parse file and store in SQLite\n  embed [model <name>] [batch-size <n>] [profile <name>] - Generate embeddings\n  all <file> [clear] [profile <name>] - Full pipeline (parse + embed)\n  clear [profile <name>] - Clear all data"
+        ),
         
         # Telegram commands
         CommandSpec("telegram", lambda s: _parse_telegram_subcommand(s)),
@@ -917,7 +958,13 @@ def main():
         cmd_name, args = parser.parse(sys.argv[1:])
     
     except CLIHelp:
-        print(parser.get_help())
+        # Check if it's a specific command help request
+        if len(sys.argv) > 1:
+            cmd = sys.argv[1]
+            help_text = parser.get_help(cmd)
+            print(help_text)
+        else:
+            print(parser.get_help())
         sys.exit(0)
     except CLIError as e:
         print(f"✗ Error: {e}")

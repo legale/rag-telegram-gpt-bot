@@ -241,7 +241,7 @@ class CommandParser:
                 if matches(command.lower(), (spec.name,)):
                     if spec.help_text:
                         return spec.help_text
-                    return f"Command: {spec.name}"
+                    return f"Command: {spec.name}\n\nNo help available."
             return f"Unknown command: {command}"
         
         # General help
@@ -250,7 +250,8 @@ class CommandParser:
         for spec in self._commands:
             lines.append(f"  {spec.name}")
         lines.append("")
-        lines.append("Use 'legale <command> help' for command-specific help")
+        lines.append("Use 'legale <command>' for command-specific help")
+        lines.append("Global flags: -v (version), -V <level> (verbosity), -h (help)")
         return "\n".join(lines)
 
 
