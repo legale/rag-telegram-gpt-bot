@@ -13,6 +13,7 @@ import subprocess
 import shutil
 import asyncio
 from pathlib import Path
+from src.core.syslog2 import *
 
 # Check if we're running inside poetry's virtualenv
 def is_in_virtualenv():
@@ -47,11 +48,14 @@ if not is_in_virtualenv():
         sys.exit(1)
 
 # Now we're in the virtualenv, continue with normal imports
-import argparse
 import warnings
 from typing import Optional
 from dotenv import load_dotenv, set_key, find_dotenv
 from src.core.syslog2 import syslog2, setup_log, LogLevel
+from src.core.cli_parser import (
+    CommandParser, CommandSpec, ArgStream, CLIError, CLIHelp,
+    parse_flag, parse_option, parse_int_option, parse_float_option, parse_choice_option
+)
 
 # Suppress sklearn deprecation warnings from hdbscan and other libraries
 warnings.filterwarnings('ignore', category=FutureWarning, module='sklearn')
@@ -188,7 +192,7 @@ def cmd_profile(args, profile_manager: ProfileManager):
         profile_manager.list_profiles()
     
     elif args.profile_command == 'create':
-        profile_manager.create_profile(args.name, set_active=args.set_active)
+        profile_manager.create_profile(args.name, set_active=getattr(args, 'set_active', False))
     
     elif args.profile_command == 'switch':
         # Check if profile exists
@@ -201,7 +205,7 @@ def cmd_profile(args, profile_manager: ProfileManager):
         profile_manager.set_current_profile(args.name)
     
     elif args.profile_command == 'delete':
-        profile_manager.delete_profile(args.name, force=args.force)
+        profile_manager.delete_profile(args.name, force=getattr(args, 'force', False))
     
     elif args.profile_command == 'info':
         profile_name = args.name if args.name else profile_manager.get_current_profile()
@@ -220,6 +224,7 @@ def cmd_profile(args, profile_manager: ProfileManager):
 def cmd_ingest(args, profile_manager: ProfileManager):
     """Handle data ingestion commands."""
     from src.ingestion.pipeline import IngestionPipeline
+    syslog2(LOG_WARNING, "ingest args:", **vars(args))
     
     # Get profile paths
     profile_name = args.profile if args.profile else profile_manager.get_current_profile()
@@ -246,11 +251,11 @@ def cmd_ingest(args, profile_manager: ProfileManager):
     
     if ingest_command == 'parse':
         if not args.file:
-            print("✗ Error: file path is required for 'ingest parse'")
+            print("Error: file path is required for 'ingest parse'")
             sys.exit(1)
         print("Parsing file and storing in SQLite...")
-        pipeline.parse_and_store(args.file, clear_existing=args.clear)
-        print("✓ Parse complete. Run 'ingest embed' to generate embeddings.")
+        pipeline.parse_and_store(args.file, clear_existing=getattr(args, 'clear', False))
+        print("Parse complete. Run 'ingest embed' to generate embeddings.")
         
     elif ingest_command == 'embed':
         # Check if there are chunks in database
@@ -258,7 +263,7 @@ def cmd_ingest(args, profile_manager: ProfileManager):
         db = Database(paths['db_url'])
         chunk_count = db.count_chunks()
         if chunk_count == 0:
-            print("✗ Error: No chunks found in database. Run 'ingest parse <file>' first.")
+            print("Error: No chunks found in database. Run 'ingest parse <file>' first.")
             sys.exit(1)
         
         model = getattr(args, 'model', None)
@@ -272,12 +277,12 @@ def cmd_ingest(args, profile_manager: ProfileManager):
             print("✗ Error: file path is required for 'ingest all'")
             sys.exit(1)
         print("Running full ingestion pipeline...")
-        pipeline.run(args.file, clear_existing=args.clear)
+        pipeline.run(args.file, clear_existing=getattr(args, 'clear', False))
         print("✓ Full ingestion complete.")
         
     else:
         # Should not happen due to routing logic, but handle gracefully
-        print("✗ Error: Unknown ingest command")
+        print("Error: Unknown ingest command")
         sys.exit(1)
 
 
@@ -362,13 +367,11 @@ def cmd_chat(args, profile_manager: ProfileManager):
     # Build CLI arguments
     cli_args = []
     
-    # Handle Global -V if present (passed via args.log_level if we add it to main parser)
+    # Handle Global -V if present (passed via args.log_level)
     if hasattr(args, 'log_level') and args.log_level:
         cli_args.extend(['-V', args.log_level])
         
-    if args.verbose:
-        cli_args.extend(['-' + 'v' * args.verbose])
-    if args.chunks:
+    if hasattr(args, 'chunks') and args.chunks:
         cli_args.extend(['--chunks', str(args.chunks)])
     if hasattr(args, 'debug_rag') and args.debug_rag:
         cli_args.append('--debug-rag')
@@ -421,14 +424,16 @@ def cmd_bot(args, profile_manager: ProfileManager):
         print(f"Vector store: {paths['vector_db_path']}")
         print()
         
-        # Respect global log_level if set
-        if getattr(args, 'log_level', None):
-            if args.log_level == 'DEBUG':
-                args.verbose = max(args.verbose, 2)
-            elif args.log_level == 'INFO':
-                args.verbose = max(args.verbose, 1)
+        # Map log_level to verbosity for run_server
+        verbose = 0
+        log_level = getattr(args, 'log_level', None)
+        if log_level:
+            if log_level in ('LOG_DEBUG', 'LOG_INFO'):
+                verbose = 2
+            elif log_level == 'LOG_WARNING':
+                verbose = 1
         
-        run_server(args.host, args.port, args.verbose)
+        run_server(args.host, args.port, verbose)
     
     elif args.bot_command == 'daemon':
         print(f"Database: {paths['db_path']}")
@@ -446,13 +451,16 @@ def cmd_test_embedding(args):
     from src.core.embedding import LocalEmbeddingClient
     import time
     
-    print(f"Testing embedding generation with model: {args.model}")
-    print(f"Text: '{args.text}'")
+    model = getattr(args, 'model', 'ai-sage/Giga-Embeddings-instruct')
+    text = getattr(args, 'text', '')
+    
+    print(f"Testing embedding generation with model: {model}")
+    print(f"Text: '{text}'")
     
     try:
         # Initialize client and warmup model (exclude from timing)
         print("Loading model...")
-        client = LocalEmbeddingClient(model=args.model)
+        client = LocalEmbeddingClient(model=model)
         
         # Warmup: generate embedding once to load model into memory
         _ = client.get_embedding("warmup")
@@ -460,7 +468,7 @@ def cmd_test_embedding(args):
         
         # Now measure only embedding generation time
         start_time = time.time()
-        emb = client.get_embedding(args.text)
+        emb = client.get_embedding(text)
         duration_ms = (time.time() - start_time) * 1000
         
         print(f"Success! ms={int(duration_ms)}")
@@ -472,260 +480,484 @@ def cmd_test_embedding(args):
         traceback.print_exc()
         sys.exit(1)
 
-def main():
-    # ... existing code ...
-    """Main CLI entry point."""
-    parser = argparse.ArgumentParser(
-        prog='legale',
-        description='Librarian chatbot with RAG',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Profile management
-  legale profile create mybot --set-active
-  legale profile list
-  legale profile switch mybot
-  
-  # Data ingestion
-  legale telegram dump "My Chat" --limit 10000
-  legale ingest telegram_dump_My_Chat.json
-  
-  # Interactive chat
-  legale chat -vv
-  
-  # Telegram bot
-  legale bot register --url https://example.com/webhook
-  legale bot run -vv
-  
-For more information, visit: https://github.com/legale/rag-telegram-gpt-bot
-        """
-    )
-    
-    # Global options
-    parser.add_argument('--version', action='version', version='Legale Bot 1.0.0')
-    parser.add_argument("-V", "--log-level", type=str, 
-        choices=["DEBUG", "INFO", "WARNING", "ERR", "CRIT", "ALERT"],
-        help="Set logging level (overrides -v)"
-    )
-    
-    subparsers = parser.add_subparsers(dest='command', help='Command to execute')
-    
-    # ===== PROFILE MANAGEMENT =====
-    profile_parser = subparsers.add_parser('profile', help='Manage bot profiles')
-    profile_subparsers = profile_parser.add_subparsers(dest='profile_command', help='Profile command')
-    
-    # profile list
-    profile_subparsers.add_parser('list', help='List all profiles')
-    
-    # profile create
-    create_parser = profile_subparsers.add_parser('create', help='Create a new profile')
-    create_parser.add_argument('name', help='Profile name')
-    create_parser.add_argument('--set-active', action='store_true', help='Set as active profile')
-    
-    # profile switch
-    switch_parser = profile_subparsers.add_parser('switch', help='Switch to a different profile')
-    switch_parser.add_argument('name', help='Profile name')
-    
-    # profile delete
-    delete_parser = profile_subparsers.add_parser('delete', help='Delete a profile')
-    delete_parser.add_argument('name', help='Profile name')
-    delete_parser.add_argument('--force', action='store_true', help='Force deletion without confirmation')
-    
-    # profile info
-    info_parser = profile_subparsers.add_parser('info', help='Show profile information')
-    info_parser.add_argument('name', nargs='?', help='Profile name (default: current)')
-    
-    # profile option
-    option_parser = profile_subparsers.add_parser('option', help='Manage profile options')
-    option_parser.add_argument('option', choices=['model', 'generator', 'frequency'], help='Option to manage')
-    option_parser.add_argument('action', choices=['list', 'get', 'set'], help='Action to perform')
-    option_parser.add_argument('value', nargs='?', help='Value to set (required for set action)')
-    option_parser.add_argument('--profile', help='Profile to use (default: current active)')
-    
-    # ===== DATA INGESTION =====
-    ingest_parser = subparsers.add_parser('ingest', help='Ingest chat data into database')
-    ingest_subparsers = ingest_parser.add_subparsers(dest='ingest_command', help='Ingest command')
-    
-    # ingest parse
-    ingest_parse_parser = ingest_subparsers.add_parser('parse', help='Parse file and store messages/chunks in SQLite')
-    ingest_parse_parser.add_argument('file', help='Path to chat dump file (JSON)')
-    ingest_parse_parser.add_argument('--clear', action='store_true', help='Clear existing data before ingestion')
-    ingest_parse_parser.add_argument('--profile', help='Profile to use (default: current active)')
-    
-    # ingest embed
-    ingest_embed_parser = ingest_subparsers.add_parser('embed', help='Generate embeddings for chunks without embeddings')
-    ingest_embed_parser.add_argument('--model', help='Embedding model to use (overrides profile config)')
-    ingest_embed_parser.add_argument('--batch-size', type=int, default=128, help='Batch size for embedding generation (default: 128)')
-    ingest_embed_parser.add_argument('--profile', help='Profile to use (default: current active)')
-    
-    # ingest all (full pipeline, backward compatibility)
-    ingest_all_parser = ingest_subparsers.add_parser('all', help='Full ingestion pipeline (parse + embed)')
-    ingest_all_parser.add_argument('file', help='Path to chat dump file (JSON)')
-    ingest_all_parser.add_argument('--clear', action='store_true', help='Clear existing data before ingestion')
-    ingest_all_parser.add_argument('--profile', help='Profile to use (default: current active)')
-    
-    # Backward compatibility: if no subcommand, treat as 'all'
-    ingest_parser.add_argument('file', nargs='?', help='Path to chat dump file (JSON) - backward compatibility, use "ingest all"')
-    ingest_parser.add_argument('--clear', action='store_true', help='Clear existing data before ingestion')
-    ingest_parser.add_argument('--profile', help='Profile to use (default: current active)')
-    
-    # ===== TELEGRAM FETCHING =====
-    telegram_parser = subparsers.add_parser('telegram', help='Fetch data from Telegram')
-    telegram_subparsers = telegram_parser.add_subparsers(dest='telegram_command', help='Telegram command')
-    
-    # telegram list
-    list_parser = telegram_subparsers.add_parser('list', help='List all available chats')
-    list_parser.add_argument('--profile', help='Profile to use (default: current active)')
-    
-    # telegram members
-    members_parser = telegram_subparsers.add_parser('members', help='List members of a chat')
-    members_parser.add_argument('target', help='Chat ID or name')
-    members_parser.add_argument('--profile', help='Profile to use (default: current active)')
-    
-    # telegram dump
-    dump_parser = telegram_subparsers.add_parser('dump', help='Dump chat messages')
-    dump_parser.add_argument('target', help='Chat ID or name')
-    dump_parser.add_argument('--limit', type=int, default=1000, help='Number of messages to fetch')
-    dump_parser.add_argument('--output', help='Output file (default: profile_dir/telegram_dump_<target>.json)')
-    dump_parser.add_argument('--profile', help='Profile to use (default: current active)')
-    
-    # ===== INTERACTIVE CHAT =====
-    chat_parser = subparsers.add_parser('chat', help='Start interactive chat session')
-    chat_parser.add_argument('-v', '--verbose', action='count', default=0, help='Verbosity level (-v, -vv, -vvv)')
-    chat_parser.add_argument('--chunks', type=int, help='Number of context chunks to retrieve')
-    chat_parser.add_argument('--debug-rag', action='store_true', help='Show retrieved chunks and prompt before model response')
-    chat_parser.add_argument('--profile', help='Profile to use (default: current active)')
-    
-    # ===== TELEGRAM BOT =====
-    bot_parser = subparsers.add_parser('bot', help='Manage Telegram bot webhook')
-    bot_subparsers = bot_parser.add_subparsers(dest='bot_command', help='Bot command')
-    
-    # bot register
-    register_parser = bot_subparsers.add_parser('register', help='Register webhook with Telegram')
-    register_parser.add_argument('--url', required=True, help='Webhook URL')
-    register_parser.add_argument('--token', help='Bot token (or set TELEGRAM_BOT_TOKEN in .env)')
-    register_parser.add_argument('--profile', help='Profile to use (default: current active)')
-    
-    # bot delete
-    delete_parser = bot_subparsers.add_parser('delete', help='Delete webhook from Telegram')
-    delete_parser.add_argument('--token', help='Bot token (or set TELEGRAM_BOT_TOKEN in .env)')
-    delete_parser.add_argument('--profile', help='Profile to use (default: current active)')
-    
-    # ===== CONFIGURATION =====
-    config_parser = subparsers.add_parser('config', help='Manage profile configuration')
-    config_subparsers = config_parser.add_subparsers(dest='config_command', help='Config command')
-    
-    # config get
-    get_config_parser = config_subparsers.add_parser('get', help='Get configuration value')
-    get_config_parser.add_argument('key', choices=['system_prompt'], help='Configuration key')
-    get_config_parser.add_argument('--profile', help='Profile to use (default: current active)')
-    
-    # config set
-    set_config_parser = config_subparsers.add_parser('set', help='Set configuration value')
-    set_config_parser.add_argument('key', choices=['system_prompt'], help='Configuration key')
-    set_config_parser.add_argument('value', help='Value to set')
-    set_config_parser.add_argument('--profile', help='Profile to use (default: current active)')
-    
-    # bot run
-    run_parser = bot_subparsers.add_parser('run', help='Run bot in foreground mode')
-    run_parser.add_argument('--host', default='127.0.0.1', help='Host to bind (default: 127.0.0.1)')
-    run_parser.add_argument('--port', type=int, default=8000, help='Port to bind (default: 8000)')
-    run_parser.add_argument('-v', '--verbose', action='count', default=0, help='Verbosity level (-v, -vv, -vvv)')
-    run_parser.add_argument('--profile', help='Profile to use (default: current active)')
-    
-    # bot daemon
-    # bot daemon
-    daemon_parser = bot_subparsers.add_parser('daemon', help='Run bot as daemon')
-    daemon_parser.add_argument('--host', default='127.0.0.1', help='Host to bind (default: 127.0.0.1)')
-    daemon_parser.add_argument('--port', type=int, default=8000, help='Port to bind (default: 8000)')
-    daemon_parser.add_argument('--profile', help='Profile to use (default: current active)')
-    
-    # ===== TOPICS =====
-    topics_parser = subparsers.add_parser('topics', help='Manage topics (clustering)')
-    topics_subparsers = topics_parser.add_subparsers(dest='topic_command', help='Topic command')
-    
-    # Helper function to add clustering parameters
-    def add_clustering_params(parser, prefix='l1'):
-        parser.add_argument(f'--{prefix}-min-size', type=int, default=2, 
-                           help=f'{prefix.upper()}: Minimum chunks per cluster (default: 2, minimum: 2, lower = more topics)')
-        parser.add_argument(f'--{prefix}-min-samples', type=int, default=1,
-                           help=f'{prefix.upper()}: Minimum samples in neighborhood (default: 1, lower = more topics)')
-        parser.add_argument(f'--{prefix}-metric', choices=['cosine', 'euclidean', 'manhattan'], default='cosine',
-                           help=f'{prefix.upper()}: Distance metric (default: cosine, euclidean may find more clusters)')
-        parser.add_argument(f'--{prefix}-method', choices=['eom', 'leaf'], default='eom',
-                           help=f'{prefix.upper()}: Cluster selection method (default: eom, leaf creates more clusters)')
-        parser.add_argument(f'--{prefix}-epsilon', type=float, default=0.0,
-                           help=f'{prefix.upper()}: Distance threshold for merging clusters (default: 0.0 = auto)')
-    
-    # topics cluster-l1
-    topics_cluster_l1_parser = topics_subparsers.add_parser('cluster-l1', help='Perform L1 clustering only')
-    topics_cluster_l1_parser.add_argument('--profile', help='Profile to use (default: current active)')
-    add_clustering_params(topics_cluster_l1_parser, 'l1')
-    
-    # topics cluster-l2
-    topics_cluster_l2_parser = topics_subparsers.add_parser('cluster-l2', help='Perform L2 clustering only')
-    topics_cluster_l2_parser.add_argument('--profile', help='Profile to use (default: current active)')
-    add_clustering_params(topics_cluster_l2_parser, 'l2')
-    
-    # topics name
-    topics_name_parser = topics_subparsers.add_parser('name', help='Generate names for topics')
-    topics_name_parser.add_argument('--only-unnamed', action='store_true',
-                                   help='Generate names only for topics without names')
-    topics_name_parser.add_argument('--rebuild', action='store_true',
-                                   help='Regenerate names for all topics (overrides --only-unnamed)')
-    topics_name_parser.add_argument('--target', choices=['l1', 'l2', 'both'], default='both',
-                                   help='Target topics to name: l1, l2, or both (default: both)')
-    topics_name_parser.add_argument('--profile', help='Profile to use (default: current active)')
-    
-    # topics build (full pipeline)
-    topics_build_parser = topics_subparsers.add_parser('build', help='Build topics from embeddings (L1 + L2 + naming)')
-    topics_build_parser.add_argument('--profile', help='Profile to use (default: current active)')
-    add_clustering_params(topics_build_parser, 'l1')
-    add_clustering_params(topics_build_parser, 'l2')
-    
-    # topics list
-    topics_list_parser = topics_subparsers.add_parser('list', help='List existing topics')
-    topics_list_parser.add_argument('--profile', help='Profile to use (default: current active)')
-    
-    # topics show
-    topics_show_parser = topics_subparsers.add_parser('show', help='Show details of a topic')
-    topics_show_parser.add_argument('id', help='Topic ID')
-    topics_show_parser.add_argument('--profile', help='Profile to use (default: current active)')
-    
-    
-    # Test Embedding
-    emb_parser = subparsers.add_parser('test-embedding', help='Test embedding generation')
-    emb_parser.add_argument('text', help='Text to embed')
-    emb_parser.add_argument('--model', default='all-MiniLM-L6-v2', help='Model name')
 
-    # Parse arguments
-    args = parser.parse_args()
+# ===== PARSER FUNCTIONS FOR COMMANDPARSER =====
+
+def parse_test_embedding(stream: ArgStream) -> dict:
+    """Parse test-embedding command."""
+    text = stream.expect("text")
+    model = parse_option(stream, "model") or "ai-sage/Giga-Embeddings-instruct"
+    return {"text": text, "model": model}
+
+
+def parse_profile_list(stream: ArgStream) -> dict:
+    """Parse profile list command."""
+    return {"profile": parse_option(stream, "profile")}
+
+
+def parse_profile_create(stream: ArgStream) -> dict:
+    """Parse profile create command."""
+    name = stream.expect("profile name")
+    set_active = parse_flag(stream, "set-active")
+    return {"name": name, "set_active": set_active, "profile": parse_option(stream, "profile")}
+
+
+def parse_profile_switch(stream: ArgStream) -> dict:
+    """Parse profile switch command."""
+    name = stream.expect("profile name")
+    return {"name": name, "profile": parse_option(stream, "profile")}
+
+
+def parse_profile_delete(stream: ArgStream) -> dict:
+    """Parse profile delete command."""
+    name = stream.expect("profile name")
+    force = parse_flag(stream, "force")
+    return {"name": name, "force": force, "profile": parse_option(stream, "profile")}
+
+
+def parse_profile_info(stream: ArgStream) -> dict:
+    """Parse profile info command."""
+    name = None
+    if stream.has_next() and stream.peek() != "profile":
+        name = stream.next()
+    profile = parse_option(stream, "profile")
+    return {"name": name, "profile": profile}
+
+
+def parse_profile_option(stream: ArgStream) -> dict:
+    """Parse profile option command."""
+    option = stream.expect("option")
+    action = stream.expect("action")
+    value = None
+    if stream.has_next() and stream.peek() not in ("profile",):
+        value = stream.next()
+    profile = parse_option(stream, "profile")
+    return {"option": option, "action": action, "value": value, "profile": profile}
+
+
+def parse_ingest_parse(stream: ArgStream) -> dict:
+    """Parse ingest parse command."""
+    file = stream.expect("file path")
+    clear = parse_flag(stream, "clear")
+    profile = parse_option(stream, "profile")
+    return {"file": file, "clear": clear, "profile": profile, "ingest_command": "parse"}
+
+
+def parse_ingest_embed(stream: ArgStream) -> dict:
+    """Parse ingest embed command."""
+    model = parse_option(stream, "model")
+    batch_size = parse_int_option(stream, "batch-size", 128)
+    profile = parse_option(stream, "profile")
+    return {"model": model, "batch_size": batch_size, "profile": profile, "ingest_command": "embed"}
+
+
+def parse_ingest_all(stream: ArgStream) -> dict:
+    """Parse ingest all command."""
+    file = stream.expect("file path")
+    clear = parse_flag(stream, "clear")
+    profile = parse_option(stream, "profile")
+    return {"file": file, "clear": clear, "profile": profile, "ingest_command": "all"}
+
+
+
+
+def parse_telegram_list(stream: ArgStream) -> dict:
+    """Parse telegram list command."""
+    return {"profile": parse_option(stream, "profile"), "telegram_command": "list"}
+
+
+def parse_telegram_members(stream: ArgStream) -> dict:
+    """Parse telegram members command."""
+    target = stream.expect("target")
+    profile = parse_option(stream, "profile")
+    return {"target": target, "profile": profile, "telegram_command": "members"}
+
+
+def parse_telegram_dump(stream: ArgStream) -> dict:
+    """Parse telegram dump command."""
+    target = stream.expect("target")
+    limit = parse_int_option(stream, "limit", 1000)
+    output = parse_option(stream, "output")
+    profile = parse_option(stream, "profile")
+    return {"target": target, "limit": limit, "output": output, "profile": profile, "telegram_command": "dump"}
+
+
+def parse_chat(stream: ArgStream) -> dict:
+    """Parse chat command."""
+    chunks = parse_int_option(stream, "chunks")
+    debug_rag = parse_flag(stream, "debug-rag")
+    profile = parse_option(stream, "profile")
+    return {"chunks": chunks, "debug_rag": debug_rag, "profile": profile}
+
+
+def parse_bot_register(stream: ArgStream) -> dict:
+    """Parse bot register command."""
+    url = parse_option(stream, "url")
+    if not url:
+        raise CLIError("url required for bot register")
+    token = parse_option(stream, "token")
+    profile = parse_option(stream, "profile")
+    return {"url": url, "token": token, "profile": profile, "bot_command": "register"}
+
+
+def parse_bot_delete(stream: ArgStream) -> dict:
+    """Parse bot delete command."""
+    token = parse_option(stream, "token")
+    profile = parse_option(stream, "profile")
+    return {"token": token, "profile": profile, "bot_command": "delete"}
+
+
+def parse_bot_run(stream: ArgStream) -> dict:
+    """Parse bot run command."""
+    host = parse_option(stream, "host") or "127.0.0.1"
+    port = parse_int_option(stream, "port", 8000)
+    profile = parse_option(stream, "profile")
+    return {"host": host, "port": port, "profile": profile, "bot_command": "run"}
+
+
+def parse_bot_daemon(stream: ArgStream) -> dict:
+    """Parse bot daemon command."""
+    host = parse_option(stream, "host") or "127.0.0.1"
+    port = parse_int_option(stream, "port", 8000)
+    profile = parse_option(stream, "profile")
+    return {"host": host, "port": port, "profile": profile, "bot_command": "daemon"}
+
+
+def parse_config_get(stream: ArgStream) -> dict:
+    """Parse config get command."""
+    key = stream.expect("key")
+    profile = parse_option(stream, "profile")
+    return {"key": key, "profile": profile, "config_command": "get"}
+
+
+def parse_config_set(stream: ArgStream) -> dict:
+    """Parse config set command."""
+    key = stream.expect("key")
+    value = stream.expect("value")
+    profile = parse_option(stream, "profile")
+    return {"key": key, "value": value, "profile": profile, "config_command": "set"}
+
+
+def parse_clustering_params(stream: ArgStream, prefix: str) -> dict:
+    """Parse clustering parameters for a given prefix."""
+    return {
+        f"{prefix}_min_size": parse_int_option(stream, f"{prefix}-min-size", 2),
+        f"{prefix}_min_samples": parse_int_option(stream, f"{prefix}-min-samples", 1),
+        f"{prefix}_metric": parse_choice_option(stream, f"{prefix}-metric", ["cosine", "euclidean", "manhattan"], "cosine"),
+        f"{prefix}_method": parse_choice_option(stream, f"{prefix}-method", ["eom", "leaf"], "eom"),
+        f"{prefix}_epsilon": parse_float_option(stream, f"{prefix}-epsilon", 0.0),
+    }
+
+
+def parse_topics_cluster_l1(stream: ArgStream) -> dict:
+    """Parse topics cluster-l1 command."""
+    params = parse_clustering_params(stream, "l1")
+    profile = parse_option(stream, "profile")
+    params.update({"profile": profile, "topic_command": "cluster-l1"})
+    return params
+
+
+def parse_topics_cluster_l2(stream: ArgStream) -> dict:
+    """Parse topics cluster-l2 command."""
+    params = parse_clustering_params(stream, "l2")
+    profile = parse_option(stream, "profile")
+    params.update({"profile": profile, "topic_command": "cluster-l2"})
+    return params
+
+
+def parse_topics_name(stream: ArgStream) -> dict:
+    """Parse topics name command."""
+    only_unnamed = parse_flag(stream, "only-unnamed")
+    rebuild = parse_flag(stream, "rebuild")
+    target = parse_choice_option(stream, "target", ["l1", "l2", "both"], "both")
+    profile = parse_option(stream, "profile")
+    return {"only_unnamed": only_unnamed, "rebuild": rebuild, "target": target, "profile": profile, "topic_command": "name"}
+
+
+def parse_topics_build(stream: ArgStream) -> dict:
+    """Parse topics build command."""
+    params = {}
+    params.update(parse_clustering_params(stream, "l1"))
+    params.update(parse_clustering_params(stream, "l2"))
+    profile = parse_option(stream, "profile")
+    params.update({"profile": profile, "topic_command": "build"})
+    return params
+
+
+def parse_topics_list(stream: ArgStream) -> dict:
+    """Parse topics list command."""
+    profile = parse_option(stream, "profile")
+    return {"profile": profile, "topic_command": "list"}
+
+
+def parse_topics_show(stream: ArgStream) -> dict:
+    """Parse topics show command."""
+    id_str = stream.expect("topic id")
+    try:
+        topic_id = int(id_str)
+    except ValueError:
+        raise CLIError(f"invalid topic id: {id_str}")
+    profile = parse_option(stream, "profile")
+    return {"id": str(topic_id), "profile": profile, "topic_command": "show"}
+
+
+# Subcommand parsers
+def _parse_profile_subcommand(stream: ArgStream) -> dict:
+    """Parse profile subcommand."""
+    if not stream.has_next():
+        raise CLIError("profile subcommand required (list, create, switch, delete, info, option)")
+    subcmd = stream.next().lower()
+    
+    result = None
+    if subcmd == "list":
+        result = parse_profile_list(stream)
+        result["profile_command"] = "list"
+    elif subcmd == "create":
+        result = parse_profile_create(stream)
+        result["profile_command"] = "create"
+    elif subcmd == "switch":
+        result = parse_profile_switch(stream)
+        result["profile_command"] = "switch"
+    elif subcmd == "delete":
+        result = parse_profile_delete(stream)
+        result["profile_command"] = "delete"
+    elif subcmd == "info":
+        result = parse_profile_info(stream)
+        result["profile_command"] = "info"
+    elif subcmd == "option":
+        result = parse_profile_option(stream)
+        result["profile_command"] = "option"
+    else:
+        raise CLIError(f"unknown profile subcommand: {subcmd}")
+    
+    return result
+
+
+def _parse_profile_subcommand_with_args(args):
+    """Extract profile subcommand from args."""
+    profile_command = getattr(args, 'profile_command', None)
+    if not profile_command:
+        raise CLIError("profile subcommand required")
+    return f"profile_{profile_command}", args
+
+
+def _parse_ingest_subcommand(stream: ArgStream) -> dict:
+    """Parse ingest subcommand."""
+    if not stream.has_next():
+        raise CLIError("ingest subcommand required (parse, embed, all)")
+    
+    subcmd = stream.next().lower()
+    if subcmd == "parse":
+        return parse_ingest_parse(stream)
+    elif subcmd == "embed":
+        return parse_ingest_embed(stream)
+    elif subcmd == "all":
+        return parse_ingest_all(stream)
+    else:
+        raise CLIError(f"unknown ingest subcommand: {subcmd}")
+
+
+def _parse_ingest_subcommand_with_args(args):
+    """Extract ingest subcommand from args."""
+    ingest_command = getattr(args, 'ingest_command', 'all')
+    return f"ingest_{ingest_command}", args
+
+
+def _parse_telegram_subcommand(stream: ArgStream) -> dict:
+    """Parse telegram subcommand."""
+    if not stream.has_next():
+        raise CLIError("telegram subcommand required (list, members, dump)")
+    subcmd = stream.next().lower()
+    
+    result = None
+    if subcmd == "list":
+        result = parse_telegram_list(stream)
+    elif subcmd == "members":
+        result = parse_telegram_members(stream)
+    elif subcmd == "dump":
+        result = parse_telegram_dump(stream)
+    else:
+        raise CLIError(f"unknown telegram subcommand: {subcmd}")
+    
+    # telegram_command already set by parsers
+    return result
+
+
+def _parse_telegram_subcommand_with_args(args):
+    """Extract telegram subcommand from args."""
+    telegram_command = getattr(args, 'telegram_command', None)
+    if not telegram_command:
+        raise CLIError("telegram subcommand required")
+    return f"telegram_{telegram_command}", args
+
+
+def _parse_bot_subcommand(stream: ArgStream) -> dict:
+    """Parse bot subcommand."""
+    if not stream.has_next():
+        raise CLIError("bot subcommand required (register, delete, run, daemon)")
+    subcmd = stream.next().lower()
+    
+    result = None
+    if subcmd == "register":
+        result = parse_bot_register(stream)
+    elif subcmd == "delete":
+        result = parse_bot_delete(stream)
+    elif subcmd == "run":
+        result = parse_bot_run(stream)
+    elif subcmd == "daemon":
+        result = parse_bot_daemon(stream)
+    else:
+        raise CLIError(f"unknown bot subcommand: {subcmd}")
+    
+    # bot_command already set by parsers
+    return result
+
+
+def _parse_bot_subcommand_with_args(args):
+    """Extract bot subcommand from args."""
+    bot_command = getattr(args, 'bot_command', None)
+    if not bot_command:
+        raise CLIError("bot subcommand required")
+    return f"bot_{bot_command}", args
+
+
+def _parse_config_subcommand(stream: ArgStream) -> dict:
+    """Parse config subcommand."""
+    if not stream.has_next():
+        raise CLIError("config subcommand required (get, set)")
+    subcmd = stream.next().lower()
+    
+    result = None
+    if subcmd == "get":
+        result = parse_config_get(stream)
+    elif subcmd == "set":
+        result = parse_config_set(stream)
+    else:
+        raise CLIError(f"unknown config subcommand: {subcmd}")
+    
+    # config_command already set by parsers
+    return result
+
+
+def _parse_config_subcommand_with_args(args):
+    """Extract config subcommand from args."""
+    config_command = getattr(args, 'config_command', None)
+    if not config_command:
+        raise CLIError("config subcommand required")
+    return f"config_{config_command}", args
+
+
+def _parse_topics_subcommand(stream: ArgStream) -> dict:
+    """Parse topics subcommand."""
+    if not stream.has_next():
+        raise CLIError("topics subcommand required (cluster-l1, cluster-l2, name, build, list, show)")
+    subcmd = stream.next().lower()
+    
+    result = None
+    if subcmd == "cluster-l1":
+        result = parse_topics_cluster_l1(stream)
+    elif subcmd == "cluster-l2":
+        result = parse_topics_cluster_l2(stream)
+    elif subcmd == "name":
+        result = parse_topics_name(stream)
+    elif subcmd == "build":
+        result = parse_topics_build(stream)
+    elif subcmd == "list":
+        result = parse_topics_list(stream)
+    elif subcmd == "show":
+        result = parse_topics_show(stream)
+    else:
+        raise CLIError(f"unknown topics subcommand: {subcmd}")
+    
+    # topic_command already set by parsers
+    return result
+
+
+def _parse_topics_subcommand_with_args(args):
+    """Extract topics subcommand from args."""
+    topic_command = getattr(args, 'topic_command', None)
+    if not topic_command:
+        raise CLIError("topics subcommand required")
+    return f"topics_{topic_command}", args
+
+
+def main():
+    """Main CLI entry point."""
+    # Build command specifications
+    commands = [
+        # Test embedding
+        CommandSpec("test-embedding", parse_test_embedding),
+        
+        # Profile commands
+        CommandSpec("profile", lambda s: _parse_profile_subcommand(s)),
+        
+        # Ingest commands
+        CommandSpec("ingest", lambda s: _parse_ingest_subcommand(s)),
+        
+        # Telegram commands
+        CommandSpec("telegram", lambda s: _parse_telegram_subcommand(s)),
+        
+        # Chat
+        CommandSpec("chat", parse_chat),
+        
+        # Bot commands
+        CommandSpec("bot", lambda s: _parse_bot_subcommand(s)),
+        
+        # Config commands
+        CommandSpec("config", lambda s: _parse_config_subcommand(s)),
+        
+        # Topics commands
+        CommandSpec("topics", lambda s: _parse_topics_subcommand(s)),
+    ]
+    
+    parser = CommandParser(commands)
+    
+    try:
+        # Parse arguments (skip script name)
+        cmd_name, args = parser.parse(sys.argv[1:])
+    
+    except CLIHelp:
+        print(parser.get_help())
+        sys.exit(0)
+    except CLIError as e:
+        print(f"✗ Error: {e}")
+        sys.exit(1)
+    
+    # Handle subcommands that need routing
+    if cmd_name == "profile":
+        cmd_name, args = _parse_profile_subcommand_with_args(args)
+    elif cmd_name == "ingest":
+        cmd_name, args = _parse_ingest_subcommand_with_args(args)
+    elif cmd_name == "telegram":
+        cmd_name, args = _parse_telegram_subcommand_with_args(args)
+    elif cmd_name == "bot":
+        cmd_name, args = _parse_bot_subcommand_with_args(args)
+    elif cmd_name == "config":
+        cmd_name, args = _parse_config_subcommand_with_args(args)
+    elif cmd_name == "topics":
+        cmd_name, args = _parse_topics_subcommand_with_args(args)
 
     # Setup global logging
     syslog_level = LogLevel.LOG_WARNING
-    if args.log_level:
+    log_level = getattr(args, 'log_level', None)
+    if log_level:
         level_map = {
-            "DEBUG": LogLevel.LOG_DEBUG,
-            "INFO": LogLevel.LOG_INFO,
-            "WARNING": LogLevel.LOG_WARNING,
-            "ERR": LogLevel.LOG_ERR,
-            "CRIT": LogLevel.LOG_CRIT,
-            "ALERT": LogLevel.LOG_ALERT
+            "LOG_DEBUG": LogLevel.LOG_DEBUG,
+            "LOG_INFO": LogLevel.LOG_INFO,
+            "LOG_WARNING": LogLevel.LOG_WARNING,
+            "LOG_ERR": LogLevel.LOG_ERR,
+            "LOG_CRIT": LogLevel.LOG_CRIT,
+            "LOG_ALERT": LogLevel.LOG_ALERT
         }
-        syslog_level = level_map.get(args.log_level, LogLevel.LOG_WARNING)
+        syslog_level = level_map.get(log_level, LogLevel.LOG_WARNING)
     
     setup_log(syslog_level)
-    
-    # Show help if no command provided
-    if not args.command:
-        parser.print_help()
-        sys.exit(0)
     
     # Initialize profile manager
     profile_manager = ProfileManager(project_root)
     
-    # Ensure default profile exists
-    if args.command != 'profile':
+    # Ensure default profile exists (except for profile commands)
+    if not cmd_name.startswith('profile'):
         default_profile = profile_manager.get_profile_dir('default')
         if not default_profile.exists():
             print("Creating default profile...")
@@ -733,51 +965,33 @@ For more information, visit: https://github.com/legale/rag-telegram-gpt-bot
             print()
     
     # Route to appropriate command handler
-    if args.command == 'profile':
-        if not args.profile_command:
-            profile_parser.print_help()
-            sys.exit(1)
+    if cmd_name == 'test-embedding':
+        cmd_test_embedding(args)
+    
+    elif cmd_name.startswith('profile_'):
         cmd_profile(args, profile_manager)
     
-    elif args.command == 'ingest':
-        # Backward compatibility: if no subcommand but file provided, treat as 'all'
-        if not hasattr(args, 'ingest_command') or args.ingest_command is None:
-            if args.file:
-                args.ingest_command = 'all'
-            else:
-                ingest_parser.print_help()
-                sys.exit(1)
+    elif cmd_name.startswith('ingest_'):
         cmd_ingest(args, profile_manager)
     
-    elif args.command == 'telegram':
-        if not args.telegram_command:
-            telegram_parser.print_help()
-            sys.exit(1)
+    elif cmd_name.startswith('telegram_'):
         cmd_telegram(args, profile_manager)
     
-    elif args.command == 'chat':
+    elif cmd_name == 'chat':
         cmd_chat(args, profile_manager)
     
-    elif args.command == 'bot':
-        if not args.bot_command:
-            bot_parser.print_help()
-            sys.exit(1)
+    elif cmd_name.startswith('bot_'):
         cmd_bot(args, profile_manager)
 
-    elif args.command == 'config':
-        if not args.config_command:
-            config_parser.print_help()
-            sys.exit(1)
+    elif cmd_name.startswith('config_'):
         cmd_config(args, profile_manager)
 
-    elif args.command == 'topics':
-        if not args.topic_command:
-            topics_parser.print_help()
-            sys.exit(1)
+    elif cmd_name.startswith('topics_'):
         cmd_topics(args, profile_manager)
 
-    elif args.command == 'test-embedding':
-        cmd_test_embedding(args)
+    else:
+        print(f"✗ Error: Unknown command: {cmd_name}")
+        sys.exit(1)
 
 
 def cmd_topics(args, profile_manager: ProfileManager):
