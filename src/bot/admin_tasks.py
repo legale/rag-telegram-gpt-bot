@@ -204,18 +204,21 @@ class TaskManager:
         self.tasks = {}
         self.current_task = None
     
-    def start_ingestion(self, file_path: Path, profile_manager, clear_existing: bool = False) -> IngestionTask:
+    def start_ingestion(self, file_path, profile_manager, clear_existing: bool = False) -> IngestionTask:
         """
         Start ingestion task.
         
         Args:
-            file_path: Path to JSON file
+            file_path: Path to JSON file (str or Path)
             profile_manager: ProfileManager instance
             clear_existing: Whether to clear existing data
         
         Returns:
             IngestionTask instance
         """
+        # Convert to Path if string to avoid MagicMock issues in tests
+        if isinstance(file_path, str):
+            file_path = Path(file_path)
         task = IngestionTask(file_path, profile_manager, clear_existing)
         self.current_task = task
         return task

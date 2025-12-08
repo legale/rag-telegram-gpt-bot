@@ -9,7 +9,7 @@ import warnings
 
 from src.storage.db import Database
 from src.storage.vector_store import VectorStore
-from src.core.syslog2 import syslog2, LOG_INFO, LOG_WARNING, LOG_ERR, LOG_DEBUG, LOG_NOTICE
+from src.core.syslog2 import *
 from src.core.llm import LLMClient
 from src.core.prompt import TOPIC_L1_NAMING_PROMPT, TOPIC_L2_NAMING_PROMPT
 
@@ -220,10 +220,13 @@ class TopicClusterer:
         
         return self._l1_topic_assignments
     
-    def assign_l1_topics_to_chunks(self):
+    def assign_l1_topics_to_chunks(self, show_progress: bool = True):
         """
         Assign topic_l1_id to chunks based on clustering results.
         This should be called after perform_l1_clustering.
+        
+        Args:
+            show_progress: If True, show progress bar (default: True)
         """
         if not hasattr(self, '_l1_topic_assignments') or not self._l1_topic_assignments:
             syslog2(LOG_WARNING, "no l1 topic assignments found, run perform_l1_clustering first")
@@ -232,17 +235,39 @@ class TopicClusterer:
         assigned_count = 0
         noise_count = 0
         
-        for topic_id, chunk_ids in self._l1_topic_assignments.items():
-            if topic_id is None:
-                # Noise chunks - assign None
-                for chunk_id in chunk_ids:
-                    self.db.update_chunk_topics(chunk_id, topic_l1_id=None, topic_l2_id=None)
-                    noise_count += 1
-            else:
-                # Real topics
-                for chunk_id in chunk_ids:
-                    self.db.update_chunk_topics(chunk_id, topic_l1_id=topic_id, topic_l2_id=None)
-                    assigned_count += 1
+        # Count total chunks to assign
+        total_chunks = sum(len(chunk_ids) for chunk_ids in self._l1_topic_assignments.values())
+        
+        if show_progress:
+            try:
+                from tqdm import tqdm
+                pbar = tqdm(total=total_chunks, desc="Assigning topics to chunks", unit="chunk")
+            except ImportError:
+                pbar = None
+        else:
+            pbar = None
+        
+        try:
+            for topic_id, chunk_ids in self._l1_topic_assignments.items():
+                if topic_id is None:
+                    # Noise chunks - assign None
+                    for chunk_id in chunk_ids:
+                        self.db.update_chunk_topics(chunk_id, topic_l1_id=None, topic_l2_id=None)
+                        noise_count += 1
+                        if pbar:
+                            pbar.update(1)
+                            pbar.set_postfix({"assigned": assigned_count, "noise": noise_count})
+                else:
+                    # Real topics
+                    for chunk_id in chunk_ids:
+                        self.db.update_chunk_topics(chunk_id, topic_l1_id=topic_id, topic_l2_id=None)
+                        assigned_count += 1
+                        if pbar:
+                            pbar.update(1)
+                            pbar.set_postfix({"assigned": assigned_count, "noise": noise_count})
+        finally:
+            if pbar:
+                pbar.close()
         
         syslog2(LOG_INFO, "l1 topics assigned to chunks", assigned=assigned_count, noise=noise_count)
         
@@ -357,43 +382,63 @@ class TopicClusterer:
                 clusters_found=valid_clusters,
                 noise_count=noise_count,
                 noise_percentage=f"{noise_percentage:.1f}%")
+        
+        print(f"Found {valid_clusters} L2 clusters ({noise_count} noise topics)")
 
         # 4. Save L2 topics and update L1 parents
-        for label, indices in clusters.items():
-            if label == -1:
-                # Noise - L1 topics remain orphans
-                for idx in indices:
-                    l1_id = ids[idx]
-                    self.db.update_topic_l1_parent(l1_id, parent_l2_id=None)
-                    # Use bulk update for chunks
-                    self.db.update_chunks_parent_l2(l1_id, topic_l2_id=None)
-                continue
+        try:
+            from tqdm import tqdm
+            pbar = tqdm(total=len(clusters), desc="Creating L2 topics", unit="cluster")
+        except ImportError:
+            pbar = None
+        
+        try:
+            for label, indices in clusters.items():
+                if label == -1:
+                    # Noise - L1 topics remain orphans
+                    for idx in indices:
+                        l1_id = ids[idx]
+                        self.db.update_topic_l1_parent(l1_id, parent_l2_id=None)
+                        # Use bulk update for chunks
+                        self.db.update_chunks_parent_l2(l1_id, topic_l2_id=None)
+                    if pbar:
+                        pbar.update(1)
+                    continue
                 
-            # Valid Super-Topic
-            cluster_indices = indices # indices in X/ids lists
-            cluster_l1_ids = [ids[i] for i in cluster_indices]
-            cluster_embeddings = X[cluster_indices]
-            
-            # Stats
-            centroid = np.mean(cluster_embeddings, axis=0).tolist()
-            
-            # Sum chunk count from member L1 topics
-            total_chunk_count = 0
-            for i in cluster_indices:
-                l1_topic = next(t for t in l1_topics if t.id == ids[i])
-                total_chunk_count += l1_topic.chunk_count
+                # Valid Super-Topic
+                cluster_indices = indices # indices in X/ids lists
+                cluster_l1_ids = [ids[i] for i in cluster_indices]
+                cluster_embeddings = X[cluster_indices]
                 
-            l2_id = self.db.create_topic_l2(
-                title=f"Topic L2-{label}",
-                descr="Pending description...",
-                chunk_count=total_chunk_count,
-                center_vec=centroid
-            )
-            
-            # Update L1 parents and Chunks
-            for l1_id in cluster_l1_ids:
-                self.db.update_topic_l1_parent(l1_id, parent_l2_id=l2_id)
-                self.db.update_chunks_parent_l2(l1_id, topic_l2_id=l2_id)
+                if pbar:
+                    pbar.set_postfix({"cluster": label, "l1_topics": len(cluster_l1_ids)})
+                
+                # Stats
+                centroid = np.mean(cluster_embeddings, axis=0).tolist()
+                
+                # Sum chunk count from member L1 topics
+                total_chunk_count = 0
+                for i in cluster_indices:
+                    l1_topic = next(t for t in l1_topics if t.id == ids[i])
+                    total_chunk_count += l1_topic.chunk_count
+                    
+                l2_id = self.db.create_topic_l2(
+                    title=f"Topic L2-{label}",
+                    descr="Pending description...",
+                    chunk_count=total_chunk_count,
+                    center_vec=centroid
+                )
+                
+                # Update L1 parents and Chunks
+                for l1_id in cluster_l1_ids:
+                    self.db.update_topic_l1_parent(l1_id, parent_l2_id=l2_id)
+                    self.db.update_chunks_parent_l2(l1_id, topic_l2_id=l2_id)
+                
+                if pbar:
+                    pbar.update(1)
+        finally:
+            if pbar:
+                pbar.close()
                     
         syslog2(LOG_INFO, "l2 topics saved")
 

@@ -70,7 +70,7 @@ class LegaleBot:
         # Token limit configuration
         self.max_context_tokens = int(os.getenv("MAX_CONTEXT_TOKENS", "14000"))
         
-        # Model switching support
+        # Model geting support
         self.available_models = self._load_available_models()
         if not model_name and self.available_models:
             model_name = self.available_models[0]
@@ -103,9 +103,9 @@ class LegaleBot:
                 syslog2(LOG_WARNING, "models file missing", path=models_file)
             return []
     
-    def switch_model(self) -> str:
+    def get_model(self) -> str:
         """
-        Switch to the next model in the list (cyclic).
+        get to the next model in the list (cyclic).
         
         Returns:
             Message with the new model name.
@@ -121,7 +121,7 @@ class LegaleBot:
         self.llm_client = LLMClient(model=new_model, verbosity=self.verbosity)
         
         if self.verbosity >= 1:
-            syslog2(LOG_INFO, "model switched", new_model=new_model)
+            syslog2(LOG_INFO, "model geted", new_model=new_model)
         
         return f"Модель переключена на: {new_model}\n({self.current_model_index + 1}/{len(self.available_models)})"
 
@@ -130,7 +130,7 @@ class LegaleBot:
         Set a specific model by name.
         
         Args:
-            model_name: Name of the model to switch to.
+            model_name: Name of the model to get to.
             
         Returns:
             Success message or error message.

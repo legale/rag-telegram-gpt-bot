@@ -186,7 +186,7 @@ class ProfileManager:
         """Delete a profile and all its data."""
         if profile_name == self.get_current_profile() and not force:
             print(f"Warning: Cannot delete active profile '{profile_name}'")
-            print("   Switch to another profile first or use --force")
+            print("   set another profile first or user force flag")
             return
         
         profile_dir = self.get_profile_dir(profile_name)
@@ -226,7 +226,12 @@ def cmd_profile(args, profile_manager: ProfileManager):
     elif args.profile_command == 'create':
         profile_manager.create_profile(args.name, set_active=getattr(args, 'set_active', False))
     
-    elif args.profile_command == 'switch':
+    elif args.profile_command == 'get':
+        # Return current profile name
+        current_profile = profile_manager.get_current_profile()
+        print(current_profile)
+    
+    elif args.profile_command == 'set':
         # Check if profile exists
         profile_dir = profile_manager.get_profile_dir(args.name)
         if not profile_dir.exists():
@@ -331,6 +336,18 @@ def cmd_ingest(args, profile_manager: ProfileManager):
         if not args.file:
             print("Error: file path is required for 'ingest all'")
             sys.exit(1)
+        
+        # Normalize file path - convert relative to absolute
+        file_path = args.file
+        if not os.path.isabs(file_path):
+            # If relative, resolve relative to current working directory
+            file_path = os.path.abspath(file_path)
+        
+        # Check if file exists
+        if not os.path.exists(file_path):
+            print(f"Error: File not found: {file_path}")
+            sys.exit(1)
+        
         model = getattr(args, 'model', None)
         batch_size = getattr(args, 'batch_size', 128)
         clustering_params = {}
@@ -344,14 +361,25 @@ def cmd_ingest(args, profile_manager: ProfileManager):
             clustering_params['cluster_selection_method'] = args.cluster_selection_method
         if hasattr(args, 'cluster_selection_epsilon') and args.cluster_selection_epsilon is not None:
             clustering_params['cluster_selection_epsilon'] = args.cluster_selection_epsilon
-        pipeline.run_all(args.file, model=model, batch_size=batch_size, **clustering_params)
+        pipeline.run_all(file_path, model=model, batch_size=batch_size, **clustering_params)
         
     elif ingest_command == 'stage0':
         if not args.file:
             print("Error: file path is required for 'ingest stage0'")
             sys.exit(1)
+        
+        # Normalize file path - convert relative to absolute
+        file_path = args.file
+        if not os.path.isabs(file_path):
+            file_path = os.path.abspath(file_path)
+        
+        # Check if file exists
+        if not os.path.exists(file_path):
+            print(f"Error: File not found: {file_path}")
+            sys.exit(1)
+        
         print("Running stage0: Parse and store...")
-        pipeline.run_stage0(args.file)
+        pipeline.run_stage0(file_path)
         print("Stage0 complete.")
         
     elif ingest_command == 'stage1':
@@ -548,6 +576,51 @@ def cmd_telegram(args, profile_manager: ProfileManager):
                 args.output = str(paths['profile_dir'] / args.output)
         
         fetcher.dump_chat(args.target, limit=args.limit, output_file=args.output)
+    
+    elif args.telegram_command == 'ingest_all':
+        # Find chat first to get its ID for filename
+        # We need to connect to get chat info, but dump_chat will connect again
+        # So we'll just let dump_chat handle the connection and find the file afterwards
+        output_dir = str(paths['profile_dir'])
+        
+        # Dump chat (this will create telegram_dump_{chat_id}.json in output_dir)
+        fetcher.dump_chat(args.target, limit=args.limit, output_file=output_dir)
+        
+        # Find the dumped file (dump_chat creates telegram_dump_{chat_id}.json)
+        import glob
+        dump_files = glob.glob(os.path.join(output_dir, "telegram_dump_*.json"))
+        if not dump_files:
+            print("Error: Failed to find dumped file")
+            sys.exit(1)
+        
+        # Use the most recent dump file
+        dump_file = max(dump_files, key=os.path.getmtime)
+        
+        # Check if dump file was created
+        if not os.path.exists(dump_file):
+            print(f"Error: Failed to create dump file: {dump_file}")
+            sys.exit(1)
+        
+        print(f"\nStarting ingestion of {dump_file}...\n")
+        
+        # Now run ingest all on the dumped file
+        from src.ingestion.pipeline import IngestionPipeline
+        
+        # Ensure profile directory exists
+        paths['profile_dir'].mkdir(parents=True, exist_ok=True)
+        paths['vector_db_path'].mkdir(parents=True, exist_ok=True)
+        
+        # Create pipeline with profile-specific paths
+        pipeline = IngestionPipeline(
+            db_url=paths['db_url'],
+            vector_db_path=str(paths['vector_db_path']),
+            profile_dir=str(paths['profile_dir'])
+        )
+        
+        # Run ingest all
+        model = getattr(args, 'model', None)
+        batch_size = getattr(args, 'batch_size', 128)
+        pipeline.run_all(dump_file, model=model, batch_size=batch_size)
 
 
 def cmd_chat(args, profile_manager: ProfileManager):
@@ -712,8 +785,14 @@ def parse_profile_create(stream: ArgStream) -> dict:
     return {"name": name, "set_active": set_active, "profile": parse_option(stream, "profile")}
 
 
-def parse_profile_switch(stream: ArgStream) -> dict:
-    """Parse profile switch command."""
+def parse_profile_get(stream: ArgStream) -> dict:
+    """Parse profile get command - returns current profile name."""
+    # No arguments needed, just return empty dict
+    return {"profile": parse_option(stream, "profile")}
+
+
+def parse_profile_set(stream: ArgStream) -> dict:
+    """Parse profile set command."""
     name = stream.expect("profile name")
     return {"name": name, "profile": parse_option(stream, "profile")}
 
@@ -910,6 +989,16 @@ def parse_telegram_dump(stream: ArgStream) -> dict:
     return {"target": target, "limit": limit, "output": output, "profile": profile, "telegram_command": "dump"}
 
 
+def parse_telegram_ingest_all(stream: ArgStream) -> dict:
+    """Parse telegram ingest all command."""
+    target = stream.expect("target")
+    limit = parse_int_option(stream, "limit", 1000)
+    model = parse_option(stream, "model")
+    batch_size = parse_int_option(stream, "batch-size", 128)
+    profile = parse_option(stream, "profile")
+    return {"target": target, "limit": limit, "model": model, "batch_size": batch_size, "profile": profile, "telegram_command": "ingest_all"}
+
+
 def parse_chat(stream: ArgStream) -> dict:
     """Parse chat command."""
     chunks = parse_int_option(stream, "chunks")
@@ -1033,7 +1122,7 @@ def parse_topics_show(stream: ArgStream) -> dict:
 def _parse_profile_subcommand(stream: ArgStream) -> dict:
     """Parse profile subcommand."""
     if not stream.has_next():
-        raise CLIError("profile subcommand required (list, create, switch, delete, info, option)")
+        raise CLIError("profile subcommand required (list, create, get, set, delete, info, option)")
     subcmd = stream.next().lower()
     
     result = None
@@ -1043,9 +1132,12 @@ def _parse_profile_subcommand(stream: ArgStream) -> dict:
     elif subcmd == "create":
         result = parse_profile_create(stream)
         result["profile_command"] = "create"
-    elif subcmd == "switch":
-        result = parse_profile_switch(stream)
-        result["profile_command"] = "switch"
+    elif subcmd == "get":
+        result = parse_profile_get(stream)
+        result["profile_command"] = "get"
+    elif subcmd == "set":
+        result = parse_profile_set(stream)
+        result["profile_command"] = "set"
     elif subcmd == "delete":
         result = parse_profile_delete(stream)
         result["profile_command"] = "delete"
@@ -1126,7 +1218,7 @@ def _parse_ingest_subcommand_with_args(args):
 def _parse_telegram_subcommand(stream: ArgStream) -> dict:
     """Parse telegram subcommand."""
     if not stream.has_next():
-        raise CLIError("telegram subcommand required (list, members, dump)")
+        raise CLIError("telegram subcommand required (list, members, dump, ingest)")
     subcmd = stream.next().lower()
     
     result = None
@@ -1136,6 +1228,15 @@ def _parse_telegram_subcommand(stream: ArgStream) -> dict:
         result = parse_telegram_members(stream)
     elif subcmd == "dump":
         result = parse_telegram_dump(stream)
+    elif subcmd == "ingest":
+        # Parse ingest subcommand
+        if not stream.has_next():
+            raise CLIError("telegram ingest subcommand required (all)")
+        ingest_subcmd = stream.next().lower()
+        if ingest_subcmd == "all":
+            result = parse_telegram_ingest_all(stream)
+        else:
+            raise CLIError(f"unknown telegram ingest subcommand: {ingest_subcmd}")
     else:
         raise CLIError(f"unknown telegram subcommand: {subcmd}")
     

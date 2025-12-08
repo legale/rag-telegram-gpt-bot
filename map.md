@@ -125,7 +125,7 @@ poetry based python program
 
 **Features:**
 - [x] Multiple bot instances with separate data
-- [x] Easy switching between environments (dev/prod/test)
+- [x] Easy geting between environments (dev/prod/test)
 - [x] Profile-specific Telegram sessions
 - [x] Automatic default profile creation
 
@@ -133,7 +133,7 @@ poetry based python program
 **Status: COMPLETE**
 
 - [x] **Admin Command Architecture**: Command router, permission checks, interactive menus
-- [x] **Profile Management via Bot**: Create, switch, delete, info profiles
+- [x] **Profile Management via Bot**: Create, get, delete, info profiles
 - [x] **Data Ingestion via Bot**: File upload, progress updates, status
 - [x] **Bot Statistics & Monitoring**: Stats, health checks, logs
 - [x] **Bot Control & Management**: Restart, configuration

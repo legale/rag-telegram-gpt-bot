@@ -37,6 +37,7 @@ class EmbeddingClient:
         self.api_key = api_key or os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
         self.base_url = base_url or os.getenv("OPENROUTER_BASE_URL") or "https://openrouter.ai/api/v1"
         self.model = model
+        self._dimension: Optional[int] = None  # Cache for embedding dimension
             
         self.client = OpenAI(
             api_key=self.api_key,
@@ -81,6 +82,17 @@ class EmbeddingClient:
 
     def get_embedding(self, text: str) -> List[float]:
         return self.get_embeddings([text])[0]
+    
+    def get_dimension(self) -> int:
+        """Get the dimension of embeddings produced by this model."""
+        # Use cached dimension if available
+        if self._dimension is not None:
+            return self._dimension
+        
+        # Create a test embedding to determine dimension
+        test_emb = self.get_embedding("test")
+        self._dimension = len(test_emb)
+        return self._dimension
 
     def embed_and_save_jsonl(
         self,
@@ -147,12 +159,12 @@ class EmbeddingClient:
 class LocalEmbeddingClient:
     """Client for generating text embeddings locally using sentence-transformers."""
     
-    def __init__(self, model: str = "paraphrase-multilingual-MiniLM-L12-v2"):
+    def __init__(self, model: str):
         """
         Initialize local embedding client.
         
         Args:
-            model: Model name from sentence-transformers (e.g., "paraphrase-multilingual-MiniLM-L12-v2")
+            model: Model name from sentence-transformers (e.g., "paraphrase-multilingual-mpnet-base-v2")
         """
         if SentenceTransformer is None:
             raise ImportError(
@@ -162,6 +174,7 @@ class LocalEmbeddingClient:
         
         self.model_name = model
         self._model = None
+        self._dimension: Optional[int] = None  # Cache for embedding dimension
     
     @property
     def model(self) -> SentenceTransformer:
@@ -227,6 +240,22 @@ class LocalEmbeddingClient:
     def get_embedding(self, text: str) -> List[float]:
         """Generate embedding for a single text."""
         return self.get_embeddings([text])[0]
+    
+    def get_dimension(self) -> int:
+        """Get the dimension of embeddings produced by this model."""
+        # Use cached dimension if available
+        if self._dimension is not None:
+            return self._dimension
+        
+        # Try to use model's built-in method if available
+        if hasattr(self.model, 'get_sentence_embedding_dimension'):
+            self._dimension = self.model.get_sentence_embedding_dimension()
+            return self._dimension
+        
+        # Otherwise, create a test embedding to determine dimension
+        test_emb = self.get_embedding("test")
+        self._dimension = len(test_emb)
+        return self._dimension
     
     def embed_and_save_jsonl(
         self,
@@ -302,7 +331,7 @@ def get_embedding_function(
     
     Args:
         provider: Provider name ("openrouter", "openai", "local")
-        model: Model name (for API: "text-embedding-3-small", for local: "paraphrase-multilingual-MiniLM-L12-v2")
+        model: Model name (for API: "text-embedding-3-small", for local: "paraphrase-multilingual-mpnet-base-v2")
     
     Returns:
         EmbeddingFunction instance or None
@@ -317,7 +346,7 @@ def get_embedding_function(
         client = EmbeddingClient(model=api_model)
         return OpenRouterEmbeddingFunction(client)
     elif provider_lower == "local":
-        local_model = model or os.getenv("EMBEDDING_MODEL", "paraphrase-multilingual-MiniLM-L12-v2")
+        local_model = model or os.getenv("EMBEDDING_MODEL", "paraphrase-multilingual-mpnet-base-v2")
         client = LocalEmbeddingClient(model=local_model)
         return LocalEmbeddingFunction(client)
     
@@ -347,7 +376,7 @@ def create_embedding_client(
         api_model = model or os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
         return EmbeddingClient(model=api_model)
     elif generator_lower == "local":
-        local_model = model or os.getenv("EMBEDDING_MODEL", "paraphrase-multilingual-MiniLM-L12-v2")
+        local_model = model or os.getenv("EMBEDDING_MODEL", "paraphrase-multilingual-mpnet-base-v2")
         try:
             return LocalEmbeddingClient(model=local_model)
         except ImportError:

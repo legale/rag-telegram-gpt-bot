@@ -75,7 +75,7 @@ Manually clear chat history:
 ```
 
 ### Option 1: Use a Larger Context Model (Recommended)
-Switch to a model with a larger context window by setting the environment variable:
+get to a model with a larger context window by setting the environment variable:
 
 ```bash
 # In your .env file

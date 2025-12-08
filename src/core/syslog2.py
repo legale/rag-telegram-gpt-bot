@@ -5,6 +5,7 @@ import inspect
 from datetime import datetime
 
 
+
 class LogLevel:
     """Syslog-like log levels: 1 = highest severity, 7 = lowest"""
     LOG_ALERT   = 1
@@ -16,23 +17,15 @@ class LogLevel:
     LOG_DEBUG   = 7
 
 
-# Backward compatibility - keep old constants
-LOG_ALERT   = LogLevel.LOG_ALERT
-LOG_CRIT    = LogLevel.LOG_CRIT
-LOG_ERR     = LogLevel.LOG_ERR
-LOG_WARNING = LogLevel.LOG_WARNING
-LOG_NOTICE  = LogLevel.LOG_NOTICE
-LOG_INFO    = LogLevel.LOG_INFO
-LOG_DEBUG   = LogLevel.LOG_DEBUG
 
-# Global constants for C-like syntax: syslog2(LOG_DEBUG, "msg")
-LOG_ALERT   = LogLevel.LOG_ALERT
-LOG_CRIT    = LogLevel.LOG_CRIT
-LOG_ERR     = LogLevel.LOG_ERR
-LOG_WARNING = LogLevel.LOG_WARNING
-LOG_NOTICE  = LogLevel.LOG_NOTICE
-LOG_INFO    = LogLevel.LOG_INFO
-LOG_DEBUG   = LogLevel.LOG_DEBUG
+"""global Syslog-like log levels: 1 = highest severity, 7 = lowest"""
+LOG_ALERT   = 1
+LOG_CRIT    = 2
+LOG_ERR     = 3
+LOG_WARNING = 4
+LOG_NOTICE  = 5
+LOG_INFO    = 6
+LOG_DEBUG   = 7
 
 # map 1..7 -> unique python logging levels (higher = more severe)
 # 1 -> 70, 2 -> 60, 3 -> 50, 4 -> 40, 5 -> 30, 6 -> 20, 7 -> 10

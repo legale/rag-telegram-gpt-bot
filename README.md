@@ -67,8 +67,8 @@ legale profile create <name> --set-active
 # List all profiles
 legale profile list
 
-# Switch active profile
-legale profile switch <name>
+# get active profile
+legale profile get <name>
 
 # Show profile info
 legale profile info [name]
@@ -169,7 +169,7 @@ legale bot daemon
 - `/help` - Show available commands
 - `/reset` - Clear conversation context
 - `/tokens` - Show token usage statistics
-- `/model` - Switch to next LLM model (cycles through `models.txt`)
+- `/model` - get to next LLM model (cycles through `models.txt`)
 - `/admin_set <password>` - Set yourself as bot administrator
 - `/admin_get` - Show admin information (admin only)
 
@@ -189,9 +189,9 @@ legale profile create prod
 legale telegram dump "Prod Chat" --limit 10000 --profile prod
 legale ingest telegram_dump_Prod_Chat.json --profile prod
 
-# Switch between them
-legale profile switch dev
-legale profile switch prod
+# get between them
+legale profile get dev
+legale profile get prod
 ```
 
 ### Update Bot Data
@@ -227,7 +227,7 @@ legale bot daemon   # Then run as daemon
 
 ## Model Management
 
-The bot supports switching between multiple LLM models at runtime.
+The bot supports geting between multiple LLM models at runtime.
 
 ### Configure Models
 
@@ -239,7 +239,7 @@ cognitivecomputations/dolphin-mistral-24b-venice-edition:free
 google/gemma-3-27b-it:free
 ```
 
-### Switch Models
+### get Models
 
 In Telegram bot, use `/model` command to cycle through available models.
 

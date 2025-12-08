@@ -106,11 +106,11 @@ class TestLoadAvailableModels:
                 os.unlink(temp_path)
 
 
-class TestSwitchModel:
-    """Tests for switch_model() method."""
+class TestgetModel:
+    """Tests for get_model() method."""
     
-    def test_switch_model_single_model(self, mock_dependencies, temp_models_file):
-        """Test switching when only one model is available."""
+    def test_get_model_single_model(self, mock_dependencies, temp_models_file):
+        """Test geting when only one model is available."""
         with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
             f.write("single-model\n")
             single_model_path = f.name
@@ -119,7 +119,7 @@ class TestSwitchModel:
             with patch('src.bot.core.os.path.join', return_value=single_model_path):
                 bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
                 
-                result = bot.switch_model()
+                result = bot.get_model()
                 
                 # Should stay on the same model (cycling)
                 assert "single-model" in result
@@ -129,7 +129,7 @@ class TestSwitchModel:
             if os.path.exists(single_model_path):
                 os.unlink(single_model_path)
     
-    def test_switch_model_multiple_models_cycling(self, mock_dependencies, temp_models_file):
+    def test_get_model_multiple_models_cycling(self, mock_dependencies, temp_models_file):
         """Test cycling through multiple models."""
         with patch('src.bot.core.os.path.join', return_value=temp_models_file):
             bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
@@ -137,52 +137,52 @@ class TestSwitchModel:
             # Initial state
             assert bot.current_model_index == 0
             
-            # First switch
-            result1 = bot.switch_model()
+            # First get
+            result1 = bot.get_model()
             assert bot.current_model_index == 1
             assert "nvidia/nemotron-nano-9b-v2:free" in result1
             assert "(2/4)" in result1
             
-            # Second switch
-            result2 = bot.switch_model()
+            # Second get
+            result2 = bot.get_model()
             assert bot.current_model_index == 2
             assert "cognitivecomputations/dolphin-mistral-24b-venice-edition:free" in result2
             assert "(3/4)" in result2
             
-            # Third switch
-            result3 = bot.switch_model()
+            # Third get
+            result3 = bot.get_model()
             assert bot.current_model_index == 3
             assert "google/gemma-3-27b-it:free" in result3
             assert "(4/4)" in result3
             
-            # Fourth switch - should wrap around
-            result4 = bot.switch_model()
+            # Fourth get - should wrap around
+            result4 = bot.get_model()
             assert bot.current_model_index == 0
             assert "openai/gpt-oss-20b:free" in result4
             assert "(1/4)" in result4
     
-    def test_switch_model_recreates_llm_client(self, mock_dependencies, temp_models_file):
-        """Test that switch_model() recreates the LLM client with new model."""
+    def test_get_model_recreates_llm_client(self, mock_dependencies, temp_models_file):
+        """Test that get_model() recreates the LLM client with new model."""
         with patch('src.bot.core.os.path.join', return_value=temp_models_file):
             bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
             
             # Get initial LLM client
             initial_llm_client = bot.llm_client
             
-            # Switch model
-            bot.switch_model()
+            # get model
+            bot.get_model()
             
             # LLM client should be recreated
             # In our mock, it will be a new Mock instance
             assert bot.llm_client is not None
     
-    def test_switch_model_empty_list(self, mock_dependencies):
-        """Test switch_model() with empty model list."""
+    def test_get_model_empty_list(self, mock_dependencies):
+        """Test get_model() with empty model list."""
         with patch('src.bot.core.os.path.join', return_value='/nonexistent/models.txt'):
             bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
             bot.available_models = []  # Force empty list
             
-            result = bot.switch_model()
+            result = bot.get_model()
             
             assert "Нет доступных моделей" in result
 
@@ -201,13 +201,13 @@ class TestGetCurrentModel:
             assert "(1/4)" in result
             assert "" in result
     
-    def test_get_current_model_after_switch(self, mock_dependencies, temp_models_file):
-        """Test get_current_model() after switching models."""
+    def test_get_current_model_after_get(self, mock_dependencies, temp_models_file):
+        """Test get_current_model() after geting models."""
         with patch('src.bot.core.os.path.join', return_value=temp_models_file):
             bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
             
-            # Switch to second model
-            bot.switch_model()
+            # get to second model
+            bot.get_model()
             
             result = bot.get_current_model()
             

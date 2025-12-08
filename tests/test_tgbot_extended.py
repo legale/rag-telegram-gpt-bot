@@ -29,7 +29,7 @@ class TestMessageHandler:
             'max_tokens': 14000,
             'percentage': 7.14
         }
-        bot_mock.switch_model.return_value = None  # Fixed: method returns None
+        bot_mock.get_model.return_value = None  # Fixed: method returns None
         bot_mock.get_current_model.return_value = ("gpt-3.5-turbo", 1, 3)
         
         admin_mock = Mock()
@@ -136,14 +136,14 @@ class TestMessageHandler:
     
     @pytest.mark.asyncio
     async def test_handle_model_command(self, setup_handler):
-        """Test /model command switches model."""
+        """Test /model command getes model."""
         handler = setup_handler['handler']
         bot = setup_handler['bot']
-        bot.switch_model.return_value = "Модель переключена на: gpt-4\n(2/3)"
+        bot.get_model.return_value = "Модель переключена на: gpt-4\n(2/3)"
         
         result = await handler.handle_model_command()
         
-        bot.switch_model.assert_called_once()
+        bot.get_model.assert_called_once()
         assert "Модель переключена" in result or "gpt-4" in result
     
     @pytest.mark.asyncio
@@ -296,7 +296,7 @@ class TestMessageHandler:
         
         result = await handler.route_command("/model", update_mock)
         
-        bot.switch_model.assert_called_once()
+        bot.get_model.assert_called_once()
     
     @pytest.mark.asyncio
     async def test_route_command_admin_set(self, setup_handler):

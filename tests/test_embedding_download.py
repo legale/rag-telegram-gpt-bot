@@ -11,7 +11,7 @@ class TestLocalEmbeddingClient(unittest.TestCase):
         if "HF_HUB_OFFLINE" in os.environ:
             del os.environ["HF_HUB_OFFLINE"]
             
-        self.model_name = "paraphrase-multilingual-MiniLM-L12-v2"
+        self.model_name = "paraphrase-multilingual-mpnet-base-v2"
         self.client = LocalEmbeddingClient(model=self.model_name)
 
     @patch("src.core.embedding.SentenceTransformer")
