@@ -143,15 +143,45 @@ class IngestionPipeline:
         """Run stage1: generate embeddings for chunks."""
         self.generate_embeddings(model=model, batch_size=batch_size)
 
+    def _get_llm_client(self):
+        """Get LLM client using model from profile config."""
+        from src.core.llm import LLMClient
+        
+        model_name = None
+        if self.profile_dir and self.profile_dir.exists():
+            try:
+                from src.bot.config import BotConfig
+                config = BotConfig(self.profile_dir)
+                model_name = config.current_model
+            except Exception as e:
+                syslog2(LOG_WARNING, "failed to load model from profile config", error=str(e))
+        
+        # Fallback to models.txt if no model found
+        if not model_name:
+            try:
+                models_file = Path(__file__).parent.parent.parent / "models.txt"
+                if models_file.exists():
+                    with open(models_file, "r") as f:
+                        model_name = f.readline().strip()
+            except Exception as e:
+                syslog2(LOG_WARNING, "failed to load model from models.txt", error=str(e))
+        
+        # Final fallback to default
+        if not model_name:
+            model_name = "openai/gpt-oss-20b:free"
+            syslog2(LOG_INFO, "using default LLM model", model=model_name)
+        
+        return LLMClient(model=model_name, verbosity=0)
+
     def run_stage2(self, **clustering_params):
         """Run stage2: cluster chunk embeddings into topics_l1."""
         from src.ai.clustering import TopicClusterer
-        from src.core.llm import LLMClient
         
+        llm_client = self._get_llm_client()
         clusterer = TopicClusterer(
             db=self.db,
             vector_store=self.vector_store,
-            llm_client=LLMClient()
+            llm_client=llm_client
         )
         
         # Default parameters if not provided
@@ -168,12 +198,12 @@ class IngestionPipeline:
     def run_stage3(self, only_unnamed: bool = False, rebuild: bool = False):
         """Run stage3: generate topic names for L1 topics."""
         from src.ai.clustering import TopicClusterer
-        from src.core.llm import LLMClient
         
+        llm_client = self._get_llm_client()
         clusterer = TopicClusterer(
             db=self.db,
             vector_store=self.vector_store,
-            llm_client=LLMClient()
+            llm_client=llm_client
         )
         
         clusterer.name_topics(only_unnamed=only_unnamed, rebuild=rebuild, target='l1')
@@ -181,12 +211,12 @@ class IngestionPipeline:
     def run_stage4(self, **clustering_params):
         """Run stage4: cluster L1 topics into L2 and generate names."""
         from src.ai.clustering import TopicClusterer
-        from src.core.llm import LLMClient
         
+        llm_client = self._get_llm_client()
         clusterer = TopicClusterer(
             db=self.db,
             vector_store=self.vector_store,
-            llm_client=LLMClient()
+            llm_client=llm_client
         )
         
         # Default parameters if not provided
