@@ -147,18 +147,23 @@ class TopicClusterer:
             syslog2(LOG_WARNING, "high noise percentage, consider lowering min_cluster_size or min_samples",
                     noise_percentage=f"{noise_percentage:.1f}%")
 
-        # 4. Save topics and update chunks
+        # 4. Save topics (without assigning to chunks yet - that's stage2b)
         # First, clear existing L1 topics? Maybe we should be additive or replace?
         # For now, let's assume a full rebuild is requested (safer for consistency).
         self.db.clear_topics_l1()
         
+        # Initialize assignments storage
+        self._l1_topic_assignments = {}
+        
         for label, indices in clusters.items():
             if label == -1:
                 # Noise - basically "unclustered"
-                # We update chunks to have no topic
+                # Store for later assignment (will be None)
                 for idx in indices:
                     chunk_id = ids[idx]
-                    self.db.update_chunk_topics(chunk_id, topic_l1_id=None, topic_l2_id=None)
+                    if None not in self._l1_topic_assignments:
+                        self._l1_topic_assignments[None] = []
+                    self._l1_topic_assignments[None].append(chunk_id)
                 continue
                 
             # Process real cluster
@@ -195,7 +200,7 @@ class TopicClusterer:
                 try:
                     ts_to = datetime.fromisoformat(max(ts_end_list))
                 except ValueError: pass
-                
+            
             # Create Topic L1
             # For now, title is placeholder "Topic {label}" -> will be named by LLM in Phase 14.5
             topic_id = self.db.create_topic_l1(
@@ -208,11 +213,41 @@ class TopicClusterer:
                 ts_to=ts_to
             )
             
-            # Assign chunks to this topic
-            for chunk_id in cluster_ids:
-                self.db.update_chunk_topics(chunk_id, topic_l1_id=topic_id, topic_l2_id=None)
+            # Store mapping for later assignment (stage2b)
+            self._l1_topic_assignments[topic_id] = cluster_ids
                 
-        syslog2(LOG_INFO, "l1 topics saved")
+        syslog2(LOG_INFO, "l1 topics created", count=valid_clusters)
+        
+        return self._l1_topic_assignments
+    
+    def assign_l1_topics_to_chunks(self):
+        """
+        Assign topic_l1_id to chunks based on clustering results.
+        This should be called after perform_l1_clustering.
+        """
+        if not hasattr(self, '_l1_topic_assignments') or not self._l1_topic_assignments:
+            syslog2(LOG_WARNING, "no l1 topic assignments found, run perform_l1_clustering first")
+            return
+        
+        assigned_count = 0
+        noise_count = 0
+        
+        for topic_id, chunk_ids in self._l1_topic_assignments.items():
+            if topic_id is None:
+                # Noise chunks - assign None
+                for chunk_id in chunk_ids:
+                    self.db.update_chunk_topics(chunk_id, topic_l1_id=None, topic_l2_id=None)
+                    noise_count += 1
+            else:
+                # Real topics
+                for chunk_id in chunk_ids:
+                    self.db.update_chunk_topics(chunk_id, topic_l1_id=topic_id, topic_l2_id=None)
+                    assigned_count += 1
+        
+        syslog2(LOG_INFO, "l1 topics assigned to chunks", assigned=assigned_count, noise=noise_count)
+        
+        # Clear assignments after use
+        delattr(self, '_l1_topic_assignments')
 
     def perform_l2_clustering(
         self, 

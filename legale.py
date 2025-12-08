@@ -346,7 +346,7 @@ def cmd_ingest(args, profile_manager: ProfileManager):
         pipeline.run_stage2(**clustering_params)
         print("Stage2 complete.")
         
-    elif ingest_command == 'stage3':
+    elif ingest_command == 'stage2b':
         # Check if there are L1 topics
         from src.storage.db import Database
         db = Database(paths['db_url'])
@@ -354,6 +354,29 @@ def cmd_ingest(args, profile_manager: ProfileManager):
         if not l1_topics:
             print("Error: No L1 topics found. Run 'ingest stage2' first.")
             sys.exit(1)
+        
+        print("Running stage2b: Assign topics to chunks...")
+        pipeline.run_stage2b()
+        print("Stage2b complete.")
+        
+    elif ingest_command == 'stage3':
+        # Check if there are L1 topics
+        from src.storage.db import Database, ChunkModel
+        db = Database(paths['db_url'])
+        l1_topics = db.get_all_topics_l1()
+        if not l1_topics:
+            print("Error: No L1 topics found. Run 'ingest stage2' first.")
+            sys.exit(1)
+        
+        # Check if topics are assigned to chunks
+        session = db.get_session()
+        try:
+            chunks_with_topics = session.query(ChunkModel).filter(ChunkModel.topic_l1_id.isnot(None)).count()
+            if chunks_with_topics == 0:
+                print("Error: No chunks have topic assignments. Run 'ingest stage2b' first.")
+                sys.exit(1)
+        finally:
+            session.close()
         
         only_unnamed = getattr(args, 'only_unnamed', False)
         rebuild = getattr(args, 'rebuild', False)
@@ -406,10 +429,15 @@ def cmd_ingest(args, profile_manager: ProfileManager):
         deleted = pipeline.clear_stage2()
         print(f"Stage2 cleared: {deleted} topics_l1 deleted.")
         
+    elif ingest_command == 'clear_stage2b':
+        print("Clearing stage2b: topic_l1_id assignments...")
+        updated = pipeline.clear_stage2b()
+        print(f"Stage2b cleared: {updated} chunks updated.")
+        
     elif ingest_command == 'clear_stage3':
-        print("Clearing stage3: topic_l1_id assignments...")
-        updated = pipeline.clear_stage3()
-        print(f"Stage3 cleared: {updated} chunks updated.")
+        print("Clearing stage3: topic names (no data to clear)...")
+        pipeline.clear_stage3()
+        print("Stage3 cleared.")
         
     elif ingest_command == 'clear_stage4':
         print("Clearing stage4: topic_l2_id assignments and topics_l2...")
@@ -740,6 +768,12 @@ def parse_ingest_stage2(stream: ArgStream) -> dict:
     }
 
 
+def parse_ingest_stage2b(stream: ArgStream) -> dict:
+    """Parse ingest stage2b command."""
+    profile = parse_option(stream, "profile")
+    return {"profile": profile, "ingest_command": "stage2b"}
+
+
 def parse_ingest_stage3(stream: ArgStream) -> dict:
     """Parse ingest stage3 command."""
     only_unnamed = parse_flag(stream, "only-unnamed")
@@ -789,6 +823,12 @@ def parse_ingest_clear_stage2(stream: ArgStream) -> dict:
     """Parse ingest clear stage2 command."""
     profile = parse_option(stream, "profile")
     return {"profile": profile, "ingest_command": "clear_stage2"}
+
+
+def parse_ingest_clear_stage2b(stream: ArgStream) -> dict:
+    """Parse ingest clear stage2b command."""
+    profile = parse_option(stream, "profile")
+    return {"profile": profile, "ingest_command": "clear_stage2b"}
 
 
 def parse_ingest_clear_stage3(stream: ArgStream) -> dict:
@@ -1041,16 +1081,18 @@ def _parse_ingest_subcommand(stream: ArgStream) -> dict:
             return parse_ingest_clear_stage1(stream)
         elif clear_subcmd == "stage2":
             return parse_ingest_clear_stage2(stream)
+        elif clear_subcmd == "stage2b":
+            return parse_ingest_clear_stage2b(stream)
         elif clear_subcmd == "stage3":
             return parse_ingest_clear_stage3(stream)
         elif clear_subcmd == "stage4":
             return parse_ingest_clear_stage4(stream)
         else:
-            raise CLIError(f"unknown clear subcommand: {clear_subcmd}. Use: all, stage0-4")
+            raise CLIError(f"unknown clear subcommand: {clear_subcmd}. Use: all, stage0, stage1, stage2, stage2b, stage3, stage4")
     elif subcmd == "info":
         return parse_ingest_info(stream)
     else:
-        raise CLIError(f"unknown ingest subcommand: {subcmd}. Use: all, stage0-4, clear all/stage0-4, info")
+        raise CLIError(f"unknown ingest subcommand: {subcmd}. Use: all, stage0, stage1, stage2, stage2b, stage3, stage4, clear all/stage0/stage1/stage2/stage2b/stage3/stage4, info")
 
 
 def _parse_ingest_subcommand_with_args(args):
@@ -1191,7 +1233,7 @@ def main():
         CommandSpec(
             "ingest", 
             lambda s: _parse_ingest_subcommand(s),
-            help_text="ingest <subcommand>\n\nSubcommands:\n  all <file> [model <name>] [batch-size <n>] [profile <name>] - Run all stages\n  stage0 <file> [profile <name>] - Parse and store messages/chunks\n  stage1 [model <name>] [batch-size <n>] [profile <name>] - Generate embeddings\n  stage2 [min-cluster-size <n>] [min-samples <n>] [metric <name>] [cluster-selection-method <name>] [cluster-selection-epsilon <f>] [profile <name>] - Cluster L1 topics\n  stage3 [only-unnamed] [rebuild] [profile <name>] - Name L1 topics\n  stage4 [min-cluster-size <n>] [min-samples <n>] [metric <name>] [cluster-selection-method <name>] [cluster-selection-epsilon <f>] [profile <name>] - Cluster L2 topics and name\n  clear all [profile <name>] - Clear all stages\n  clear stage0 [profile <name>] - Clear messages\n  clear stage1 [profile <name>] - Clear embeddings\n  clear stage2 [profile <name>] - Clear topics_l1\n  clear stage3 [profile <name>] - Clear topic_l1_id assignments\n  clear stage4 [profile <name>] - Clear topic_l2_id assignments and topics_l2\n  info [profile <name>] - Show database statistics"
+            help_text="ingest <subcommand>\n\nSubcommands:\n  all <file> [model <name>] [batch-size <n>] [profile <name>] - Run all stages\n  stage0 <file> [profile <name>] - Parse and store messages/chunks\n  stage1 [model <name>] [batch-size <n>] [profile <name>] - Generate embeddings\n  stage2 [min-cluster-size <n>] [min-samples <n>] [metric <name>] [cluster-selection-method <name>] [cluster-selection-epsilon <f>] [profile <name>] - Cluster chunk embeddings into L1 topics (HDBSCAN)\n  stage2b [profile <name>] - Assign topic_l1_id to chunks\n  stage3 [only-unnamed] [rebuild] [profile <name>] - Generate topic names for L1 topics\n  stage4 [min-cluster-size <n>] [min-samples <n>] [metric <name>] [cluster-selection-method <name>] [cluster-selection-epsilon <f>] [profile <name>] - Cluster L1 topics into L2 and generate names\n  clear all [profile <name>] - Clear all stages\n  clear stage0 [profile <name>] - Clear messages\n  clear stage1 [profile <name>] - Clear embeddings\n  clear stage2 [profile <name>] - Clear topics_l1\n  clear stage2b [profile <name>] - Clear topic_l1_id assignments\n  clear stage3 [profile <name>] - Clear topic names (no-op, names stored in topics_l1)\n  clear stage4 [profile <name>] - Clear topic_l2_id assignments and topics_l2\n  info [profile <name>] - Show database statistics"
         ),
         
         # Telegram commands
