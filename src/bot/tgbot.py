@@ -87,6 +87,7 @@ class MessageHandler:
             "• /reset — сбросить контекст разговора\n"
             "• /tokens — показать использование токенов\n"
             "• /model — переключить модель LLM\n"
+            "• /find <запрос> — поиск сообщений по запросу\n"
             "• /admin_set <пароль> — назначить себя администратором\n"
             "• /admin_get — показать информацию об администраторе (только для админа)\n"
             "• /admin — панель администратора (только для админа)\n"
@@ -205,6 +206,40 @@ class MessageHandler:
             syslog2(LOG_ERR, "admin command failed", error=str(e))
             return f"Ошибка при выполнении админ-команды: {e}"
     
+    async def handle_find_command(self, text: str) -> str:
+        """Handle /find command."""
+        try:
+            # Extract search query from command text
+            parts = text.split(maxsplit=1)
+            if len(parts) < 2 or not parts[1].strip():
+                return (
+                    "Использование: /find <запрос>\n\n"
+                    "Пример: /find vpn туннель"
+                )
+            
+            search_query = parts[1].strip()
+            
+            # Get db and retrieval from bot instance
+            db = self.bot.db
+            retrieval = self.bot.retrieval
+            from src.core.message_search import search_message_links
+            
+            # Search for message links
+            links = search_message_links(retrieval, db, search_query, top_k=3)
+            
+            if not links:
+                return f'по запросу "{search_query}" ничего не найдено'
+            
+            # Format response with links
+            lines = [f'найдено по запросу: "{search_query}"']
+            for idx, link in enumerate(links, start=1):
+                lines.append(f"{idx}. {link}")
+            
+            return "\n".join(lines)
+        except Exception as e:
+            syslog2(LOG_ERR, "find command failed", error=str(e))
+            return f"Ошибка при выполнении поиска: {e}"
+    
     async def handle_user_query(self, text: str, respond: bool) -> str:
         """Handle regular user query to bot."""
         try:
@@ -260,6 +295,8 @@ class MessageHandler:
             return await self.handle_tokens_command()
         elif text.startswith("/model"):
             return await self.handle_model_command()
+        elif text.startswith("/find"):
+            return await self.handle_find_command(text)
         elif text.startswith("/admin_set"):
             return await self.handle_admin_set_command(text, message)
         elif text.startswith("/admin_get"):
