@@ -62,6 +62,8 @@ class LegaleBot:
             embedding_client=self.embedding_client,
             verbosity=verbosity
         )
+        # Alias for compatibility
+        self.retrieval = self.retrieval_service
         self.prompt_engine = PromptEngine()
         
         # Simple in-memory history for the current session
@@ -121,7 +123,7 @@ class LegaleBot:
         self.llm_client = LLMClient(model=new_model, verbosity=self.verbosity)
         
         if self.verbosity >= 1:
-            syslog2(LOG_INFO, "model geted", new_model=new_model)
+            syslog2(LOG_NOTICE, "model geted", new_model=new_model)
         
         return f"Модель переключена на: {new_model}\n({self.current_model_index + 1}/{len(self.available_models)})"
 
@@ -144,7 +146,7 @@ class LegaleBot:
         self.llm_client = LLMClient(model=model_name, verbosity=self.verbosity)
         
         if self.verbosity >= 1:
-            syslog2(LOG_INFO, "model set", new_model=model_name)
+            syslog2(LOG_NOTICE, "model set", new_model=model_name)
             
         return f"Модель успешно установлена: {model_name}"
     
@@ -240,7 +242,7 @@ class LegaleBot:
             self.chat_history.append({"role": "user", "content": user_input})
             return ""
 
-        syslog2(LOG_INFO, "retrieving context", chunks=n_results)
+        syslog2(LOG_NOTICE, "retrieving context", chunks=n_results)
         context_chunks = self.retrieval_service.retrieve(
             user_input, n_results=n_results
         )
@@ -263,7 +265,7 @@ class LegaleBot:
         if self.verbosity >= 2:
             syslog2(LOG_DEBUG, "system prompt constructed", length=len(system_prompt))
 
-        syslog2(LOG_INFO, "querying llm")
+        syslog2(LOG_NOTICE, "querying llm")
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_input},

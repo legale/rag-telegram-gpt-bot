@@ -277,6 +277,61 @@ class Database:
         finally:
             session.close()
 
+    def get_chunk_link_info(self, chunk_id: str) -> Tuple[Optional[int], Optional[int], Optional[str]]:
+        """
+        Get link information for a chunk.
+        
+        Args:
+            chunk_id: Chunk ID
+            
+        Returns:
+            Tuple of (chat_id, msg_id, chat_username)
+            Returns (None, None, None) if chunk not found or missing required fields
+        """
+        session = self.get_session()
+        try:
+            chunk = session.query(ChunkModel).filter(ChunkModel.id == chunk_id).first()
+            if chunk is None:
+                return (None, None, None)
+            
+            # Extract chat_id
+            chat_id = None
+            if chunk.chat_id:
+                try:
+                    # chat_id is stored as string, convert to int
+                    chat_id = int(chunk.chat_id)
+                except (ValueError, TypeError):
+                    pass
+            
+            # Extract msg_id from msg_id_start
+            # msg_id_start format: "{chat_id}_{msg_id}"
+            msg_id = None
+            if chunk.msg_id_start:
+                try:
+                    # Extract the numeric part after the underscore
+                    parts = chunk.msg_id_start.split('_', 1)
+                    if len(parts) > 1:
+                        msg_id = int(parts[1])
+                    else:
+                        # If no underscore, try to parse the whole string
+                        msg_id = int(chunk.msg_id_start)
+                except (ValueError, TypeError, IndexError):
+                    pass
+            
+            # Extract chat_username from metadata_json (optional)
+            chat_username = None
+            if chunk.metadata_json:
+                try:
+                    meta = json.loads(chunk.metadata_json)
+                    if isinstance(meta, dict):
+                        chat_username = meta.get("chat_username")
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            
+            return (chat_id, msg_id, chat_username)
+        finally:
+            session.close()
+
     # ========================================================================
     # Message Methods
     # ========================================================================

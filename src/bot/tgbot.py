@@ -11,7 +11,6 @@ This module provides:
 
 import sys
 import os
-import argparse
 import logging
 import signal
 from typing import Optional, Dict, List
@@ -52,6 +51,9 @@ ingest_commands: Optional[IngestCommands] = None
 # Access control and frequency controller
 access_control: Optional[AccessControlService] = None
 frequency_controller: FrequencyController = FrequencyController()
+
+# Debug RAG mode flag
+debug_rag_mode: bool = False
 
 # Logging setup
 logger = logging.getLogger("legale_tgbot")
@@ -158,7 +160,7 @@ class MessageHandler:
             try:
                 self.admin_manager.set_admin(user_id, username, first_name, last_name)
                 full_name = f"{first_name} {last_name}".strip() if last_name else first_name
-                syslog2(LOG_INFO, "admin set", full_name=full_name, user_id=user_id)
+                syslog2(LOG_NOTICE, "admin set", full_name=full_name, user_id=user_id)
                 return (
                     f"Вы успешно назначены администратором!\n\n"
                     f"Имя: {full_name}\n"
@@ -207,8 +209,38 @@ class MessageHandler:
         """Handle regular user query to bot."""
         try:
             # Get system prompt from config
-            system_prompt = self.admin_manager.config.system_prompt
-            return self.bot.chat(text, respond=respond, system_prompt_template=system_prompt)
+            system_prompt_template = self.admin_manager.config.system_prompt
+            
+            # Debug RAG mode - show retrieved chunks and prompts
+            if debug_rag_mode and respond:
+                debug_info = self.bot.get_rag_debug_info(text, n_results=3)
+                print("\n" + "=" * 70)
+                print("RAG DEBUG INFO")
+                print("=" * 70)
+                print(f"\nRetrieved Chunks: {len(debug_info['chunks'])}")
+                for i, chunk in enumerate(debug_info['chunks'], 1):
+                    print(f"\n--- Chunk {i} (score: {chunk.get('score', 'N/A'):.3f}, source: {chunk.get('source', 'unknown')}) ---")
+                    meta = chunk.get('metadata', {})
+                    if meta.get('topic_l2_title'):
+                        print(f"Category: {meta['topic_l2_title']}")
+                    if meta.get('topic_l1_title'):
+                        print(f"Topic: {meta['topic_l1_title']}")
+                    print(f"Text preview: {chunk['text'][:200]}...")
+                    if len(chunk['text']) > 200:
+                        print(f"  (full length: {len(chunk['text'])} chars)")
+                print("\n" + "-" * 70)
+                print(f"System Prompt ({len(debug_info['prompt'])} chars):")
+                print("-" * 70)
+                print(debug_info['prompt'])
+                print("-" * 70)
+                print(f"\nUser Prompt ({len(text)} chars):")
+                print("-" * 70)
+                print(text)
+                print("-" * 70)
+                print(f"\nToken count: {debug_info.get('token_count', 'N/A')}")
+                print("=" * 70 + "\n")
+            
+            return self.bot.chat(text, respond=respond, system_prompt_template=system_prompt_template)
         except Exception as e:
             syslog2(LOG_ERR, "process user query failed", error=str(e))
             return f"Произошла ошибка при обработке вашего запроса. error={e}"
@@ -255,7 +287,7 @@ async def init_runtime_for_current_profile():
     # пересоздаем admin_manager sначала, чтобы получить конфиг
     profile_dir = paths["profile_dir"]
     admin_manager_local = AdminManager(profile_dir)
-    syslog2(LOG_INFO, "admin manager initialized", profile_dir=str(profile_dir))
+    syslog2(LOG_NOTICE, "admin manager initialized", profile_dir=str(profile_dir))
 
     # Загружаем сохраненную модель
     model_name = admin_manager_local.config.current_model or "openai/gpt-oss-20b:free"
@@ -346,16 +378,42 @@ async def reload_for_current_profile():
     return paths
 
 
-def setup_logging(verbosity: int = 0, use_syslog: bool = False):
+def setup_logging(log_level: Optional[str] = None, verbosity: Optional[int] = None, use_syslog: bool = False):
     """
-    Configure logging based on verbosity level.
+    Configure logging based on log level or verbosity.
     
     Args:
-        verbosity: 0=WARNING, 1=INFO, 2=DEBUG, 3=TRACE
+        log_level: Log level string (INFO, DEBUG, WARNING, etc.) or number (6=INFO, 7=DEBUG)
+        verbosity: Legacy verbosity level (0=WARNING, 1=INFO, 2=DEBUG, 3=TRACE) - for backward compatibility
         use_syslog: If True, log to syslog instead of stdout
     """
-    levels = [logging.WARNING, logging.INFO, logging.DEBUG, logging.DEBUG]
-    level = levels[min(verbosity, 3)]
+    # Map log_level to logging level
+    if log_level:
+        log_level_upper = log_level.upper()
+        level_map = {
+            "1": logging.CRITICAL,  # ALERT
+            "2": logging.CRITICAL,  # CRIT
+            "3": logging.ERROR,     # ERR
+            "4": logging.WARNING,   # WARNING
+            "5": logging.INFO,      # NOTICE
+            "6": logging.INFO,      # INFO
+            "7": logging.DEBUG,     # DEBUG
+            "ALERT": logging.CRITICAL,
+            "CRIT": logging.CRITICAL,
+            "ERR": logging.ERROR,
+            "ERROR": logging.ERROR,
+            "WARNING": logging.WARNING,
+            "NOTICE": logging.INFO,
+            "INFO": logging.INFO,
+            "DEBUG": logging.DEBUG,
+        }
+        level = level_map.get(log_level_upper, logging.WARNING)
+    elif verbosity is not None:
+        # Legacy support for verbosity
+        levels = [logging.WARNING, logging.INFO, logging.DEBUG, logging.DEBUG]
+        level = levels[min(verbosity, 3)]
+    else:
+        level = logging.WARNING
     
     if use_syslog:
         from logging.handlers import SysLogHandler
@@ -384,7 +442,7 @@ async def lifespan(app: FastAPI):
     """
     global bot_instance, telegram_app, admin_manager, admin_router, profile_manager, task_manager, ingest_commands, access_control
     
-    syslog2(LOG_INFO, "daemon starting")
+    syslog2(LOG_NOTICE, "daemon starting")
     
     # Initialize profile manager
     try:
@@ -401,7 +459,7 @@ async def lifespan(app: FastAPI):
         profile_manager = ProfileManager(project_root)
         
         logger.info("Profile manager initialized")
-        syslog2(LOG_INFO, "profile manager initialized", profile=profile_manager.get_current_profile())
+        syslog2(LOG_NOTICE, "profile manager initialized", profile=profile_manager.get_current_profile())
     except Exception as e:
         syslog2(LOG_ERR, "profile manager init failed", error=str(e))
         profile_manager = None
@@ -422,22 +480,22 @@ async def lifespan(app: FastAPI):
     
     telegram_app = Application.builder().token(token).build()
     await telegram_app.initialize()
-    syslog2(LOG_INFO, "telegram app initialized")
+    syslog2(LOG_NOTICE, "telegram app initialized")
     
     # Initialize access control service
     if admin_manager:
         access_control = AccessControlService(admin_manager)
-        syslog2(LOG_INFO, "access control initialized")
+        syslog2(LOG_NOTICE, "access control initialized")
     else:
         syslog2(LOG_WARNING, "access control not initialized", reason="admin_manager is None")
     
     yield
     
     # Cleanup
-    syslog2(LOG_INFO, "shutting down")
+    syslog2(LOG_NOTICE, "shutting down")
     if telegram_app:
         await telegram_app.shutdown()
-    syslog2(LOG_INFO, "shutdown complete")
+    syslog2(LOG_NOTICE, "shutdown complete")
 
 
 # Create FastAPI app
@@ -530,7 +588,7 @@ async def handle_message(update: Update):
     chat_id = message.chat_id
     user_id = message.from_user.id
 
-    syslog2(LOG_INFO, "message received", chat_id=chat_id, user_id=user_id, text_snippet=text[:50])
+    syslog2(LOG_NOTICE, "message received", chat_id=chat_id, user_id=user_id, text_snippet=text[:50])
 
     is_command = text.startswith("/")
     is_private = (message.chat.type == "private")
@@ -609,6 +667,23 @@ async def handle_message(update: Update):
     bot_id = telegram_app.bot.id
     has_mention = is_bot_mentioned(message, bot_username, bot_id)
     
+    # Parse search command
+    is_search_command = False
+    search_query = ""
+    if has_mention and not is_command:
+        raw_text = (text or "").strip()
+        lowered = raw_text.lower()
+        mention_prefix = f"@{bot_username}"
+        if lowered.startswith(mention_prefix):
+            raw_text = raw_text[len(mention_prefix):].lstrip()
+            parts = raw_text.split(maxsplit=1)
+            if parts:
+                first = parts[0].lower()
+                rest = parts[1].strip() if len(parts) > 1 else ""
+                if first in ("поиск", "find") and rest:
+                    is_search_command = True
+                    search_query = rest
+    
     respond, reason = frequency_controller.should_respond(
         chat_id=chat_id,
         frequency=config.response_frequency or 0,
@@ -622,6 +697,29 @@ async def handle_message(update: Update):
     # Check if bot_instance is available
     if not bot_instance:
         syslog2(LOG_ERR, "bot instance missing", action="drop_message")
+        return
+    
+    # Handle search command
+    if is_search_command:
+        db = bot_instance.db
+        retrieval = bot_instance.retrieval
+        from src.core.message_search import search_message_links
+        
+        links = search_message_links(retrieval, db, search_query, top_k=3)
+        
+        if not links:
+            reply = f'по запросу "{search_query}" ничего не найдено'
+        else:
+            lines = [f'найдено по запросу: "{search_query}"']
+            for idx, link in enumerate(links, start=1):
+                lines.append(f"{idx}. {link}")
+            reply = "\n".join(lines)
+        
+        try:
+            await telegram_app.bot.send_message(chat_id=chat_id, text=reply)
+            syslog2(LOG_NOTICE, "search response sent", chat_id=chat_id, query=search_query, links=len(links))
+        except Exception as e:
+            syslog2(LOG_ERR, "failed to send search response", chat_id=chat_id, error=str(e))
         return
     
     # Route message to appropriate handler
@@ -648,7 +746,7 @@ async def handle_message(update: Update):
     if response:
         try:
             await telegram_app.bot.send_message(chat_id=chat_id, text=response)
-            syslog2(LOG_INFO, "response sent", chat_id=chat_id, response_length=len(response))
+            syslog2(LOG_NOTICE, "response sent", chat_id=chat_id, response_length=len(response))
         except Exception as e:
             syslog2(LOG_ERR, "failed to send response", chat_id=chat_id, error=str(e))
     else:
@@ -698,20 +796,53 @@ def delete_webhook(token: str):
         sys.exit(1)
 
 
-def run_server(host: str = "127.0.0.1", port: int = 8000, verbosity: int = 0):
+def run_server(host: str = "127.0.0.1", port: int = 8000, log_level: Optional[str] = None, debug_rag: bool = False):
     """
     Run the FastAPI server in foreground mode.
-    """
-    setup_logging(verbosity=verbosity, use_syslog=False)
     
-    log_level = ["warning", "info", "debug", "trace"][min(verbosity, 3)]
+    Args:
+        host: Host to bind
+        port: Port to bind
+        log_level: Log level string (INFO, DEBUG, WARNING, etc.) or number (6=INFO, 7=DEBUG)
+        debug_rag: Enable RAG debug mode
+    """
+    global debug_rag_mode
+    debug_rag_mode = debug_rag
+    
+    setup_logging(log_level=log_level, use_syslog=False)
+    
+    # Map log_level to uvicorn log level (lowercase string)
+    if log_level:
+        log_level_upper = log_level.upper()
+        uvicorn_level_map = {
+            "1": "critical",  # ALERT
+            "2": "critical",  # CRIT
+            "3": "error",     # ERR
+            "4": "warning",   # WARNING
+            "5": "info",      # NOTICE
+            "6": "info",      # INFO
+            "7": "debug",     # DEBUG
+            "ALERT": "critical",
+            "CRIT": "critical",
+            "ERR": "error",
+            "ERROR": "error",
+            "WARNING": "warning",
+            "NOTICE": "info",
+            "INFO": "info",
+            "DEBUG": "debug",
+        }
+        uvicorn_log_level = uvicorn_level_map.get(log_level_upper, "warning")
+        access_log = log_level_upper in ("6", "7", "INFO", "DEBUG")
+    else:
+        uvicorn_log_level = "warning"
+        access_log = False
     
     uvicorn.run(
         app,
         host=host,
         port=port,
-        log_level=log_level,
-        access_log=verbosity >= 2
+        log_level=uvicorn_log_level,
+        access_log=access_log
     )
 
 
@@ -734,7 +865,7 @@ def run_daemon(host: str = "127.0.0.1", port: int = 8000):
             signal.SIGINT: lambda signum, frame: sys.exit(0),
         }
     ):
-        syslog2(LOG_INFO, "daemon started")
+        syslog2(LOG_NOTICE, "daemon started")
         uvicorn.run(
             app,
             host=host,
@@ -747,46 +878,66 @@ def main():
     """
     Main CLI entry point.
     """
-    parser = argparse.ArgumentParser(
-        description="Legale Bot Telegram Webhook Daemon",
-        formatter_class=argparse.RawDescriptionHelpFormatter
+    from src.core.cli_parser import (
+        CommandParser, CommandSpec, ArgStream, CLIError, CLIHelp,
+        parse_option, parse_int_option, parse_flag
     )
     
-    subparsers = parser.add_subparsers(dest="command", help="Command to execute")
+    def parse_bot_register(stream: ArgStream) -> dict:
+        """Parse bot register command."""
+        url = parse_option(stream, "url")
+        if not url:
+            raise CLIError("url required for bot register")
+        token = parse_option(stream, "token")
+        return {"url": url, "token": token, "bot_command": "register"}
     
-    # Register webhook
-    register_parser = subparsers.add_parser("register", help="Register webhook with Telegram")
-    register_parser.add_argument("--url", required=True, help="Webhook URL (e.g., https://example.com/webhook)")
-    register_parser.add_argument("--token", help="Bot token (or set TELEGRAM_BOT_TOKEN env var)")
+    def parse_bot_delete(stream: ArgStream) -> dict:
+        """Parse bot delete command."""
+        token = parse_option(stream, "token")
+        return {"token": token, "bot_command": "delete"}
     
-    # Delete webhook
-    delete_parser = subparsers.add_parser("delete", help="Delete webhook from Telegram")
-    delete_parser.add_argument("--token", help="Bot token (or set TELEGRAM_BOT_TOKEN env var)")
+    def parse_bot_run(stream: ArgStream) -> dict:
+        """Parse bot run command."""
+        host = parse_option(stream, "host") or "127.0.0.1"
+        port = parse_int_option(stream, "port", 8000)
+        token = parse_option(stream, "token")
+        debug_rag = parse_flag(stream, "debug-rag")
+        return {"host": host, "port": port, "token": token, "debug_rag": debug_rag, "bot_command": "run"}
     
-    # Run foreground
-    run_parser = subparsers.add_parser("run", help="Run server in foreground")
-    run_parser.add_argument("--host", default="127.0.0.1", help="Host to bind (default: 127.0.0.1)")
-    run_parser.add_argument("--port", type=int, default=8000, help="Port to bind (default: 8000)")
-    run_parser.add_argument("-v", "--verbose", action="count", default=0, help="Verbosity level (-v, -vv, -vvv)")
-    run_parser.add_argument("--token", help="Bot token (or set TELEGRAM_BOT_TOKEN env var)")
+    def parse_bot_daemon(stream: ArgStream) -> dict:
+        """Parse bot daemon command."""
+        host = parse_option(stream, "host") or "127.0.0.1"
+        port = parse_int_option(stream, "port", 8000)
+        token = parse_option(stream, "token")
+        return {"host": host, "port": port, "token": token, "bot_command": "daemon"}
     
-    # Run daemon
-    daemon_parser = subparsers.add_parser("daemon", help="Run server as daemon")
-    daemon_parser.add_argument("--host", default="127.0.0.1", help="Host to bind (default: 127.0.0.1)")
-    daemon_parser.add_argument("--port", type=int, default=8000, help="Port to bind (default: 8000)")
-    daemon_parser.add_argument("--token", help="Bot token (or set TELEGRAM_BOT_TOKEN env var)")
+    commands = [
+        CommandSpec("register", parse_bot_register, "Register webhook with Telegram\n  register url <url> [token <token>]"),
+        CommandSpec("delete", parse_bot_delete, "Delete webhook from Telegram\n  delete [token <token>]"),
+        CommandSpec("run", parse_bot_run, "Run server in foreground\n  run [host <host>] [port <port>] [token <token>] [debug-rag] [-V <level>]"),
+        CommandSpec("daemon", parse_bot_daemon, "Run server as daemon\n  daemon [host <host>] [port <port>] [token <token>]"),
+    ]
     
-    args = parser.parse_args()
+    parser = CommandParser(commands)
     
-    if not args.command:
-        parser.print_help()
+    try:
+        cmd_name, args = parser.parse(sys.argv[1:])
+    except CLIHelp:
+        print("Legale Bot Telegram Webhook Daemon")
+        print("\nCommands:")
+        for spec in commands:
+            if spec.help_text:
+                print(f"  {spec.help_text}")
+        sys.exit(0)
+    except CLIError as e:
+        print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
     
     # Get token from args or env
-    token = args.token if hasattr(args, 'token') and args.token else os.getenv("TELEGRAM_BOT_TOKEN")
+    token = getattr(args, 'token', None) or os.getenv("TELEGRAM_BOT_TOKEN")
     
-    if args.command in ["register", "delete", "run", "daemon"] and not token:
-        print("Error: TELEGRAM_BOT_TOKEN must be set in environment or passed via --token")
+    if cmd_name in ["register", "delete", "run", "daemon"] and not token:
+        print("Error: TELEGRAM_BOT_TOKEN must be set in environment or passed via --token", file=sys.stderr)
         sys.exit(1)
     
     # Set token in environment for app to use
@@ -794,13 +945,15 @@ def main():
         os.environ["TELEGRAM_BOT_TOKEN"] = token
     
     # Execute command
-    if args.command == "register":
+    if cmd_name == "register":
         register_webhook(args.url, token)
-    elif args.command == "delete":
+    elif cmd_name == "delete":
         delete_webhook(token)
-    elif args.command == "run":
-        run_server(args.host, args.port, args.verbose)
-    elif args.command == "daemon":
+    elif cmd_name == "run":
+        log_level = getattr(args, 'log_level', None)
+        debug_rag = getattr(args, 'debug_rag', False)
+        run_server(args.host, args.port, log_level=log_level, debug_rag=debug_rag)
+    elif cmd_name == "daemon":
         run_daemon(args.host, args.port)
 
 

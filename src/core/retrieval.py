@@ -408,6 +408,82 @@ class RetrievalService:
         finally:
             session.close()
 
+    def _direct_chunk_query(self, query_emb: List[float], n_results: int) -> Dict:
+        """
+        Direct chunk query without post-processing.
+        
+        Args:
+            query_emb: Query embedding vector
+            n_results: Number of results to return
+            
+        Returns:
+            Dictionary with keys: ids, distances, metadatas (ChromaDB format)
+        """
+        if self.vector_store.collection.count() == 0:
+            return {"ids": [[]], "distances": [[]], "metadatas": [[]]}
+        
+        return self.vector_store.collection.query(
+            query_embeddings=[query_emb],
+            n_results=n_results,
+            include=["metadatas", "distances"],
+        )
+
+    def search_chunks_basic(self, query: str, n_results: int = 3) -> List[Dict]:
+        """
+        Simple chunk search without LLM processing.
+        
+        Args:
+            query: Search query string
+            n_results: Number of results to return
+            
+        Returns:
+            List of dictionaries with keys: id, distance, metadata
+            Sorted by distance (ascending)
+        """
+        # Get query embedding
+        query_embs = self.embedding_client.get_embeddings([query])
+        if not query_embs:
+            syslog2(LOG_DEBUG, "basic search", query=query, results=0, error="no embeddings")
+            return []
+        
+        query_emb = query_embs[0]
+        
+        # Query vector store
+        result = self._direct_chunk_query(query_emb, n_results)
+        
+        # Extract results
+        ids = result.get("ids", [[]])
+        distances = result.get("distances", [[]])
+        metadatas = result.get("metadatas", [[]])
+        
+        if not ids or not ids[0]:
+            syslog2(LOG_DEBUG, "basic search", query=query, results=0)
+            return []
+        
+        # Build result list
+        chunk_list = []
+        for i, chunk_id in enumerate(ids[0]):
+            if i >= len(distances[0]) if distances else True:
+                continue
+            
+            distance = distances[0][i] if distances and distances[0] else 0.0
+            metadata = metadatas[0][i] if metadatas and metadatas[0] and i < len(metadatas[0]) else {}
+            
+            chunk_list.append({
+                "id": chunk_id,
+                "distance": float(distance),
+                "metadata": metadata if metadata else {}
+            })
+        
+        # Sort by distance (ascending)
+        chunk_list.sort(key=lambda x: x["distance"])
+        
+        # Limit to n_results
+        chunk_list = chunk_list[:n_results]
+        
+        syslog2(LOG_DEBUG, "basic search", query=query, results=len(chunk_list))
+        return chunk_list
+
     def retrieve(
         self, 
         query: str, 
@@ -465,16 +541,7 @@ class RetrievalService:
                    collection=self.vector_store.collection.name,
                    total_documents=collection_count)
         
-        if self.vector_store.collection.count() == 0:
-            if self.verbosity >= 1:
-                syslog2(LOG_WARNING, "vector store is empty", action="skipping vector retrieval")
-            vector_results = {"ids": [[]], "distances": [[]]}
-        else:
-            vector_results = self.vector_store.collection.query(
-                query_embeddings=[query_emb],
-                n_results=n_results,
-                include=["documents", "metadatas", "distances"],
-            )
+        vector_results = self._direct_chunk_query(query_emb, n_results)
         
         if self.verbosity >= 2:
             syslog2(LOG_DEBUG, "vector store query result", 
