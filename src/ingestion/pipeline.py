@@ -52,7 +52,7 @@ class IngestionPipeline:
             if not embedding_model:
                 syslog2(LOG_ERR, "embedding_model is not set in profile config", config_file=config.config_file)
                 syslog2(LOG_ERR, "please add embedding_model parameter to config.json")
-                syslog2(LOG_INFO, "example config.json", example='{"embedding_model": "paraphrase-multilingual-mpnet-base-v2", "embedding_generator": "local", "current_model": "openai/gpt-oss-20b:free"}')
+                syslog2(LOG_NOTICE, "example config.json", example='{"embedding_model": "paraphrase-multilingual-mpnet-base-v2", "embedding_generator": "local", "current_model": "openai/gpt-oss-20b:free"}')
                 sys.exit(1)
             
             embedding_generator = config.embedding_generator
@@ -78,60 +78,60 @@ class IngestionPipeline:
 
     def _clear_data(self):
         """clears sql and vector storage with verbose output"""
-        syslog2(LOG_INFO, "clearing existing data")
+        syslog2(LOG_NOTICE, "clearing existing data")
         db_before = self.db.count_chunks()
         removed_db = self.db.clear()
         db_after = self.db.count_chunks()
-        syslog2(LOG_INFO, "sql database cleanup", url=self.db_url, before=db_before, removed=removed_db, remaining=db_after)
+        syslog2(LOG_NOTICE, "sql database cleanup", url=self.db_url, before=db_before, removed=removed_db, remaining=db_after)
 
         vector_before = self.vector_store.count()
         removed_vectors = self.vector_store.clear()
         vector_after = self.vector_store.count()
-        syslog2(LOG_INFO, "vector store cleanup", path=self.vector_store.persist_directory, collection=self.vector_store.collection_name, before=vector_before, removed=removed_vectors, remaining=vector_after)
-        syslog2(LOG_INFO, "data cleared")
+        syslog2(LOG_NOTICE, "vector store cleanup", path=self.vector_store.persist_directory, collection=self.vector_store.collection_name, before=vector_before, removed=removed_vectors, remaining=vector_after)
+        syslog2(LOG_NOTICE, "data cleared")
 
     def clear_stage0(self) -> int:
         """Clear stage0: messages from SQL database."""
-        syslog2(LOG_INFO, "clearing stage0: messages")
+        syslog2(LOG_NOTICE, "clearing stage0: messages")
         deleted = self.db.clear_messages()
-        syslog2(LOG_INFO, "stage0 cleared", deleted=deleted)
+        syslog2(LOG_NOTICE, "stage0 cleared", deleted=deleted)
         return deleted
 
     def clear_stage1(self) -> int:
         """Clear stage1: chunks from SQL database."""
-        syslog2(LOG_INFO, "clearing stage1: chunks")
+        syslog2(LOG_NOTICE, "clearing stage1: chunks")
         deleted = self.db.clear()
-        syslog2(LOG_INFO, "stage1 cleared", deleted=deleted)
+        syslog2(LOG_NOTICE, "stage1 cleared", deleted=deleted)
         return deleted
 
     def clear_stage2(self) -> int:
         """Clear stage2: embeddings for chunks."""
-        syslog2(LOG_INFO, "clearing stage2: embeddings")
+        syslog2(LOG_NOTICE, "clearing stage2: embeddings")
         before = self.vector_store.count()
         removed = self.vector_store.clear()
-        syslog2(LOG_INFO, "stage2 cleared", before=before, removed=removed)
+        syslog2(LOG_NOTICE, "stage2 cleared", before=before, removed=removed)
         return removed
 
     def clear_stage3(self) -> int:
         """Clear stage3: L1 clustering results (topics_l1)."""
-        syslog2(LOG_INFO, "clearing stage3: topics_l1")
+        syslog2(LOG_NOTICE, "clearing stage3: topics_l1")
         deleted = self.db.clear_topics_l1()
-        syslog2(LOG_INFO, "stage3 cleared", deleted=deleted)
+        syslog2(LOG_NOTICE, "stage3 cleared", deleted=deleted)
         return deleted
 
     def clear_stage4(self) -> int:
         """Clear stage4: topic_l1_id assignments in chunks."""
-        syslog2(LOG_INFO, "clearing stage4: topic_l1_id assignments")
+        syslog2(LOG_NOTICE, "clearing stage4: topic_l1_id assignments")
         updated = self.db.clear_chunk_topic_l1_assignments()
-        syslog2(LOG_INFO, "stage4 cleared", updated=updated)
+        syslog2(LOG_NOTICE, "stage4 cleared", updated=updated)
         return updated
 
     def clear_stage5(self) -> int:
         """Clear stage5: topic_l2_id assignments and topics_l2."""
-        syslog2(LOG_INFO, "clearing stage5: topic_l2_id assignments and topics_l2")
+        syslog2(LOG_NOTICE, "clearing stage5: topic_l2_id assignments and topics_l2")
         updated = self.db.clear_chunk_topic_l2_assignments()
         deleted = self.db.clear_topics_l2()
-        syslog2(LOG_INFO, "stage5 cleared", updated=updated, deleted=deleted)
+        syslog2(LOG_NOTICE, "stage5 cleared", updated=updated, deleted=deleted)
         return updated + deleted
 
     def clear_all(self):
@@ -143,7 +143,7 @@ class IngestionPipeline:
         self.clear_stage2()
         self.clear_stage1()
         self.clear_stage0()
-        syslog2(LOG_INFO, "all stages cleared")
+        syslog2(LOG_NOTICE, "all stages cleared")
 
     def run_stage0(self, file_path: str):
         """Run stage0: parse and store messages."""
@@ -188,7 +188,7 @@ class IngestionPipeline:
             if not model_name:
                 syslog2(LOG_ERR, "current_model is not set in profile config", config_file=config.config_file)
                 syslog2(LOG_ERR, "please add current_model parameter to config.json")
-                syslog2(LOG_INFO, "example config.json", example='{"embedding_model": "paraphrase-multilingual-mpnet-base-v2", "embedding_generator": "local", "current_model": "openai/gpt-oss-20b:free"}')
+                syslog2(LOG_NOTICE, "example config.json", example='{"embedding_model": "paraphrase-multilingual-mpnet-base-v2", "embedding_generator": "local", "current_model": "openai/gpt-oss-20b:free"}')
                 sys.exit(1)
             
             return LLMClient(model=model_name, verbosity=0)
@@ -256,14 +256,14 @@ class IngestionPipeline:
                 chunks_with_topics = session.query(ChunkModel).filter(ChunkModel.topic_l1_id.isnot(None)).count()
                 if chunks_with_topics > 0:
                     chunks_already_assigned = True
-                    syslog2(LOG_INFO, "chunks already have topic_l1_id assigned, skipping assignment step")
+                    syslog2(LOG_NOTICE, "chunks already have topic_l1_id assigned, skipping assignment step")
             finally:
                 session.close()
             
             # Only restore assignments if chunks are not already assigned
             if not chunks_already_assigned:
                 # Restore assignments by finding nearest topic for each chunk based on centroids
-                syslog2(LOG_INFO, "restoring l1 topic assignments from database centroids")
+                syslog2(LOG_NOTICE, "restoring l1 topic assignments from database centroids")
                 
                 # Get all topics with centroids
                 topic_centroids = {}
@@ -294,7 +294,7 @@ class IngestionPipeline:
                 metadatas = all_chunks.get('metadatas', [None] * len(chunk_ids))
                 
                 total_chunks = len(chunk_ids)
-                syslog2(LOG_INFO, "finding nearest topics for chunks", total_chunks=total_chunks)
+                syslog2(LOG_NOTICE, "finding nearest topics for chunks", total_chunks=total_chunks)
                 
                 try:
                     pbar = tqdm(total=total_chunks, desc="Matching chunks to topics", unit="chunk")
@@ -350,13 +350,13 @@ class IngestionPipeline:
                     delattr(progress_callback, 'pbar')
             except ImportError:
                 if total_all is not None and total_all != total:
-                    syslog2(LOG_INFO, f"naming {stage} topics", current=current, filtered=total, total=total_all)
+                    syslog2(LOG_NOTICE, f"naming {stage} topics", current=current, filtered=total, total=total_all)
                 elif total_all is not None:
-                    syslog2(LOG_INFO, f"naming {stage} topics", current=current, total=total, all=total_all)
+                    syslog2(LOG_NOTICE, f"naming {stage} topics", current=current, total=total, all=total_all)
                 else:
-                    syslog2(LOG_INFO, f"naming {stage} topics", current=current, total=total)
+                    syslog2(LOG_NOTICE, f"naming {stage} topics", current=current, total=total)
         
-        syslog2(LOG_INFO, "naming l1 topics")
+        syslog2(LOG_NOTICE, "naming l1 topics")
         clusterer.name_topics(
             progress_callback=progress_callback,
             only_unnamed=only_unnamed,
@@ -384,7 +384,7 @@ class IngestionPipeline:
             'cluster_selection_epsilon': clustering_params.get('cluster_selection_epsilon', 0.0)
         }
         
-        syslog2(LOG_INFO, "clustering l1 topics into l2 topics")
+        syslog2(LOG_NOTICE, "clustering l1 topics into l2 topics")
         clusterer.perform_l2_clustering(**l2_params)
         
         # Create progress callback for topic naming
@@ -406,36 +406,36 @@ class IngestionPipeline:
                     delattr(progress_callback, 'pbar')
             except ImportError:
                 if total_all is not None and total_all != total:
-                    syslog2(LOG_INFO, f"naming {stage} topics", current=current, filtered=total, total=total_all)
+                    syslog2(LOG_NOTICE, f"naming {stage} topics", current=current, filtered=total, total=total_all)
                 elif total_all is not None:
-                    syslog2(LOG_INFO, f"naming {stage} topics", current=current, total=total, all=total_all)
+                    syslog2(LOG_NOTICE, f"naming {stage} topics", current=current, total=total, all=total_all)
                 else:
-                    syslog2(LOG_INFO, f"naming {stage} topics", current=current, total=total)
+                    syslog2(LOG_NOTICE, f"naming {stage} topics", current=current, total=total)
         
         clusterer.name_topics(progress_callback=progress_callback, only_unnamed=True, target='l2')
 
     def run_all(self, file_path: str, chunk_size: Optional[int] = None, model: Optional[str] = None, batch_size: int = 128, **clustering_params):
         """Run all stages in sequence."""
-        syslog2(LOG_INFO, "running stage0: parse and store messages")
+        syslog2(LOG_NOTICE, "running stage0: parse and store messages")
         self.run_stage0(file_path)
         
-        syslog2(LOG_INFO, "running stage1: create and store chunks")
+        syslog2(LOG_NOTICE, "running stage1: create and store chunks")
         # chunk_size will be taken from config in run_stage1 if None
         self.run_stage1(chunk_size=chunk_size)
         
-        syslog2(LOG_INFO, "running stage2: generate embeddings")
+        syslog2(LOG_NOTICE, "running stage2: generate embeddings")
         self.run_stage2(model=model, batch_size=batch_size)
         
-        syslog2(LOG_INFO, "running stage3: cluster l1 topics")
+        syslog2(LOG_NOTICE, "running stage3: cluster l1 topics")
         self.run_stage3(**clustering_params)
         
-        syslog2(LOG_INFO, "running stage4: create embeddings for clusters, assign topics, and name l1 topics")
+        syslog2(LOG_NOTICE, "running stage4: create embeddings for clusters, assign topics, and name l1 topics")
         self.run_stage4()
         
-        syslog2(LOG_INFO, "running stage5: cluster l2 topics and name")
+        syslog2(LOG_NOTICE, "running stage5: cluster l2 topics and name")
         self.run_stage5(**clustering_params)
         
-        syslog2(LOG_INFO, "all stages complete")
+        syslog2(LOG_NOTICE, "all stages complete")
 
     def parse_and_store_messages(self, file_path: str):
         """
@@ -447,22 +447,22 @@ class IngestionPipeline:
         if not file_path:
             raise ValueError("file_path must be provided")
 
-        syslog2(LOG_INFO, "starting parse and store messages", file_path=file_path)
+        syslog2(LOG_NOTICE, "starting parse and store messages", file_path=file_path)
 
         # Parse file
-        syslog2(LOG_INFO, "parsing file", file_path=file_path)
+        syslog2(LOG_NOTICE, "parsing file", file_path=file_path)
         messages = self.parser.parse_file(file_path)
-        syslog2(LOG_INFO, "file parsed", messages_count=len(messages))
-        syslog2(LOG_INFO, "files parsed", messages_count=len(messages))
+        syslog2(LOG_NOTICE, "file parsed", messages_count=len(messages))
+        syslog2(LOG_NOTICE, "files parsed", messages_count=len(messages))
 
         # Determine chat_id from filename or default
         filename = os.path.basename(file_path)
         chat_id_match = re.search(r"telegram_dump_(-?\d+)", filename)
         chat_id = chat_id_match.group(1) if chat_id_match else "unknown_chat"
-        syslog2(LOG_INFO, "identified chat_id", chat_id=chat_id)
+        syslog2(LOG_NOTICE, "identified chat_id", chat_id=chat_id)
 
         # Store messages in sql db
-        syslog2(LOG_INFO, "preparing messages for database")
+        syslog2(LOG_NOTICE, "preparing messages for database")
         db_messages = []
         for msg in tqdm(messages, desc="  Processing messages", unit="msg"):
             # Composite ID: {chat_id}_{msg_id} to ensure global uniqueness
@@ -475,24 +475,24 @@ class IngestionPipeline:
                 "from_id": msg.sender, # Using sender name as ID for now since parser doesn't provide user ID
                 "text": msg.content
             })
-        syslog2(LOG_INFO, "messages prepared for database", count=len(db_messages))
+        syslog2(LOG_NOTICE, "messages prepared for database", count=len(db_messages))
         
-        syslog2(LOG_INFO, "saving messages to database")
+        syslog2(LOG_NOTICE, "saving messages to database")
         try:
             inserted_count = self.db.add_messages_batch(db_messages)
             skipped_count = len(db_messages) - inserted_count
             if skipped_count > 0:
-                syslog2(LOG_INFO, "messages saved", inserted=inserted_count, skipped=skipped_count)
+                syslog2(LOG_NOTICE, "messages saved", inserted=inserted_count, skipped=skipped_count)
             else:
-                syslog2(LOG_INFO, "messages saved", inserted=inserted_count)
-            syslog2(LOG_INFO, "messages saved to sql database", inserted=inserted_count, skipped=skipped_count, total=len(db_messages))
+                syslog2(LOG_NOTICE, "messages saved", inserted=inserted_count)
+            syslog2(LOG_NOTICE, "messages saved to sql database", inserted=inserted_count, skipped=skipped_count, total=len(db_messages))
         except Exception as e:
             syslog2(LOG_ERR, "error saving messages", error=str(e))
             syslog2(LOG_ERR, "messages save failed", error=str(e))
             raise
 
-        syslog2(LOG_INFO, "stage0 complete", messages_saved=inserted_count)
-        syslog2(LOG_INFO, "stage0 complete", messages_count=inserted_count)
+        syslog2(LOG_NOTICE, "stage0 complete", messages_saved=inserted_count)
+        syslog2(LOG_NOTICE, "stage0 complete", messages_count=inserted_count)
 
     def parse_and_store_chunks(self, chunk_size: int = 6):
         """
@@ -501,7 +501,7 @@ class IngestionPipeline:
         Args:
             chunk_size: Number of messages per chunk (default: 10)
         """
-        syslog2(LOG_INFO, "starting parse and store chunks", chunk_size=chunk_size)
+        syslog2(LOG_NOTICE, "starting parse and store chunks", chunk_size=chunk_size)
 
         # Get all messages from database
         session = self.db.get_session()
@@ -532,16 +532,16 @@ class IngestionPipeline:
         finally:
             session.close()
 
-        syslog2(LOG_INFO, "found messages in database", count=len(messages))
+        syslog2(LOG_NOTICE, "found messages in database", count=len(messages))
 
         # Update chunker with new chunk_size
         self.chunker = MessageChunker(max_messages_per_chunk=chunk_size, overlap=0)
 
         # Create chunks
-        syslog2(LOG_INFO, "creating chunks", chunk_size=chunk_size)
+        syslog2(LOG_NOTICE, "creating chunks", chunk_size=chunk_size)
         chunks = self.chunker.chunk_messages(messages)
-        syslog2(LOG_INFO, "chunks created", count=len(chunks))
-        syslog2(LOG_INFO, "chunks created", chunks_count=len(chunks), chunk_size=chunk_size)
+        syslog2(LOG_NOTICE, "chunks created", count=len(chunks))
+        syslog2(LOG_NOTICE, "chunks created", chunks_count=len(chunks), chunk_size=chunk_size)
 
         # Store chunks in sql db
         chunk_models = []
@@ -551,7 +551,7 @@ class IngestionPipeline:
 
         session = self.db.get_session()
         try:
-            syslog2(LOG_INFO, "preparing chunks for database")
+            syslog2(LOG_NOTICE, "preparing chunks for database")
             for chunk in tqdm(chunks, desc="  Processing chunks", unit="chunk"):
                 chunk_id = str(uuid.uuid4())
                 
@@ -582,13 +582,13 @@ class IngestionPipeline:
                 ids.append(chunk_id)
                 documents.append(chunk.text)
                 metadatas.append(meta_dict)
-            syslog2(LOG_INFO, "chunks prepared for database", count=len(chunk_models))
+            syslog2(LOG_NOTICE, "chunks prepared for database", count=len(chunk_models))
 
-            syslog2(LOG_INFO, "saving chunks to database")
+            syslog2(LOG_NOTICE, "saving chunks to database")
             session.add_all(chunk_models)
             session.commit()
-            syslog2(LOG_INFO, "chunks saved", count=len(chunk_models))
-            syslog2(LOG_INFO, "chunks saved to sql database", count=len(chunk_models))
+            syslog2(LOG_NOTICE, "chunks saved", count=len(chunk_models))
+            syslog2(LOG_NOTICE, "chunks saved to sql database", count=len(chunk_models))
         except Exception as e:
             session.rollback()
             syslog2(LOG_ERR, "error saving chunks", error=str(e))
@@ -597,8 +597,8 @@ class IngestionPipeline:
         finally:
             session.close()
 
-        syslog2(LOG_INFO, "stage1 complete", chunks_saved=len(chunk_models))
-        syslog2(LOG_INFO, "stage1 complete", chunks_count=len(chunk_models))
+        syslog2(LOG_NOTICE, "stage1 complete", chunks_saved=len(chunk_models))
+        syslog2(LOG_NOTICE, "stage1 complete", chunks_count=len(chunk_models))
 
     def parse_and_store(self, file_path: str, clear_existing: bool = False):
         """
@@ -623,7 +623,7 @@ class IngestionPipeline:
             model: Embedding model to use (overrides profile config)
             batch_size: Batch size for embedding generation
         """
-        syslog2(LOG_INFO, "starting embedding generation", model=model, batch_size=batch_size)
+        syslog2(LOG_NOTICE, "starting embedding generation", model=model, batch_size=batch_size)
         
         # Get embedding client (use provided model or default)
         emb_client = self.embedding_client
@@ -655,7 +655,7 @@ class IngestionPipeline:
                             f"Recreating collection before generating embeddings...")
                         self.vector_store.collection = self.vector_store._recreate_collection_with_dimension(new_dimension)
                         self.vector_store.expected_dimension = new_dimension
-                        syslog2(LOG_INFO, f"Collection recreated with dimension {new_dimension}")
+                        syslog2(LOG_NOTICE, f"Collection recreated with dimension {new_dimension}")
         except Exception as e:
             syslog2(LOG_DEBUG, f"Could not check collection dimension: {e}")
         
@@ -674,10 +674,10 @@ class IngestionPipeline:
             chunks_to_embed = [chunk for chunk in all_chunks if chunk.id not in existing_ids]
             
             if not chunks_to_embed:
-                syslog2(LOG_INFO, "all chunks already have embeddings")
+                syslog2(LOG_NOTICE, "all chunks already have embeddings")
                 return
             
-            syslog2(LOG_INFO, "chunks to embed", total=len(all_chunks), missing=len(chunks_to_embed))
+            syslog2(LOG_NOTICE, "chunks to embed", total=len(all_chunks), missing=len(chunks_to_embed))
             
             # Prepare data
             ids = [chunk.id for chunk in chunks_to_embed]
@@ -713,12 +713,12 @@ class IngestionPipeline:
                 metadatas=metadatas,
                 show_progress=True,
             )
-            syslog2(LOG_INFO, "embeddings saved to vector database", count=len(ids))
+            syslog2(LOG_NOTICE, "embeddings saved to vector database", count=len(ids))
             
         finally:
             session.close()
         
-        syslog2(LOG_INFO, "embedding generation complete")
+        syslog2(LOG_NOTICE, "embedding generation complete")
 
     def run(self, file_path: Optional[str] = None, clear_existing: bool = False):
         """
@@ -736,7 +736,7 @@ class IngestionPipeline:
         if not file_path:
             raise ValueError("file_path must be provided when not running a cleanup-only command.")
 
-        syslog2(LOG_INFO, "starting full ingestion pipeline", file_path=file_path)
+        syslog2(LOG_NOTICE, "starting full ingestion pipeline", file_path=file_path)
         
         # Step 1: Parse and store
         self.parse_and_store(file_path, clear_existing=False)
@@ -744,7 +744,7 @@ class IngestionPipeline:
         # Step 2: Generate embeddings
         self.generate_embeddings(batch_size=128)
         
-        syslog2(LOG_INFO, "full ingestion pipeline complete")
+        syslog2(LOG_NOTICE, "full ingestion pipeline complete")
 
     # ========================================================================
     # Topic Management Methods
@@ -864,30 +864,60 @@ class IngestionPipeline:
 
 
 if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Ingest chat dump into database and vector store.")
-    parser.add_argument("file", nargs="?", help="Path to the chat dump file (JSON or text)")
-    parser.add_argument("--clear", action="store_true", help="Clear existing data before ingestion")
-    parser.add_argument("--db-url", required=False, help="Database URL")
-    parser.add_argument("--vec-path", required=False, help="Vector DB path")
-    parser.add_argument("--collection", default="default", help="Vector collection name")
-
+    from src.core.cli_parser import (
+        CommandParser, CommandSpec, ArgStream, CLIError, CLIHelp,
+        parse_option, parse_flag
+    )
+    
+    def parse_ingest_main(stream: ArgStream) -> dict:
+        """Parse ingest command for pipeline main."""
+        file = None
+        if stream.has_next() and not stream.peek().startswith("--"):
+            file = stream.next()
+        clear = parse_flag(stream, "clear")
+        db_url = parse_option(stream, "db-url")
+        vec_path = parse_option(stream, "vec-path")
+        collection = parse_option(stream, "collection") or "default"
+        return {
+            "file": file,
+            "clear": clear,
+            "db_url": db_url,
+            "vec_path": vec_path,
+            "collection": collection
+        }
+    
+    commands = [
+        CommandSpec("ingest", parse_ingest_main, "Ingest chat dump into database and vector store"),
+    ]
+    
+    parser = CommandParser(commands)
+    
     if len(sys.argv) == 1:
-        parser.print_help(sys.stderr)
+        print("Usage: python -m src.ingestion.pipeline ingest [file] [--clear] [--db-url <url>] [--vec-path <path>] [--collection <name>]", file=sys.stderr)
         sys.exit(1)
-
-    args = parser.parse_args()
-
+    
+    try:
+        cmd_name, args = parser.parse(sys.argv[1:])
+    except CLIHelp:
+        print("Ingest chat dump into database and vector store")
+        print("\nUsage: python -m src.ingestion.pipeline ingest [file] [--clear] [--db-url <url>] [--vec-path <path>] [--collection <name>]")
+        sys.exit(0)
+    except CLIError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    
     if not args.file and not args.clear:
-        parser.error("Please provide a chat dump file or specify --clear for cleanup.")
-
+        print("Error: Please provide a chat dump file or specify --clear for cleanup.", file=sys.stderr)
+        sys.exit(1)
+    
     if not args.db_url or not args.vec_path:
-        parser.error("--db-url and --vec-path are required for ingestion")
-
+        print("Error: --db-url and --vec-path are required for ingestion", file=sys.stderr)
+        sys.exit(1)
+    
     pipeline = IngestionPipeline(
         db_url=args.db_url,
         vector_db_path=args.vec_path,
         collection_name=args.collection,
     )
+    pipeline.run(args.file, clear_existing=args.clear)
     pipeline.run(args.file, clear_existing=args.clear)

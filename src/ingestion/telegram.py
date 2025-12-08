@@ -23,7 +23,6 @@ from typing import List, Optional
 import json
 from datetime import datetime
 import os
-import argparse
 import sys
 import logging
 from src.core.syslog2 import *
@@ -53,7 +52,7 @@ class TelegramFetcher:
         except ValueError:
             pass
 
-        syslog2(LOG_INFO, "searching for chat", name=id_or_name)
+        syslog2(LOG_NOTICE, "searching for chat", name=id_or_name)
         
         # Iterate dialogs to find match
         # Note: This might be slow if there are many dialogs, but it's reliable for Titles.
@@ -103,8 +102,8 @@ class TelegramFetcher:
                 syslog2(LOG_ERR, "chat not found", name=id_or_name)
                 return
 
-            syslog2(LOG_INFO, "found chat", name=chat.name, id=chat.id)
-            syslog2(LOG_INFO, "fetching messages", limit=limit)
+            syslog2(LOG_NOTICE, "found chat", name=chat.name, id=chat.id)
+            syslog2(LOG_NOTICE, "fetching messages", limit=limit)
             
             messages_data = []
             count = 0
@@ -157,7 +156,7 @@ class TelegramFetcher:
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump(messages_data, f, default=json_serial, ensure_ascii=False, indent=2)
             print(f"Saved {len(messages_data)} messages to {output_file}")
-            syslog2(LOG_INFO, "saved messages", count=len(messages_data), path=output_file)
+            syslog2(LOG_NOTICE, "saved messages", count=len(messages_data), path=output_file)
 
 if __name__ == "__main__":
     from dotenv import load_dotenv

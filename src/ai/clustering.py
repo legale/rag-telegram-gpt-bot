@@ -52,7 +52,7 @@ class TopicClusterer:
             cluster_selection_method: 'eom' (Excess of Mass) or 'leaf' (Leaf)
             cluster_selection_epsilon: A distance threshold (0.0 = automatic)
         """
-        syslog2(LOG_INFO, "starting l1 clustering",
+        syslog2(LOG_NOTICE, "starting l1 clustering",
                 min_cluster_size=min_cluster_size,
                 min_samples=min_samples,
                 metric=metric,
@@ -76,7 +76,7 @@ class TopicClusterer:
             return
 
         n_samples = len(ids)
-        syslog2(LOG_INFO, "clustering chunks", count=n_samples)
+        syslog2(LOG_NOTICE, "clustering chunks", count=n_samples)
 
         # Validate min_cluster_size (HDBSCAN requires >= 2)
         if min_cluster_size < 2:
@@ -132,7 +132,7 @@ class TopicClusterer:
         valid_clusters = len(clusters) - (1 if -1 in clusters else 0)
         noise_percentage = (noise_count / n_samples * 100) if n_samples > 0 else 0
 
-        syslog2(LOG_INFO, "clustering complete",
+        syslog2(LOG_NOTICE, "clustering complete",
                 clusters_found=valid_clusters,
                 noise_count=noise_count,
                 noise_percentage=f"{noise_percentage:.1f}%")
@@ -203,7 +203,7 @@ class TopicClusterer:
 
             self._l1_topic_assignments[topic_id] = cluster_ids
 
-        syslog2(LOG_INFO, "l1 topics created", count=valid_clusters)
+        syslog2(LOG_NOTICE, "l1 topics created", count=valid_clusters)
 
         return self._l1_topic_assignments
 
@@ -268,7 +268,7 @@ class TopicClusterer:
             if pbar:
                 pbar.close()
 
-        syslog2(LOG_INFO, "l1 topics assigned to chunks", assigned=assigned_count, noise=noise_count)
+        syslog2(LOG_NOTICE, "l1 topics assigned to chunks", assigned=assigned_count, noise=noise_count)
         delattr(self, '_l1_topic_assignments')
 
     def perform_l2_clustering(
@@ -282,7 +282,7 @@ class TopicClusterer:
         """
         Fetches L1 topics, clusters their centroids to form L2 topics.
         """
-        syslog2(LOG_INFO, "starting l2 clustering")
+        syslog2(LOG_NOTICE, "starting l2 clustering")
 
         # 1. Fetch L1 topics
         l1_topics = self.db.get_all_topics_l1()
@@ -318,7 +318,7 @@ class TopicClusterer:
                     count=n_l1_topics, min_required=min_cluster_size)
             return
 
-        syslog2(LOG_INFO, "clustering l1 topics", count=n_l1_topics)
+        syslog2(LOG_NOTICE, "clustering l1 topics", count=n_l1_topics)
 
         actual_metric = metric
         if metric == 'cosine':
@@ -359,7 +359,7 @@ class TopicClusterer:
         valid_clusters = len(clusters) - (1 if -1 in clusters else 0)
         noise_percentage = (noise_count / n_l1_topics * 100) if n_l1_topics > 0 else 0
 
-        syslog2(LOG_INFO, "l2 clustering complete",
+        syslog2(LOG_NOTICE, "l2 clustering complete",
                 clusters_found=valid_clusters,
                 noise_count=noise_count,
                 noise_percentage=f"{noise_percentage:.1f}%")
@@ -432,7 +432,7 @@ class TopicClusterer:
             if pbar:
                 pbar.close()
 
-        syslog2(LOG_INFO, "l2 topics saved")
+        syslog2(LOG_NOTICE, "l2 topics saved")
 
     def name_topics(self, progress_callback=None, only_unnamed: bool = True, rebuild: bool = False, target: str = 'both'):
         """
@@ -463,7 +463,7 @@ class TopicClusterer:
                 l1_topics = l1_topics_all
 
             total_l1_filtered = len(l1_topics)
-            syslog2(LOG_INFO, "naming l1 topics", filtered=total_l1_filtered, total=total_l1_all)
+            syslog2(LOG_NOTICE, "naming l1 topics", filtered=total_l1_filtered, total=total_l1_all)
 
             for idx, topic in enumerate(l1_topics, 1):
                 self._name_l1_topic(topic)
@@ -488,14 +488,14 @@ class TopicClusterer:
                 l2_topics = l2_topics_all
 
             total_l2_filtered = len(l2_topics)
-            syslog2(LOG_INFO, "naming l2 topics", filtered=total_l2_filtered, total=total_l2_all)
+            syslog2(LOG_NOTICE, "naming l2 topics", filtered=total_l2_filtered, total=total_l2_all)
 
             for idx, topic in enumerate(l2_topics, 1):
                 self._name_l2_topic(topic)
                 if progress_callback:
                     progress_callback(idx, total_l2_filtered, 'l2', total_all=total_l2_all)
 
-        syslog2(LOG_INFO, "topic naming complete")
+        syslog2(LOG_NOTICE, "topic naming complete")
 
     def _name_l1_topic(self, topic) -> None:
         """Helper to name a single L1 topic."""

@@ -23,7 +23,7 @@ def drop_legacy_tables(db_url: str) -> None:
             # Drop topic_chunks first (has foreign key to topics)
             conn.execute(text("DROP TABLE IF EXISTS topic_chunks"))
             conn.commit()
-            syslog2(LOG_INFO, "dropped legacy table", table="topic_chunks")
+            syslog2(LOG_NOTICE, "dropped legacy table", table="topic_chunks")
         except Exception as e:
             syslog2(LOG_WARNING, "failed to drop topic_chunks", error=str(e))
             conn.rollback()
@@ -32,7 +32,7 @@ def drop_legacy_tables(db_url: str) -> None:
             # Drop topics table
             conn.execute(text("DROP TABLE IF EXISTS topics"))
             conn.commit()
-            syslog2(LOG_INFO, "dropped legacy table", table="topics")
+            syslog2(LOG_NOTICE, "dropped legacy table", table="topics")
         except Exception as e:
             syslog2(LOG_WARNING, "failed to drop topics", error=str(e))
             conn.rollback()

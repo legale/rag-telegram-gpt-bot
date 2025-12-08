@@ -15,25 +15,27 @@ def build_message_link(chat_id: int, msg_id: int, chat_username: Optional[str] =
         chat_username: Optional chat username (e.g., "my_channel")
         
     Returns:
-        Telegram message link (e.g., "https://t.me/c/1234567890/123" or "https://t.me/my_channel/123")
+        Telegram message link:
+        - For public channels/chats with username: https://t.me/{username}/{msg_id}
+        - For channels/supergroups (-100xxxxxxxxxx): https://t.me/c/{internal}/{msg_id}
+        - For regular groups: tg://openmessage?chat_id={cid}&message_id={msg_id}
+        - For private chats: tg://openmessage?user_id={cid}&message_id={msg_id}
     """
+    # 1) публичный канал/чат с username
     if chat_username and chat_username.strip():
         return f"https://t.me/{chat_username}/{msg_id}"
     
-    # Handle Bot API chat_id format (can be negative for groups/channels)
     cid = int(chat_id)
     
+    # 2) канал/супергруппа (Bot API: -100xxxxxxxxxx) -> t.me/c/...
     if cid < 0:
-        # Convert negative chat_id to internal format
-        internal = -cid
-        s = str(internal)
-        
-        # Remove "100" prefix if present (Telegram internal format)
+        s = str(-cid)
         if s.startswith("100"):
-            internal = int(s[3:])
-        
-        return f"https://t.me/c/{internal}/{msg_id}"
-    else:
-        # For positive chat_id, use as-is (fallback)
-        return f"https://t.me/c/{chat_id}/{msg_id}"
+            internal = int(s[3:])  # убираем префикс 100
+            return f"https://t.me/c/{internal}/{msg_id}"
+        # обычная группа без префикса 100 – http-ссылки нет, нужен tg://
+        return f"tg://openmessage?chat_id={cid}&message_id={msg_id}"
+    
+    # 3) приватный диалог (положительный id) – http-ссылки тоже нет, только tg://
+    return f"tg://openmessage?user_id={cid}&message_id={msg_id}"
 

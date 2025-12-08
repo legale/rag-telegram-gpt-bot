@@ -63,26 +63,26 @@ class TestTgBotCLI:
             assert "Failed to delete webhook" in captured.out
 
     def test_main_register(self):
-        with patch('sys.argv', ['tgbot.py', 'register', '--url', 'http://url', '--token', 'tok']), \
+        with patch('sys.argv', ['tgbot.py', 'register', 'url', 'http://url', 'token', 'tok']), \
              patch('src.bot.tgbot.register_webhook') as mock_reg:
             main()
             mock_reg.assert_called_with('http://url', 'tok')
 
     def test_main_delete(self):
-        with patch('sys.argv', ['tgbot.py', 'delete', '--token', 'tok']), \
+        with patch('sys.argv', ['tgbot.py', 'delete', 'token', 'tok']), \
              patch('src.bot.tgbot.delete_webhook') as mock_del:
             main()
             mock_del.assert_called_with('tok')
 
     def test_main_run(self):
-        with patch('sys.argv', ['tgbot.py', 'run', '--token', 'tok']), \
+        with patch('sys.argv', ['tgbot.py', 'run', 'token', 'tok']), \
              patch('src.bot.tgbot.run_server') as mock_run:
             main()
-            mock_run.assert_called_with('127.0.0.1', 8000, 0)
+            mock_run.assert_called_with('127.0.0.1', 8000, log_level=None, debug_rag=False)
             assert os.environ["TELEGRAM_BOT_TOKEN"] == 'tok'
 
     def test_main_daemon(self):
-        with patch('sys.argv', ['tgbot.py', 'daemon', '--token', 'tok']), \
+        with patch('sys.argv', ['tgbot.py', 'daemon', 'token', 'tok']), \
              patch('src.bot.tgbot.run_daemon') as mock_run:
             main()
             mock_run.assert_called_with('127.0.0.1', 8000)
@@ -95,7 +95,7 @@ class TestTgBotCLI:
 
     def test_run_server(self):
         with patch('uvicorn.run') as mock_uvicorn:
-            run_server(verbosity=2)
+            run_server(log_level='DEBUG', debug_rag=False)
             mock_uvicorn.assert_called()
             # Check log level mapping
             assert mock_uvicorn.call_args[1]['log_level'] == 'debug'

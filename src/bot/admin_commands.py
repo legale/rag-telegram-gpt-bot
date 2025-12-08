@@ -17,7 +17,7 @@ from src.bot.utils import (
     CommandValidator,
     HealthChecker,
 )
-from src.core.syslog2 import syslog2, LOG_INFO, LOG_WARNING, LOG_ERR
+from src.core.syslog2 import syslog2, LOG_INFO, LOG_WARNING, LOG_ERR, LOG_NOTICE
 
 logger = logging.getLogger("legale_admin_commands")
 
@@ -157,7 +157,7 @@ class ProfileCommands(BaseAdminCommand):
             )
             response += f"\nДля переключения на этот профиль:\n`/admin profile set {profile_name}`"
             
-            syslog2(LOG_INFO, "profile created", profile=profile_name, admin_id=update.message.from_user.id)
+            syslog2(LOG_NOTICE, "profile created", profile=profile_name, admin_id=update.message.from_user.id)
             return response
             
         except Exception as e:
@@ -203,7 +203,7 @@ class ProfileCommands(BaseAdminCommand):
                 f"`/admin restart`"
             )
             
-            syslog2(LOG_INFO, "profile set", profile=profile_name, admin_id=update.message.from_user.id)
+            syslog2(LOG_NOTICE, "profile set", profile=profile_name, admin_id=update.message.from_user.id)
             return response
             
         except Exception as e:
@@ -478,7 +478,7 @@ class IngestCommands(BaseAdminCommand):
             
             pipeline._clear_data()
             
-            syslog2(LOG_INFO, "data cleared", admin_id=update.message.from_user.id)
+            syslog2(LOG_NOTICE, "data cleared", admin_id=update.message.from_user.id)
             
             return (
                 f"**Данные очищены**\n\n"
@@ -561,7 +561,7 @@ class IngestCommands(BaseAdminCommand):
             await file.download_to_drive(str(temp_file))
             
             file_size_str = self.formatter.format_file_size(document.file_size)
-            syslog2(LOG_INFO, "file downloaded for ingestion", path=str(temp_file), size=file_size_str)
+            syslog2(LOG_NOTICE, "file downloaded for ingestion", path=str(temp_file), size=file_size_str)
             
             # Send initial message
             status_message = await update.message.reply_text(

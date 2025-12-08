@@ -13,3 +13,7 @@ profiles/
 htmlcov/
 .coverage
 .pytest_cache/
+
+# Test artifacts (MagicMock temporary files)
+<MagicMock*
+*mock.__truediv__*

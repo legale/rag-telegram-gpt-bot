@@ -117,7 +117,7 @@ class EmbeddingClient:
                 pass
             return []
 
-        syslog2(LOG_INFO, "embedding texts", total=total, out_path=out_path)
+        syslog2(LOG_NOTICE, "embedding texts", total=total, out_path=out_path)
         all_embs: List[List[float]] = []
         done = 0
 
@@ -282,7 +282,7 @@ class LocalEmbeddingClient:
                 pass
             return []
 
-        syslog2(LOG_INFO, "embedding texts", total=total, out_path=out_path)
+        syslog2(LOG_NOTICE, "embedding texts", total=total, out_path=out_path)
         all_embs: List[List[float]] = []
         done = 0
 

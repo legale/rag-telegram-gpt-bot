@@ -6,7 +6,7 @@ Handles long-running operations like data ingestion.
 import asyncio
 import logging
 from pathlib import Path
-from src.core.syslog2 import syslog2, LOG_INFO, LOG_WARNING, LOG_ERR
+from src.core.syslog2 import syslog2, LOG_INFO, LOG_WARNING, LOG_ERR, LOG_NOTICE
 from typing import Optional, Callable
 from telegram import Bot
 
@@ -66,7 +66,7 @@ class IngestionTask:
             )
             
             # Parse file
-            syslog2(LOG_INFO, "parsing file", path=str(self.file_path))
+            syslog2(LOG_NOTICE, "parsing file", path=str(self.file_path))
             messages = pipeline.parser.parse_file(str(self.file_path))
             self.total = len(messages)
             
@@ -135,7 +135,7 @@ class IngestionTask:
                 
                 session.add_all(chunk_models)
                 session.commit()
-                syslog2(LOG_INFO, "saved chunks to database", count=len(chunk_models))
+                syslog2(LOG_NOTICE, "saved chunks to database", count=len(chunk_models))
                 
             except Exception as e:
                 session.rollback()
@@ -152,7 +152,7 @@ class IngestionTask:
             # Store in vector DB
             if ids:
                 pipeline.vector_store.add_documents(ids=ids, documents=documents, metadatas=metadatas)
-                syslog2(LOG_INFO, "saved embeddings to vector store", count=len(ids))
+                syslog2(LOG_NOTICE, "saved embeddings to vector store", count=len(ids))
             
             self.status = "completed"
             self.result = {
@@ -192,7 +192,7 @@ class IngestionTask:
             try:
                 if self.file_path.exists():
                     self.file_path.unlink()
-                    syslog2(LOG_INFO, "cleaned up temp file", path=str(self.file_path))
+                    syslog2(LOG_NOTICE, "cleaned up temp file", path=str(self.file_path))
             except Exception as e:
                 syslog2(LOG_WARNING, "temp file cleanup failed", error=str(e))
 

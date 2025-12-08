@@ -104,7 +104,7 @@ def main():
         syslog2(LOG_ERR, "models file missing")
         sys.exit(1)
 
-    syslog2(LOG_INFO, "cli bot initializing", model=model_name, verbosity=verbose, chunks=chunks)
+    syslog2(LOG_NOTICE, "cli bot initializing", model=model_name, verbosity=verbose, chunks=chunks)
     
     # Get paths from environment (set by legale.py)
     db_url = os.getenv("DATABASE_URL")

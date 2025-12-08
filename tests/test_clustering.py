@@ -379,11 +379,11 @@ def test_name_topics_no_llm_client(test_db, mock_vector_store):
     # Should not raise, just return early
     clusterer.name_topics()
     
-    # Topic should still exist with placeholder title
+    # Topic should still exist with original title (no LLM to rename it)
     topics = test_db.get_all_topics_l1()
     assert len(topics) == 1
-    # Title should remain as placeholder since LLM client is None
-    assert topics[0].title == "Topic L1-0" or "Topic" in topics[0].title
+    # Title should remain as originally set since LLM client is None
+    assert topics[0].title == "test toopic L1-0"
 
 
 @patch('src.ai.clustering.LLMClient')
@@ -416,10 +416,10 @@ def test_name_topics_l1_json_parse_error(MockLLM, test_db, mock_vector_store):
     # Should not raise, just skip naming
     clusterer.name_topics()
     
-    # Topic should still exist with original title (not updated due to parse error)
+    # Topic should still exist - when JSON parse fails, it gets set to "unknown"
     topics = test_db.get_all_topics_l1()
     assert len(topics) == 1
-    assert topics[0].title == "Topic L1-0" or "Topic" in topics[0].title
+    assert topics[0].title == "unknown"  # When JSON parsing fails, title is set to "unknown"
 
 
 def test_name_topics_l1_no_chunks(test_db, mock_vector_store):

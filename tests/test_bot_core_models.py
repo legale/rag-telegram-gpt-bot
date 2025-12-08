@@ -32,7 +32,7 @@ def mock_dependencies():
 @pytest.fixture
 def temp_models_file():
     """Create a temporary models.txt file."""
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, dir='/tmp') as f:
         f.write("openai/gpt-oss-20b:free\n")
         f.write("nvidia/nemotron-nano-9b-v2:free\n")
         f.write("cognitivecomputations/dolphin-mistral-24b-venice-edition:free\n")
@@ -70,7 +70,7 @@ class TestLoadAvailableModels:
     
     def test_load_models_with_empty_file(self, mock_dependencies):
         """Test loading models from an empty models.txt file."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, dir='/tmp') as f:
             temp_path = f.name
         
         try:
@@ -85,7 +85,7 @@ class TestLoadAvailableModels:
     
     def test_load_models_filters_empty_lines(self, mock_dependencies):
         """Test that empty lines are filtered out from models.txt."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, dir='/tmp') as f:
             f.write("model1\n")
             f.write("\n")
             f.write("model2\n")
@@ -111,7 +111,7 @@ class TestgetModel:
     
     def test_get_model_single_model(self, mock_dependencies, temp_models_file):
         """Test geting when only one model is available."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, dir='/tmp') as f:
             f.write("single-model\n")
             single_model_path = f.name
         

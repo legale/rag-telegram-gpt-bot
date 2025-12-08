@@ -29,8 +29,8 @@ if not is_in_virtualenv():
     
     if not poetry_path:
         syslog2(LOG_ERR, "poetry is not installed")
-        syslog2(LOG_INFO, "please install poetry first: curl -sSL https://install.python-poetry.org | python3 -")
-        syslog2(LOG_INFO, "or visit: https://python-poetry.org/docs/#installation")
+        syslog2(LOG_NOTICE, "please install poetry first: curl -sSL https://install.python-poetry.org | python3 -")
+        syslog2(LOG_NOTICE, "or visit: https://python-poetry.org/docs/#installation")
         sys.exit(1)
     
     # Re-execute this script with poetry run
@@ -123,7 +123,7 @@ class ProfileManager:
         
         # Update or add ACTIVE_PROFILE
         set_key(env_path, "ACTIVE_PROFILE", profile_name)
-        syslog2(LOG_INFO, "active profile set", profile=profile_name)
+        syslog2(LOG_NOTICE, "active profile set", profile=profile_name)
     
     def get_profile_dir(self, profile_name: Optional[str] = None) -> Path:
         """Get the directory path for a profile."""
@@ -145,7 +145,7 @@ class ProfileManager:
         profile_dir.mkdir(parents=True, exist_ok=True)
         (profile_dir / "chroma_db").mkdir(exist_ok=True)
         
-        syslog2(LOG_INFO, "profile created", profile=profile_name, path=str(profile_dir), database=str(profile_dir / 'legale_bot.db'), vector_store=str(profile_dir / 'chroma_db'))
+        syslog2(LOG_NOTICE, "profile created", profile=profile_name, path=str(profile_dir), database=str(profile_dir / 'legale_bot.db'), vector_store=str(profile_dir / 'chroma_db'))
         
         if set_active:
             self.set_current_profile(profile_name)
@@ -155,25 +155,25 @@ class ProfileManager:
     def list_profiles(self):
         """List all available profiles."""
         if not self.profiles_dir.exists():
-            syslog2(LOG_INFO, "no profiles directory found, create your first profile with: legale profile create <name>")
+            syslog2(LOG_NOTICE, "no profiles directory found, create your first profile with: legale profile create <name>")
             return
         
         current = self.get_current_profile()
         profiles = [p.name for p in self.profiles_dir.iterdir() if p.is_dir()]
         
         if not profiles:
-            syslog2(LOG_INFO, "no profiles found, create your first profile with: legale profile create <name>")
+            syslog2(LOG_NOTICE, "no profiles found, create your first profile with: legale profile create <name>")
             return
         
-        syslog2(LOG_INFO, "available profiles")
+        syslog2(LOG_NOTICE, "available profiles")
         for profile in sorted(profiles):
             marker = " (active)" if profile == current else ""
             profile_dir = self.profiles_dir / profile
             db_path = profile_dir / "legale_bot.db"
             db_exists = "OK" if db_path.exists() else "MISSING"
-            syslog2(LOG_INFO, "profile", name=profile, db_exists=db_exists, marker=marker)
+            syslog2(LOG_NOTICE, "profile", name=profile, db_exists=db_exists, marker=marker)
 
-        syslog2(LOG_INFO, "active profile", profile=current)
+        syslog2(LOG_NOTICE, "active profile", profile=current)
     
     def delete_profile(self, profile_name: str, force: bool = False):
         """Delete a profile and all its data."""
@@ -190,12 +190,12 @@ class ProfileManager:
         if not force:
             response = input(f"Delete profile '{profile_name}' and all its data? [y/N]: ")
             if response.lower() != 'y':
-                syslog2(LOG_INFO, "operation cancelled")
+                syslog2(LOG_NOTICE, "operation cancelled")
                 return
         
         import shutil
         shutil.rmtree(profile_dir)
-        syslog2(LOG_INFO, "profile deleted", profile=profile_name)
+        syslog2(LOG_NOTICE, "profile deleted", profile=profile_name)
     
     def get_profile_paths(self, profile_name: Optional[str] = None) -> dict:
         """Get all relevant paths for a profile."""
@@ -221,14 +221,14 @@ def cmd_profile(args, profile_manager: ProfileManager):
     elif args.profile_command == 'get':
         # Return current profile name
         current_profile = profile_manager.get_current_profile()
-        syslog2(LOG_INFO, "current profile", profile=current_profile)
+        syslog2(LOG_NOTICE, "current profile", profile=current_profile)
     
     elif args.profile_command == 'set':
         # Check if profile exists
         profile_dir = profile_manager.get_profile_dir(args.name)
         if not profile_dir.exists():
             syslog2(LOG_ERR, "profile does not exist", profile=args.name)
-            syslog2(LOG_INFO, "create it with", command=f"legale profile create {args.name}")
+            syslog2(LOG_NOTICE, "create it with", command=f"legale profile create {args.name}")
             sys.exit(1)
         
         profile_manager.set_current_profile(args.name)
@@ -243,7 +243,7 @@ def cmd_profile(args, profile_manager: ProfileManager):
         db_exists = 'exists' if paths['db_path'].exists() else 'not created'
         vec_exists = 'exists' if paths['vector_db_path'].exists() else 'not created'
         sess_exists = 'exists' if paths['session_file'].exists() else 'not created'
-        syslog2(LOG_INFO, "profile info", profile=profile_name, directory=str(paths['profile_dir']), database=str(paths['db_path']), db_status=db_exists, vector_db=str(paths['vector_db_path']), vec_status=vec_exists, session=str(paths['session_file']), sess_status=sess_exists)
+        syslog2(LOG_NOTICE, "profile info", profile=profile_name, directory=str(paths['profile_dir']), database=str(paths['db_path']), db_status=db_exists, vector_db=str(paths['vector_db_path']), vec_status=vec_exists, session=str(paths['session_file']), sess_status=sess_exists)
     
     elif args.profile_command == 'option':
         cmd_profile_option(args, profile_manager)
@@ -262,7 +262,7 @@ def cmd_ingest(args, profile_manager: ProfileManager):
     paths['profile_dir'].mkdir(parents=True, exist_ok=True)
     paths['vector_db_path'].mkdir(parents=True, exist_ok=True)
     
-    syslog2(LOG_INFO, "using profile", profile=profile_name, database=str(paths['db_path']), vector_store=str(paths['vector_db_path']))
+    syslog2(LOG_NOTICE, "using profile", profile=profile_name, database=str(paths['db_path']), vector_store=str(paths['vector_db_path']))
     
     # Route to appropriate subcommand
     ingest_command = getattr(args, 'ingest_command', None)
@@ -299,15 +299,15 @@ def cmd_ingest(args, profile_manager: ProfileManager):
         
         # Format output: бд - таблица - кол-во записей
         db_name = paths['db_path'].name
-        syslog2(LOG_INFO, "database statistics")
+        syslog2(LOG_NOTICE, "database statistics")
         
         # SQLite database tables
         for table_name, count in sorted(db_info.items()):
-            syslog2(LOG_INFO, "table statistics", database=db_name, table=table_name, records=count)
+            syslog2(LOG_NOTICE, "table statistics", database=db_name, table=table_name, records=count)
         
         # Vector store
         vec_db_name = paths['vector_db_path'].name if paths['vector_db_path'].is_dir() else str(paths['vector_db_path'])
-        syslog2(LOG_INFO, "vector store statistics", database=vec_db_name, collection="embeddings", records=vector_count)
+        syslog2(LOG_NOTICE, "vector store statistics", database=vec_db_name, collection="embeddings", records=vector_count)
         return
     
     # Create pipeline with profile-specific paths (for all other commands)
@@ -340,9 +340,9 @@ def cmd_ingest(args, profile_manager: ProfileManager):
         if not args.file:
             syslog2(LOG_ERR, "file path is required for ingest stage0")
             sys.exit(1)
-        syslog2(LOG_INFO, "running stage0: parse and store")
+        syslog2(LOG_NOTICE, "running stage0: parse and store")
         pipeline.run_stage0(args.file)
-        syslog2(LOG_INFO, "stage0 complete")
+        syslog2(LOG_NOTICE, "stage0 complete")
         
     elif ingest_command == 'stage1':
         # Check if there are chunks in database
@@ -355,9 +355,9 @@ def cmd_ingest(args, profile_manager: ProfileManager):
         
         model = getattr(args, 'model', None)
         batch_size = getattr(args, 'batch_size', 128)
-        syslog2(LOG_INFO, "running stage1: generate embeddings")
+        syslog2(LOG_NOTICE, "running stage1: generate embeddings")
         pipeline.run_stage1(model=model, batch_size=batch_size)
-        syslog2(LOG_INFO, "stage1 complete")
+        syslog2(LOG_NOTICE, "stage1 complete")
         
     elif ingest_command == 'stage2':
         # Check if there are embeddings
@@ -378,9 +378,9 @@ def cmd_ingest(args, profile_manager: ProfileManager):
         if hasattr(args, 'cluster_selection_epsilon') and args.cluster_selection_epsilon is not None:
             clustering_params['cluster_selection_epsilon'] = args.cluster_selection_epsilon
         
-        syslog2(LOG_INFO, "running stage2: cluster l1 topics")
+        syslog2(LOG_NOTICE, "running stage2: cluster l1 topics")
         pipeline.run_stage2(**clustering_params)
-        syslog2(LOG_INFO, "stage2 complete")
+        syslog2(LOG_NOTICE, "stage2 complete")
         
     elif ingest_command == 'stage3':
         # Check if there are L1 topics
@@ -391,9 +391,9 @@ def cmd_ingest(args, profile_manager: ProfileManager):
             syslog2(LOG_ERR, "no l1 topics found, run ingest stage2 first")
             sys.exit(1)
         
-        syslog2(LOG_INFO, "running stage3: create embeddings for clusters and assign topics")
+        syslog2(LOG_NOTICE, "running stage3: create embeddings for clusters and assign topics")
         pipeline.run_stage3()
-        syslog2(LOG_INFO, "stage3 complete")
+        syslog2(LOG_NOTICE, "stage3 complete")
         
     elif ingest_command == 'stage4':
         # Check if there are L1 topics
@@ -417,9 +417,9 @@ def cmd_ingest(args, profile_manager: ProfileManager):
         syslog2(LOG_WARNING, "stage4 args:", **vars(args))
         only_unnamed = getattr(args, 'only_unnamed', True)  # Default: only process unnamed/unknown
         rebuild = getattr(args, 'rebuild', False)
-        syslog2(LOG_INFO, "running stage4: name l1 topics")
+        syslog2(LOG_NOTICE, "running stage4: name l1 topics")
         pipeline.run_stage4(only_unnamed=only_unnamed, rebuild=rebuild)
-        syslog2(LOG_INFO, "stage4 complete")
+        syslog2(LOG_NOTICE, "stage4 complete")
         
     elif ingest_command == 'stage5':
         # Check if there are L1 topics
@@ -442,44 +442,44 @@ def cmd_ingest(args, profile_manager: ProfileManager):
         if hasattr(args, 'cluster_selection_epsilon') and args.cluster_selection_epsilon is not None:
             clustering_params['cluster_selection_epsilon'] = args.cluster_selection_epsilon
         
-        syslog2(LOG_INFO, "running stage5: cluster l2 topics and name")
+        syslog2(LOG_NOTICE, "running stage5: cluster l2 topics and name")
         pipeline.run_stage5(**clustering_params)
-        syslog2(LOG_INFO, "stage5 complete")
+        syslog2(LOG_NOTICE, "stage5 complete")
         
     elif ingest_command == 'clear_all':
-        syslog2(LOG_INFO, "clearing all stages")
+        syslog2(LOG_NOTICE, "clearing all stages")
         pipeline.clear_all()
-        syslog2(LOG_INFO, "all stages cleared")
+        syslog2(LOG_NOTICE, "all stages cleared")
         
     elif ingest_command == 'clear_stage0':
-        syslog2(LOG_INFO, "clearing stage0: messages")
+        syslog2(LOG_NOTICE, "clearing stage0: messages")
         deleted = pipeline.clear_stage0()
-        syslog2(LOG_INFO, "stage0 cleared", messages_deleted=deleted)
+        syslog2(LOG_NOTICE, "stage0 cleared", messages_deleted=deleted)
         
     elif ingest_command == 'clear_stage1':
-        syslog2(LOG_INFO, "clearing stage1: embeddings")
+        syslog2(LOG_NOTICE, "clearing stage1: embeddings")
         removed = pipeline.clear_stage1()
-        syslog2(LOG_INFO, "stage1 cleared", embeddings_removed=removed)
+        syslog2(LOG_NOTICE, "stage1 cleared", embeddings_removed=removed)
         
     elif ingest_command == 'clear_stage2':
-        syslog2(LOG_INFO, "clearing stage2: topics_l1")
+        syslog2(LOG_NOTICE, "clearing stage2: topics_l1")
         deleted = pipeline.clear_stage2()
-        syslog2(LOG_INFO, "stage2 cleared", topics_deleted=deleted)
+        syslog2(LOG_NOTICE, "stage2 cleared", topics_deleted=deleted)
         
     elif ingest_command == 'clear_stage3':
-        syslog2(LOG_INFO, "clearing stage3: topic_l1_id assignments")
+        syslog2(LOG_NOTICE, "clearing stage3: topic_l1_id assignments")
         updated = pipeline.clear_stage3()
-        syslog2(LOG_INFO, "stage3 cleared", chunks_updated=updated)
+        syslog2(LOG_NOTICE, "stage3 cleared", chunks_updated=updated)
         
     elif ingest_command == 'clear_stage4':
-        syslog2(LOG_INFO, "clearing stage4: topic names (no data to clear)")
+        syslog2(LOG_NOTICE, "clearing stage4: topic names (no data to clear)")
         pipeline.clear_stage4()
-        syslog2(LOG_INFO, "stage4 cleared")
+        syslog2(LOG_NOTICE, "stage4 cleared")
         
     elif ingest_command == 'clear_stage5':
-        syslog2(LOG_INFO, "clearing stage5: topic_l2_id assignments and topics_l2")
+        syslog2(LOG_NOTICE, "clearing stage5: topic_l2_id assignments and topics_l2")
         result = pipeline.clear_stage5()
-        syslog2(LOG_INFO, "stage5 cleared", items_updated_deleted=result)
+        syslog2(LOG_NOTICE, "stage5 cleared", items_updated_deleted=result)
     
     else:
         # Should not happen due to routing logic, but handle gracefully
@@ -516,7 +516,7 @@ def cmd_telegram(args, profile_manager: ProfileManager):
     
     session_name = str(paths['session_file'].with_suffix(''))  # Remove .session extension
     
-    syslog2(LOG_INFO, "using profile", profile=profile_name, session_file=str(paths['session_file']))
+    syslog2(LOG_NOTICE, "using profile", profile=profile_name, session_file=str(paths['session_file']))
     
     fetcher = TelegramFetcher(API_ID, API_HASH, session_name=session_name)
     
@@ -559,7 +559,7 @@ def cmd_telegram(args, profile_manager: ProfileManager):
             syslog2(LOG_ERR, "failed to create dump file", file=dump_file)
             sys.exit(1)
         
-        syslog2(LOG_INFO, "starting ingestion", dump_file=dump_file)
+        syslog2(LOG_NOTICE, "starting ingestion", dump_file=dump_file)
         
         # Now run ingest all on the dumped file
         from src.ingestion.pipeline import IngestionPipeline
@@ -592,10 +592,10 @@ def cmd_chat(args, profile_manager: ProfileManager):
     # Check if database exists
     if not paths['db_path'].exists():
         syslog2(LOG_ERR, "no database found for profile", profile=profile_name)
-        syslog2(LOG_INFO, "create one by ingesting data first: legale ingest <file>")
+        syslog2(LOG_NOTICE, "create one by ingesting data first: legale ingest <file>")
         sys.exit(1)
     
-    syslog2(LOG_INFO, "using profile", profile=profile_name, database=str(paths['db_path']))
+    syslog2(LOG_NOTICE, "using profile", profile=profile_name, database=str(paths['db_path']))
     
     # Set environment variables for the CLI
     os.environ['DATABASE_URL'] = paths['db_url']
@@ -639,7 +639,7 @@ def cmd_bot(args, profile_manager: ProfileManager):
     os.environ['DATABASE_URL'] = paths['db_url']
     os.environ['VECTOR_DB_PATH'] = str(paths['vector_db_path'])
     
-    syslog2(LOG_INFO, "using profile", profile=profile_name)
+    syslog2(LOG_NOTICE, "using profile", profile=profile_name)
     
     if args.bot_command == 'register':
         token = args.token or os.getenv("TELEGRAM_BOT_TOKEN")
@@ -666,12 +666,14 @@ def cmd_bot(args, profile_manager: ProfileManager):
         verbose = 0
         log_level = getattr(args, 'log_level', None)
         if log_level:
-            if log_level in ('LOG_DEBUG', 'LOG_INFO'):
+            log_level_upper = log_level.upper() if isinstance(log_level, str) else str(log_level).upper()
+            if log_level_upper in ('LOG_DEBUG', 'LOG_INFO', 'LOG_NOTICE', 'INFO', 'NOTICE', 'DEBUG'):
                 verbose = 2
-            elif log_level == 'LOG_WARNING':
+            elif log_level_upper in ('LOG_WARNING', 'WARNING'):
                 verbose = 1
         
-        run_server(args.host, args.port, verbose)
+        debug_rag = getattr(args, 'debug_rag', False)
+        run_server(args.host, args.port, verbose, debug_rag=debug_rag)
     
     elif args.bot_command == 'daemon':
         print(f"Database: {paths['db_path']}")
@@ -692,23 +694,23 @@ def cmd_test_embedding(args):
     model = getattr(args, 'model', 'ai-sage/Giga-Embeddings-instruct')
     text = getattr(args, 'text', '')
     
-    syslog2(LOG_INFO, "testing embedding generation", model=model, text=text)
+    syslog2(LOG_NOTICE, "testing embedding generation", model=model, text=text)
     
     try:
         # Initialize client and warmup model (exclude from timing)
-        syslog2(LOG_INFO, "loading model")
+        syslog2(LOG_NOTICE, "loading model")
         client = LocalEmbeddingClient(model=model)
         
         # Warmup: generate embedding once to load model into memory
         _ = client.get_embedding("warmup")
-        syslog2(LOG_INFO, "model loaded")
+        syslog2(LOG_NOTICE, "model loaded")
         
         # Now measure only embedding generation time
         start_time = time.time()
         emb = client.get_embedding(text)
         duration_ms = (time.time() - start_time) * 1000
         
-        syslog2(LOG_INFO, "embedding generation success", duration_ms=int(duration_ms), dimensions=len(emb), first_5_values=emb[:5])
+        syslog2(LOG_NOTICE, "embedding generation success", duration_ms=int(duration_ms), dimensions=len(emb), first_5_values=emb[:5])
     except Exception as e:
         from src.core.syslog2 import syslog2, LogLevel, setup_log
         setup_log(LogLevel.LOG_WARNING)
@@ -1345,9 +1347,9 @@ def main():
         if len(sys.argv) > 1:
             cmd = sys.argv[1]
             help_text = parser.get_help(cmd)
-            syslog2(LOG_INFO, "help", help_text=help_text)
+            syslog2(LOG_NOTICE, "help", help_text=help_text)
         else:
-            syslog2(LOG_INFO, "help", help_text=parser.get_help())
+            syslog2(LOG_NOTICE, "help", help_text=parser.get_help())
         sys.exit(0)
     except CLIError as e:
         # Setup logging early for error messages
@@ -1406,7 +1408,7 @@ def main():
     if not cmd_name.startswith('profile'):
         default_profile = profile_manager.get_profile_dir('default')
         if not default_profile.exists():
-            syslog2(LOG_INFO, "creating default profile")
+            syslog2(LOG_NOTICE, "creating default profile")
             profile_manager.create_profile('default', set_active=True)
     
     # Route to appropriate command handler
@@ -1519,19 +1521,19 @@ def cmd_topics(args, profile_manager: ProfileManager):
             syslog2(LOG_DEBUG, "progress complete", stage=stage_name)
 
     if args.topic_command == 'cluster-l1':
-        syslog2(LOG_INFO, "running l1 clustering", profile=profile_name)
+        syslog2(LOG_NOTICE, "running l1 clustering", profile=profile_name)
         validate_clustering_params('l1')
         params = get_clustering_params('l1')
-        syslog2(LOG_INFO, "l1 clustering parameters", min_cluster_size=params['min_cluster_size'], min_samples=params['min_samples'], metric=params['metric'], method=params['cluster_selection_method'], epsilon=params['cluster_selection_epsilon'])
+        syslog2(LOG_NOTICE, "l1 clustering parameters", min_cluster_size=params['min_cluster_size'], min_samples=params['min_samples'], metric=params['metric'], method=params['cluster_selection_method'], epsilon=params['cluster_selection_epsilon'])
         try:
             clusterer.perform_l1_clustering(**params)
-            syslog2(LOG_INFO, "l1 clustering complete, run topics cluster-l2 for super-topics")
+            syslog2(LOG_NOTICE, "l1 clustering complete, run topics cluster-l2 for super-topics")
         except ValueError as e:
             syslog2(LOG_ERR, "error", error=str(e))
             sys.exit(1)
             
     elif args.topic_command == 'cluster-l2':
-        syslog2(LOG_INFO, "running l2 clustering", profile=profile_name)
+        syslog2(LOG_NOTICE, "running l2 clustering", profile=profile_name)
         # Check if L1 topics exist
         l1_topics = db.get_all_topics_l1()
         if not l1_topics:
@@ -1539,16 +1541,16 @@ def cmd_topics(args, profile_manager: ProfileManager):
             sys.exit(1)
         validate_clustering_params('l2')
         params = get_clustering_params('l2')
-        syslog2(LOG_INFO, "l2 clustering parameters", min_cluster_size=params['min_cluster_size'], min_samples=params['min_samples'], metric=params['metric'], method=params['cluster_selection_method'], epsilon=params['cluster_selection_epsilon'])
+        syslog2(LOG_NOTICE, "l2 clustering parameters", min_cluster_size=params['min_cluster_size'], min_samples=params['min_samples'], metric=params['metric'], method=params['cluster_selection_method'], epsilon=params['cluster_selection_epsilon'])
         try:
             clusterer.perform_l2_clustering(**params)
-            syslog2(LOG_INFO, "l2 clustering complete, run topics name to generate topic names")
+            syslog2(LOG_NOTICE, "l2 clustering complete, run topics name to generate topic names")
         except ValueError as e:
             syslog2(LOG_ERR, "error", error=str(e))
             sys.exit(1)
             
     elif args.topic_command == 'name':
-        syslog2(LOG_INFO, "generating topic names", profile=profile_name)
+        syslog2(LOG_NOTICE, "generating topic names", profile=profile_name)
         # Check if topics exist
         l1_topics = db.get_all_topics_l1()
         l2_topics = db.get_all_topics_l2()
@@ -1560,17 +1562,17 @@ def cmd_topics(args, profile_manager: ProfileManager):
         rebuild = getattr(args, 'rebuild', False)
         target = getattr(args, 'target', 'both')
         
-        syslog2(LOG_INFO, "naming topics (llm)")
+        syslog2(LOG_NOTICE, "naming topics (llm)")
         clusterer.name_topics(
             progress_callback=show_progress,
             only_unnamed=only_unnamed,
             rebuild=rebuild,
             target=target
         )
-        syslog2(LOG_INFO, "topic naming complete")
+        syslog2(LOG_NOTICE, "topic naming complete")
         
     elif args.topic_command == 'build':
-        syslog2(LOG_INFO, "building topics", profile=profile_name)
+        syslog2(LOG_NOTICE, "building topics", profile=profile_name)
         
         # Validate parameters
         validate_clustering_params('l1')
@@ -1580,26 +1582,26 @@ def cmd_topics(args, profile_manager: ProfileManager):
         l1_params = get_clustering_params('l1')
         l2_params = get_clustering_params('l2')
         
-        syslog2(LOG_INFO, "l1 parameters", min_cluster_size=l1_params['min_cluster_size'], min_samples=l1_params['min_samples'], metric=l1_params['metric'], method=l1_params['cluster_selection_method'], epsilon=l1_params['cluster_selection_epsilon'])
-        syslog2(LOG_INFO, "1. running l1 clustering (fine-grained)")
+        syslog2(LOG_NOTICE, "l1 parameters", min_cluster_size=l1_params['min_cluster_size'], min_samples=l1_params['min_samples'], metric=l1_params['metric'], method=l1_params['cluster_selection_method'], epsilon=l1_params['cluster_selection_epsilon'])
+        syslog2(LOG_NOTICE, "1. running l1 clustering (fine-grained)")
         try:
             clusterer.perform_l1_clustering(**l1_params)
         except ValueError as e:
             syslog2(LOG_ERR, "error", error=str(e))
             sys.exit(1)
         
-        syslog2(LOG_INFO, "l2 parameters", min_cluster_size=l2_params['min_cluster_size'], min_samples=l2_params['min_samples'], metric=l2_params['metric'], method=l2_params['cluster_selection_method'], epsilon=l2_params['cluster_selection_epsilon'])
-        syslog2(LOG_INFO, "2. running l2 clustering (super-topics)")
+        syslog2(LOG_NOTICE, "l2 parameters", min_cluster_size=l2_params['min_cluster_size'], min_samples=l2_params['min_samples'], metric=l2_params['metric'], method=l2_params['cluster_selection_method'], epsilon=l2_params['cluster_selection_epsilon'])
+        syslog2(LOG_NOTICE, "2. running l2 clustering (super-topics)")
         try:
             clusterer.perform_l2_clustering(**l2_params)
         except ValueError as e:
             syslog2(LOG_ERR, "error", error=str(e))
             sys.exit(1)
         
-        syslog2(LOG_INFO, "3. naming topics (llm)")
+        syslog2(LOG_NOTICE, "3. naming topics (llm)")
         clusterer.name_topics(progress_callback=show_progress)
         
-        syslog2(LOG_INFO, "topic build complete")
+        syslog2(LOG_NOTICE, "topic build complete")
             
     elif args.topic_command == 'list':
         try:
@@ -1623,36 +1625,36 @@ def cmd_topics(args, profile_manager: ProfileManager):
             
             # Show L2 topics with their L1 children
             if l2_topics:
-                syslog2(LOG_INFO, "l2 topics header")
+                syslog2(LOG_NOTICE, "l2 topics header")
                 
                 for l2 in l2_topics:
                     children = l1_by_l2.get(l2.id, [])
                     chunks_count = sum(c.chunk_count for c in children)
                     title = l2.title or "unknown"
-                    syslog2(LOG_INFO, "l2 topic", id=l2.id, title=title, l1_count=len(children), chunks=chunks_count)
+                    syslog2(LOG_NOTICE, "l2 topic", id=l2.id, title=title, l1_count=len(children), chunks=chunks_count)
                     
                     # Show L1 topics under each L2 topic
                     if children:
                         for l1 in children:
                             l1_title = l1.title
-                            syslog2(LOG_INFO, "  l1 subtopic", id=l1.id, title=l1_title, chunks=l1.chunk_count)
+                            syslog2(LOG_NOTICE, "  l1 subtopic", id=l1.id, title=l1_title, chunks=l1.chunk_count)
             
             # Show orphaned L1 topics
             if orphans:
                 if l2_topics:
-                    syslog2(LOG_INFO, "orphaned l1 topics (no super-topic)")
+                    syslog2(LOG_NOTICE, "orphaned l1 topics (no super-topic)")
                 else:
-                    syslog2(LOG_INFO, "l1 topics header")
+                    syslog2(LOG_NOTICE, "l1 topics header")
                 for t in orphans:
                     title = t.title
-                    syslog2(LOG_INFO, "orphaned l1 topic", id=t.id, title=title, chunks=t.chunk_count)
+                    syslog2(LOG_NOTICE, "orphaned l1 topic", id=t.id, title=title, chunks=t.chunk_count)
             
             # If no L2 topics but L1 topics exist, show all L1 topics
             if not l2_topics and l1_topics:
-                syslog2(LOG_INFO, "l1 topics (no l2)")
+                syslog2(LOG_NOTICE, "l1 topics (no l2)")
                 for t in l1_topics:
                     title = t.title
-                    syslog2(LOG_INFO, "l1 topic", id=t.id, title=title, chunks=t.chunk_count)
+                    syslog2(LOG_NOTICE, "l1 topic", id=t.id, title=title, chunks=t.chunk_count)
 
                 
         except Exception as e:
@@ -1664,12 +1666,12 @@ def cmd_topics(args, profile_manager: ProfileManager):
             l2 = next((t for t in db.get_all_topics_l2() if t.id == tid), None)
             
             if l2:
-                syslog2(LOG_INFO, "super-topic l2", id=l2.id, title=l2.title, description=l2.descr)
+                syslog2(LOG_NOTICE, "super-topic l2", id=l2.id, title=l2.title, description=l2.descr)
                 subtopics = db.get_l1_topics_by_l2(l2.id)
-                syslog2(LOG_INFO, "sub-topics count", count=len(subtopics))
+                syslog2(LOG_NOTICE, "sub-topics count", count=len(subtopics))
                 
                 for sub in subtopics:
-                    syslog2(LOG_INFO, "subtopic", id=sub.id, title=sub.title, chunks=sub.chunk_count)
+                    syslog2(LOG_NOTICE, "subtopic", id=sub.id, title=sub.title, chunks=sub.chunk_count)
                 return
 
             l1 = next((t for t in db.get_all_topics_l1() if t.id == tid), None)
