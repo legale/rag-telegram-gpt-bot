@@ -356,7 +356,7 @@ def test_name_topics_no_llm_client(test_db, mock_vector_store):
     """Test that name_topics handles missing LLM client gracefully"""
     # Create some topics
     l1_id = test_db.create_topic_l1(
-        title="Topic L1-0",
+        title="test toopic L1-0",
         descr="Pending",
         chunk_count=1,
         msg_count=1,

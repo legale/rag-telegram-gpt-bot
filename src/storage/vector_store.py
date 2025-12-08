@@ -32,96 +32,19 @@ class VectorStore:
             path=persist_directory,
             settings=Settings(anonymized_telemetry=False)
         )
+        self.collection = self.client.get_or_create_collection(
+            name=collection_name,
+            embedding_function=None,  # embeddings always provided explicitly
+        )
         # chroma limit is around 5461, keep some margin
         self.max_batch_size = max_batch_size
         self.embedding_client = embedding_client or EmbeddingClient()
         
-        # Get expected dimension from embedding client
-        self.expected_dimension = self.embedding_client.get_dimension()
-        
-        # Get or create collection, checking dimension compatibility
-        self.collection = self._get_or_create_collection_with_dimension()
-    
-    def _get_or_create_collection_with_dimension(self):
-        """
-        Get or create collection, ensuring it matches the expected embedding dimension.
-        If collection exists with wrong dimension, recreate it.
-        """
-        try:
-            # Try to get existing collection
-            collection = self.client.get_collection(name=self.collection_name)
-            
-            # Check if collection is empty (no dimension constraint yet)
-            count = collection.count()
-            if count == 0:
-                # Empty collection, safe to use
-                return collection
-            
-            # Collection has data, check dimension by sampling an embedding
-            # Get a sample to check dimension
-            sample = collection.get(limit=1, include=["embeddings"])
-            if sample and sample.get("embeddings") and len(sample["embeddings"]) > 0:
-                existing_dim = len(sample["embeddings"][0])
-                if existing_dim != self.expected_dimension:
-                    # Dimension mismatch - need to recreate collection
-                    syslog2(LOG_WARNING, 
-                        f"Collection dimension mismatch: expected {self.expected_dimension}, found {existing_dim}. "
-                        f"Recreating collection '{self.collection_name}'...")
-                    # Delete old collection
-                    self.client.delete_collection(name=self.collection_name)
-                    # Create new collection
-                    collection = self.client.create_collection(
-                        name=self.collection_name,
-                        embedding_function=None,
-                    )
-                    syslog2(LOG_INFO, f"Collection '{self.collection_name}' recreated with dimension {self.expected_dimension}")
-                else:
-                    # Dimension matches, use existing collection
-                    syslog2(LOG_DEBUG, f"Using existing collection '{self.collection_name}' with dimension {existing_dim}")
-            else:
-                # No embeddings found, safe to use
-                return collection
-            
-            return collection
-        except Exception as e:
-            # Collection doesn't exist, try to create it
-            # But handle case where collection might have been created between get and create
-            try:
-                collection = self.client.create_collection(
-                    name=self.collection_name,
-                    embedding_function=None,
-                )
-                syslog2(LOG_DEBUG, f"Created new collection '{self.collection_name}' with dimension {self.expected_dimension}")
-                return collection
-            except Exception as create_error:
-                # Collection might have been created by another process/thread, try to get it again
-                if "already exists" in str(create_error).lower():
-                    try:
-                        collection = self.client.get_collection(name=self.collection_name)
-                        syslog2(LOG_DEBUG, f"Collection '{self.collection_name}' already exists, using existing one")
-                        return collection
-                    except Exception:
-                        # Re-raise original error if we still can't get it
-                        raise create_error
-                else:
-                    # Re-raise if it's a different error
-                    raise create_error
-    
-    def _recreate_collection_with_dimension(self, new_dimension: int):
-        """Recreate collection with new dimension."""
-        try:
-            # Delete old collection
-            self.client.delete_collection(name=self.collection_name)
-        except Exception:
-            # Collection might not exist, ignore
-            pass
-        
-        # Create new collection
-        collection = self.client.create_collection(
-            name=self.collection_name,
-            embedding_function=None,
+        # Initialize topics_l2 collection
+        self.topics_l2_collection = self.client.get_or_create_collection(
+            name="topics_l2",
+            embedding_function=None,  # embeddings always provided explicitly
         )
-        return collection
 
     def add_documents_with_embeddings(
         self,
@@ -141,47 +64,6 @@ class VectorStore:
 
         if not (len(ids) == len(documents) == len(embeddings)):
             raise ValueError("ids, documents, embeddings must have same length")
-
-        # Validate embedding dimensions and recreate collection if needed
-        if embeddings:
-            first_dim = len(embeddings[0])
-            
-            # Check all embeddings have same dimension first
-            for i, emb in enumerate(embeddings):
-                if len(emb) != first_dim:
-                    raise ValueError(f"Embedding at index {i} has dimension {len(emb)}, expected {first_dim}")
-            
-            # CRITICAL: Check existing collection dimension BEFORE attempting to add
-            # ChromaDB will fail if dimension doesn't match, so we must recreate collection first
-            needs_recreate = False
-            try:
-                count = self.collection.count()
-                if count > 0:
-                    # Sample existing embeddings to check dimension
-                    sample = self.collection.get(limit=1, include=["embeddings"])
-                    if sample and sample.get("embeddings") and len(sample["embeddings"]) > 0:
-                        existing_dim = len(sample["embeddings"][0])
-                        if existing_dim != first_dim:
-                            # Existing data has different dimension - MUST recreate collection
-                            needs_recreate = True
-                            syslog2(LOG_WARNING, 
-                                f"Existing collection has dimension {existing_dim}, new embeddings have {first_dim}. "
-                                f"Recreating collection '{self.collection_name}'...")
-            except Exception as e:
-                # If we can't check, assume collection might be empty or corrupted
-                syslog2(LOG_DEBUG, f"Could not check collection dimension: {e}")
-            
-            # Recreate collection if needed
-            if needs_recreate:
-                self.collection = self._recreate_collection_with_dimension(first_dim)
-                self.expected_dimension = first_dim
-                syslog2(LOG_INFO, f"Collection '{self.collection_name}' recreated with dimension {first_dim}")
-            
-            # Update expected dimension to match actual embeddings
-            if first_dim != self.expected_dimension:
-                syslog2(LOG_INFO, 
-                    f"Updating expected dimension: {self.expected_dimension} -> {first_dim}")
-                self.expected_dimension = first_dim
 
         if metadatas is None:
             metadatas = [None] * total
@@ -209,10 +91,10 @@ class VectorStore:
             added = end
             if show_progress:
                 pct = added * 100 // total
-                print(f"\rvector_store: added {added}/{total} documents ({pct}%)", end="", flush=True)
+                syslog2(LOG_DEBUG, "vector_store progress", added=added, total=total, percent=pct)
 
         if show_progress and total > 0:
-            print()
+            syslog2(LOG_DEBUG, "vector_store batch complete", total=total)
 
 
 
@@ -253,3 +135,69 @@ class VectorStore:
         # ChromaDB get() can return headings, ids, etc.
         # We need "embeddings" which might not be returned by default.
         return self.collection.get(include=["embeddings", "metadatas", "documents"])
+
+    def get_or_create_collection(self, collection_name: str):
+        """
+        Get or create a collection by name.
+        
+        Args:
+            collection_name: Name of the collection
+            
+        Returns:
+            ChromaDB Collection object
+        """
+        return self.client.get_or_create_collection(
+            name=collection_name,
+            embedding_function=None,  # embeddings always provided explicitly
+        )
+
+    def get_topics_l2_collection(self):
+        """
+        Get the topics_l2 collection.
+        
+        Returns:
+            ChromaDB Collection for L2 topics
+        """
+        return self.topics_l2_collection
+
+    def get_embeddings_by_ids(self, ids: List[str], collection_name: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Get embeddings by chunk IDs from the specified collection.
+        
+        Args:
+            ids: List of chunk IDs
+            collection_name: Collection name (default: main collection)
+            
+        Returns:
+            Dictionary with 'ids' and 'embeddings' keys
+        """
+        collection = self.collection if collection_name is None else self.get_or_create_collection(collection_name)
+        
+        if not ids:
+            return {"ids": [], "embeddings": []}
+        
+        # ChromaDB get() can handle multiple IDs
+        result = collection.get(ids=ids, include=["embeddings", "metadatas"])
+        
+        return {
+            "ids": result.get("ids", []),
+            "embeddings": result.get("embeddings", []),
+            "metadatas": result.get("metadatas", [])
+        }
+
+    def update_chunk_metadata(self, chunk_id: str, metadata: Dict[str, Any], collection_name: Optional[str] = None) -> None:
+        """
+        Update metadata for a chunk in the collection.
+        
+        Args:
+            chunk_id: ID of the chunk to update
+            metadata: New metadata dictionary
+            collection_name: Collection name (default: main collection)
+        """
+        collection = self.collection if collection_name is None else self.get_or_create_collection(collection_name)
+        
+        # ChromaDB update() method
+        collection.update(
+            ids=[chunk_id],
+            metadatas=[metadata]
+        )

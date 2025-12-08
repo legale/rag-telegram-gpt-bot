@@ -70,7 +70,7 @@ class SimpleKMeans:
                     new_centroids[k] = X[np.random.choice(n_samples)]
             
             if self.show_progress:
-                print(f"\rkmeans: iter {it+1}/{self.max_iter}", end="", flush=True)
+                syslog2(LOG_DEBUG, "kmeans iteration", iteration=it+1, max_iter=self.max_iter)
             
             if np.allclose(self.centroids, new_centroids, atol=self.tol):
                 self.centroids = new_centroids
@@ -81,7 +81,7 @@ class SimpleKMeans:
             self.labels_ = labels
 
         if self.show_progress:
-            print()
+            syslog2(LOG_DEBUG, "kmeans complete")
             
         return self
 
@@ -147,134 +147,3 @@ class TopicSummarizer:
         except Exception as e:
             syslog2(LOG_ERR, "topic summary failed", error=str(e))
             return "Unknown Topic", "Could not generate description."
-
-class TopicBuilder:
-    """Pipeline to build topics from existing embeddings."""
-    
-    def __init__(self, db_url: str, vector_store_path: str):
-        self.db = Database(db_url)
-        self.vector_store = VectorStore(vector_store_path)
-        self.llm_client = LLMClient()
-        
-    def build_topics(self, clear_existing: bool = True, show_progress: bool = True) -> int:
-        """
-        Main pipeline: load vectors -> cluster -> summarize -> save.
-        Returns number of topics created.
-        """
-        if show_progress:
-            print("Loading embeddings from ChromaDB...")
-        collection_data = self.vector_store.get_all_embeddings()
-        
-        embeddings = collection_data.get("embeddings") # List[List[float]]
-        ids = collection_data.get("ids")             # List[str]
-        
-        if embeddings is None or len(embeddings) == 0 or ids is None or len(ids) == 0:
-            if show_progress:
-                print("No embeddings found in Vector Store.")
-            else:
-                # silent mode still returns 0
-                pass
-            return 0
-            
-        X = np.array(embeddings)
-        valid_ids = np.array(ids)
-        
-        n_samples = len(X)
-        if show_progress:
-            print(f"Found {n_samples} vectors. Starting clustering...")
-        
-        # Determine K (simple heuristic: sqrt(N/2), capped at 50)
-        if n_samples < 5:
-            k = 1
-        else:
-            k = int(np.sqrt(n_samples / 2))
-            k = max(2, min(k, 50)) # Clamp between 2 and 50
-            
-        if show_progress:
-            print(f"Clustering into approx {k} topics using SimpleKMeans...")
-        
-        kmeans = SimpleKMeans(n_clusters=k, show_progress=show_progress)
-        kmeans.fit(X)
-        labels = kmeans.labels_
-        
-        # Prepare DB
-        if clear_existing:
-            if show_progress:
-                print("Clearing existing topics...")
-            self.db.clear_topics()
-            
-        summarizer = TopicSummarizer(self.llm_client)
-        
-        topics_created = 0
-        
-        for idx, cluster_id in enumerate(range(k)):
-            # Get indices for this cluster
-            cluster_indices = np.where(labels == cluster_id)[0]
-            if len(cluster_indices) < 3:
-                # Skip tiny clusters (noise)
-                if show_progress:
-                    print(
-                        f"\rtopics: processed {idx+1}/{k} clusters, "
-                        f"topics={topics_created} (cluster {cluster_id} skipped: {len(cluster_indices)} chunks)",
-                        end="",
-                        flush=True,
-                    )
-                continue
-                
-            cluster_ids = valid_ids[cluster_indices]
-            
-            # Find representative chunks (closest to centroid, or just first N)
-            centroid = kmeans.centroids[cluster_id]
-            cluster_vectors = X[cluster_indices]
-            dists = np.linalg.norm(cluster_vectors - centroid, axis=1)
-            sorted_local_indices = np.argsort(dists)
-            top_n_indices = sorted_local_indices[:MAX_REPRESENTATIVE_CHUNKS]
-            top_ids = cluster_ids[top_n_indices]
-            
-            # Retrieve text from DB
-            texts = []
-            for cid in top_ids:
-                txt = self.db.get_chunk_text(cid)
-                if txt:
-                    texts.append(txt)
-            
-            if not texts:
-                if show_progress:
-                    print(
-                        f"\rtopics: processed {idx+1}/{k} clusters, "
-                        f"topics={topics_created} (cluster {cluster_id} has no texts)",
-                        end="",
-                        flush=True,
-                    )
-                continue
-                
-            if show_progress:
-                print(
-                    f"\rSummarizing topic {cluster_id+1}/{k} "
-                    f"({len(cluster_indices)} chunks, reps={len(texts)})...",
-                    end="",
-                    flush=True,
-                )
-            
-            title, description = summarizer.generate_topic_title_and_description(texts)
-            
-            # Save to DB
-            topic_id = self.db.create_topic(title, description)
-            
-            # Link chunks
-            self.db.add_topic_chunks(topic_id, cluster_ids.tolist())
-            
-            topics_created += 1
-            
-            if show_progress:
-                print(
-                    f"\rtopics: processed {idx+1}/{k} clusters, "
-                    f"topics={topics_created} (last='{title}')",
-                    end="",
-                    flush=True,
-                )
-            
-        if show_progress:
-            print()
-            print(f"Done. Created {topics_created} topics.")
-        return topics_created

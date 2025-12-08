@@ -1,8 +1,9 @@
 from sqlalchemy import create_engine, Column, String, Integer, Text, DateTime, ForeignKey, Float
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from datetime import datetime
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Any
 import json
+from src.core.syslog2 import *
 
 Base = declarative_base()
 
@@ -82,25 +83,6 @@ class TopicL2Model(Base):
     topics_l1 = relationship("TopicL1Model", back_populates="parent_l2")
 
 
-# Legacy models (kept for backward compatibility)
-class TopicModel(Base):
-    """Legacy topic model (from old simple clustering)."""
-    __tablename__ = 'topics'
-    
-    id = Column(Integer, primary_key=True)
-    title = Column(Text, nullable=False)
-    description = Column(Text, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-
-class TopicChunkModel(Base):
-    """Legacy topic-chunk mapping (from old simple clustering)."""
-    __tablename__ = 'topic_chunks'
-    
-    topic_id = Column(Integer, ForeignKey('topics.id', ondelete='CASCADE'), primary_key=True)
-    chunk_id = Column(String, ForeignKey('chunks.id', ondelete='CASCADE'), primary_key=True)
-
-
 # ============================================================================
 # Database Class
 # ============================================================================
@@ -141,7 +123,7 @@ class Database:
                     conn.execute(text("ALTER TABLE chunks ADD COLUMN ts_to DATETIME"))
                     conn.commit()
                 except Exception as e:
-                    print(f"Schema update warning (chunks 14.2): {e}")
+                    syslog2(LOG_WARNING, "schema update warning (chunks 14.2)", error=str(e))
 
             # Check chunks table for topic_l1_id (Phase 14.3)
             try:
@@ -152,7 +134,7 @@ class Database:
                     conn.execute(text("ALTER TABLE chunks ADD COLUMN topic_l2_id INTEGER"))
                     conn.commit()
                 except Exception as e:
-                    print(f"Schema update warning (chunks 14.3): {e}")
+                    syslog2(LOG_WARNING, "schema update warning (chunks 14.3)", error=str(e))
 
             # Check topics_l1 table for parent_l2_id
             try:
@@ -162,7 +144,7 @@ class Database:
                     conn.execute(text("ALTER TABLE topics_l1 ADD COLUMN parent_l2_id INTEGER"))
                     conn.commit()
                 except Exception as e:
-                     print(f"Schema update warning (topics_l1): {e}")
+                     syslog2(LOG_WARNING, "schema update warning (topics_l1)", error=str(e))
         
     def get_session(self):
         return self.Session()
@@ -512,21 +494,53 @@ class Database:
         title: str,
         descr: str,
         chunk_count: int,
-        center_vec: Optional[List[float]] = None
+        center_vec: Optional[List[float]] = None,
+        vector_store: Optional[Any] = None
     ) -> int:
-        """Create a new L2 topic and return its ID."""
+        """
+        Create a new L2 topic and return its ID.
+        
+        Args:
+            title: Topic title
+            descr: Topic description
+            chunk_count: Number of chunks in this topic
+            center_vec: Center vector for the topic (stored in chroma_db, not SQLite)
+            vector_store: VectorStore instance for saving center_vec to chroma_db
+            
+        Returns:
+            Topic ID
+        """
         session = self.get_session()
         try:
-            center_vec_json = json.dumps(center_vec) if center_vec else None
+            # Store center_vec as None in SQLite (now stored only in chroma_db)
             topic = TopicL2Model(
                 title=title,
                 descr=descr,
                 chunk_count=chunk_count,
-                center_vec=center_vec_json
+                center_vec=None  # No longer stored in SQLite
             )
             session.add(topic)
             session.commit()
-            return topic.id
+            topic_id = topic.id
+            
+            # Save center_vec to chroma_db if provided
+            if center_vec is not None and vector_store is not None:
+                try:
+                    vector_store.topics_l2_collection.add(
+                        ids=[f"l2-{topic_id}"],
+                        embeddings=[center_vec],
+                        metadatas=[{
+                            "topic_l2_id": topic_id,
+                            "title": title,
+                            "chunk_count": chunk_count
+                        }]
+                    )
+                except Exception as e:
+                    # Log error but don't fail the transaction
+                    from src.core.syslog2 import syslog2, LOG_WARNING
+                    syslog2(LOG_WARNING, "failed to save l2 topic to chroma_db", topic_id=topic_id, error=str(e))
+            
+            return topic_id
         except Exception as e:
             session.rollback()
             raise e
@@ -597,8 +611,22 @@ class Database:
         finally:
             session.close()
 
-    def update_topic_l2_info(self, topic_l2_id: int, title: str, descr: str) -> None:
-        """Update L2 topic title and description."""
+    def update_topic_l2_info(
+        self, 
+        topic_l2_id: int, 
+        title: str, 
+        descr: str,
+        vector_store: Optional[Any] = None
+    ) -> None:
+        """
+        Update L2 topic title and description.
+        
+        Args:
+            topic_l2_id: Topic ID
+            title: New title
+            descr: New description
+            vector_store: VectorStore instance for updating metadata in chroma_db
+        """
         session = self.get_session()
         try:
             topic = session.query(TopicL2Model).filter(TopicL2Model.id == topic_l2_id).first()
@@ -606,95 +634,25 @@ class Database:
                 topic.title = title
                 topic.descr = descr
                 session.commit()
-        except Exception as e:
-            session.rollback()
-            raise e
-        finally:
-            session.close()
-
-    # ========================================================================
-    # Legacy Topic Methods (for backward compatibility)
-    # ========================================================================
-
-    def create_topic(self, title: str, description: str) -> int:
-        """Creates a new legacy topic and returns its ID."""
-        session = self.get_session()
-        try:
-            topic = TopicModel(title=title, description=description)
-            session.add(topic)
-            session.commit()
-            return topic.id
-        except Exception as e:
-            session.rollback()
-            raise e
-        finally:
-            session.close()
-
-    def add_topic_chunks(self, topic_id: int, chunk_ids: list[str]) -> int:
-        """Associates multiple chunks with a legacy topic."""
-        if not chunk_ids:
-            return 0
-        session = self.get_session()
-        try:
-            mappings = [
-                TopicChunkModel(topic_id=topic_id, chunk_id=cid)
-                for cid in chunk_ids
-            ]
-            session.add_all(mappings)
-            session.commit()
-            return len(mappings)
-        except Exception as e:
-            session.rollback()
-            raise e
-        finally:
-            session.close()
-
-    def clear_topics(self) -> tuple[int, int]:
-        """
-        Deletes all legacy topics (and cascades to topic_chunks).
-        Returns (num_topics_deleted, num_mappings_deleted).
-        """
-        session = self.get_session()
-        try:
-            num_topics = session.query(TopicModel).count()
-            if num_topics == 0:
-                return 0, 0
                 
-            session.rollback()
-            
-            num_mappings = session.query(TopicChunkModel).delete()
-            num_topics = session.query(TopicModel).delete()
-            
-            session.commit()
-            return num_topics, num_mappings
+                # Update metadata in chroma_db if vector_store is provided
+                if vector_store is not None:
+                    try:
+                        vector_store.topics_l2_collection.update(
+                            ids=[f"l2-{topic_l2_id}"],
+                            metadatas=[{
+                                "topic_l2_id": topic_l2_id,
+                                "title": title,
+                                "chunk_count": topic.chunk_count
+                            }]
+                        )
+                    except Exception as e:
+                        # Log error but don't fail the transaction
+                        from src.core.syslog2 import syslog2, LOG_WARNING
+                        syslog2(LOG_WARNING, "failed to update l2 topic metadata in chroma_db", topic_id=topic_l2_id, error=str(e))
         except Exception as e:
             session.rollback()
             raise e
-        finally:
-            session.close()
-
-    def get_all_topics(self):
-        """Returns all legacy topics."""
-        session = self.get_session()
-        try:
-            return session.query(TopicModel).all()
-        finally:
-            session.close()
-
-    def get_topic(self, topic_id: int):
-        """Returns a single legacy topic by ID."""
-        session = self.get_session()
-        try:
-            return session.query(TopicModel).filter(TopicModel.id == topic_id).first()
-        finally:
-            session.close()
-
-    def get_topic_chunks(self, topic_id: int):
-        """Returns all chunk IDs for a legacy topic."""
-        session = self.get_session()
-        try:
-            results = session.query(TopicChunkModel.chunk_id).filter(TopicChunkModel.topic_id == topic_id).all()
-            return [r[0] for r in results]
         finally:
             session.close()
 
@@ -727,17 +685,6 @@ class Database:
                 info['topics_l2'] = session.query(TopicL2Model).count()
             except Exception:
                 info['topics_l2'] = 0
-            
-            # Legacy tables (may not exist)
-            try:
-                info['topics'] = session.query(TopicModel).count()
-            except Exception:
-                info['topics'] = 0
-            
-            try:
-                info['topic_chunks'] = session.query(TopicChunkModel).count()
-            except Exception:
-                info['topic_chunks'] = 0
             
             return info
         finally:

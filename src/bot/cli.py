@@ -33,7 +33,8 @@ except ImportError as e:
         sys.exit(1)
 
 from dotenv import load_dotenv
-from src.core.syslog2 import syslog2, setup_log, LogLevel, LOG_DEBUG, LOG_INFO, LOG_WARNING, LOG_ERR, LOG_CRIT, LOG_ALERT
+from src.core.syslog2 import syslog2, setup_log, LogLevel, LOG_DEBUG, LOG_INFO, LOG_WARNING, LOG_ERR, LOG_CRIT, LOG_ALERT, LOG_NOTICE
+from src.core.cli_parser import ArgStream, parse_int_option, parse_flag, parse_option, CLIError
 
 def main():
     # Load .env from project root
@@ -45,38 +46,49 @@ def main():
         syslog2(LOG_WARNING, "api key missing", env_file=dotenv_path)
         # Print first few chars if exists to verify
     
-    import argparse
+    # Parse arguments using custom parser
+    stream = ArgStream(sys.argv[1:])
     
-    parser = argparse.ArgumentParser(description="Legale Bot CLI")
-    parser.add_argument("-v", "--verbose", action="count", default=0, help="Increase verbosity level (-v, -vv, -vvv)")
-    parser.add_argument("--chunks", type=int, default=5, help="Number of context chunks to retrieve (default: 5)")
-    parser.add_argument("--debug-rag", action="store_true", help="Show retrieved chunks and prompt before model response")
-    parser.add_argument("-V", "--log-level", type=str, choices=["DEBUG", "INFO", "WARNING", "ERR", "CRIT", "ALERT"], help="Set logging level")
-    args = parser.parse_args()
+    # Handle -V/--log-level (global option)
+    log_level_str = parse_option(stream, "-V") or parse_option(stream, "--log-level")
+    
+    # Parse other options
+    chunks = parse_int_option(stream, "--chunks") or 5
+    debug_rag = parse_flag(stream, "--debug-rag")
+    
+    # Count -v flags for verbosity (need to check before stream consumes them)
+    verbose = 0
+    for arg in sys.argv[1:]:
+        if arg == "-v":
+            verbose += 1
+        elif arg.startswith("-v") and not arg.startswith("-V"):
+            # Count v's in -vv, -vvv, etc. (but not -V)
+            verbose += len([c for c in arg if c == 'v']) - 1
 
     # Configure logging
     syslog_level = LOG_WARNING
     
-    if args.log_level:
+    if log_level_str:
         level_map = {
             "DEBUG": LOG_DEBUG,
             "INFO": LOG_INFO,
+            "NOTICE": LOG_NOTICE,
             "WARNING": LOG_WARNING,
             "ERR": LOG_ERR,
             "CRIT": LOG_CRIT,
             "ALERT": LOG_ALERT
         }
-        syslog_level = level_map.get(args.log_level, LOG_WARNING)
+        syslog_level = level_map.get(log_level_str.upper(), LOG_WARNING)
         
         # Update verbosity for components that use it (LegaleBot, LLMClient)
-        if args.log_level == 'DEBUG':
-            args.verbose = max(args.verbose, 2)
-        elif args.log_level == 'INFO':
-            args.verbose = max(args.verbose, 1)
+        if log_level_str.upper() == 'DEBUG':
+            verbose = max(verbose, 2)
+        elif log_level_str.upper() == 'INFO':
+            verbose = max(verbose, 1)
             
-    elif args.verbose == 1:
+    elif verbose == 1:
         syslog_level = LOG_INFO
-    elif args.verbose >= 2:
+    elif verbose >= 2:
         syslog_level = LOG_DEBUG
     
     setup_log(syslog_level)
@@ -92,7 +104,7 @@ def main():
         syslog2(LOG_ERR, "models file missing")
         sys.exit(1)
 
-    syslog2(LOG_INFO, "cli bot initializing", model=model_name, verbosity=args.verbose, chunks=args.chunks)
+    syslog2(LOG_INFO, "cli bot initializing", model=model_name, verbosity=verbose, chunks=chunks)
     
     # Get paths from environment (set by legale.py)
     db_url = os.getenv("DATABASE_URL")
@@ -109,7 +121,7 @@ def main():
             db_url=db_url,
             vector_db_path=vector_db_path,
             model_name=model_name, 
-            verbosity=args.verbose,
+            verbosity=verbose,
             profile_dir=profile_dir
         )
         print("Bot ready! Type 'exit' or 'quit' to stop.")
@@ -129,8 +141,8 @@ def main():
                 continue
             
             # Debug RAG mode - show retrieved chunks and prompt
-            if args.debug_rag:
-                debug_info = bot.get_rag_debug_info(user_input, n_results=args.chunks)
+            if debug_rag:
+                debug_info = bot.get_rag_debug_info(user_input, n_results=chunks)
                 print("\n" + "=" * 70)
                 print("RAG DEBUG INFO")
                 print("=" * 70)
@@ -155,7 +167,7 @@ def main():
                 print(f"Token count: {debug_info.get('token_count', 'N/A')}")
                 print("=" * 70 + "\n")
             
-            response = bot.chat(user_input, n_results=args.chunks)
+            response = bot.chat(user_input, n_results=chunks)
             print(f"Bot: {response}")
             print("-" * 50)
             

@@ -158,11 +158,9 @@ class CommandParser:
             raise CLIHelp()
         
         # Handle version (-v or --version)
-        if "-v" in args:
-            print("Legale Bot 1.0.0")
-            import sys
-            sys.exit(0)
-        if "--version" in args:
+        if "-v" in args or "--version" in args:
+            # Version info - using syslog2 would require import, but this is just version display
+            # Keeping print for version display as it's user-facing CLI output
             print("Legale Bot 1.0.0")
             import sys
             sys.exit(0)
@@ -178,19 +176,29 @@ class CommandParser:
                 raise CLIError("-V requires a verbosity level (1-7 or LOG_ERR, LOG_WARNING, LOG_INFO, LOG_DEBUG)")
         
         if verbosity:
-            # Map verbosity to log level
+            # Map verbosity to log level (without LOG_ prefix for CLI compatibility)
             verbosity_map = {
-                "1": "LOG_ERR",
-                "2": "LOG_WARNING", 
-                "3": "LOG_INFO",
-                "4": "LOG_DEBUG",
-                "5": "LOG_DEBUG",
-                "6": "LOG_DEBUG",
-                "7": "LOG_DEBUG",
-                "LOG_ERR": "LOG_ERR",
-                "LOG_WARNING": "LOG_WARNING",
-                "LOG_INFO": "LOG_INFO",
-                "LOG_DEBUG": "LOG_DEBUG",
+                "1": "ALERT",
+                "2": "CRIT",
+                "3": "ERR",
+                "4": "WARNING", 
+                "5": "NOTICE",
+                "6": "INFO",
+                "7": "DEBUG",
+                "LOG_ALERT": "ALERT",
+                "LOG_CRIT": "CRIT",
+                "LOG_ERR": "ERR",
+                "LOG_WARNING": "WARNING",
+                "LOG_NOTICE": "NOTICE",
+                "LOG_INFO": "INFO",
+                "LOG_DEBUG": "DEBUG",
+                "ALERT": "ALERT",
+                "CRIT": "CRIT",
+                "ERR": "ERR",
+                "WARNING": "WARNING",
+                "NOTICE": "NOTICE",
+                "INFO": "INFO",
+                "DEBUG": "DEBUG",
             }
             log_level = verbosity_map.get(verbosity.upper(), verbosity.upper())
             global_opts["log_level"] = log_level

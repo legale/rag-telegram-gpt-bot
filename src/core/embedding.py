@@ -76,7 +76,8 @@ class EmbeddingClient:
 
             done = end
             if show_progress:
-                print(f"\rembeddings: {done}/{total} ({done * 100 // total}%)", end="", flush=True)
+                pct = done * 100 // total
+                syslog2(LOG_DEBUG, "embeddings progress", done=done, total=total, percent=pct)
 
         return all_embs
 
@@ -136,7 +137,8 @@ class EmbeddingClient:
 
                 done = end
                 if show_progress:
-                    print(f"embeddings: {done}/{total} ({done * 100 // total}%)")
+                    pct = done * 100 // total
+                    syslog2(LOG_DEBUG, "embeddings progress", done=done, total=total, percent=pct)
 
         return all_embs
 
@@ -233,7 +235,8 @@ class LocalEmbeddingClient:
 
             done = end
             if show_progress:
-                print(f"\rembeddings: {done}/{total} ({done * 100 // total}%)", end="", flush=True)
+                pct = done * 100 // total
+                syslog2(LOG_DEBUG, "embeddings progress", done=done, total=total, percent=pct)
 
         return all_embs
     
@@ -299,7 +302,8 @@ class LocalEmbeddingClient:
 
                 done = end
                 if show_progress:
-                    print(f"embeddings: {done}/{total} ({done * 100 // total}%)")
+                    pct = done * 100 // total
+                    syslog2(LOG_DEBUG, "embeddings progress", done=done, total=total, percent=pct)
 
         return all_embs
 

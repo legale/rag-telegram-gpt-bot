@@ -25,7 +25,7 @@ class PromptEngine:
 
     
     SYSTEM_PROMPT_TEMPLATE = """
-You are librarian assistant. Be short and precise. Always start with found history context and last messages in chat.
+You are librarian assistant. Be short and precise. Always start with found history context and last messages in chat. Do not use pseudo tables just text.
 
 Контекст из истории чата (наиболее релевантные сообщения):
 {context}

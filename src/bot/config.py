@@ -32,6 +32,8 @@ class BotConfig:
             "embedding_model": "paraphrase-multilingual-mpnet-base-v2",
             "embedding_generator": "local",
             "current_model": "openai/gpt-oss-20b:free",
+            "only_unnamed": True,
+            "rebuild": False,
             "chunk_size": 6
         }
         

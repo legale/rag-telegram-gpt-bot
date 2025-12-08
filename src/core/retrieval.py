@@ -19,7 +19,10 @@ class RetrievalService:
         embedding_client: EmbeddingClient, 
         verbosity: int = 0,
         use_topic_retrieval: bool = True,
-        topic_retrieval_weight: float = 0.3
+        topic_retrieval_weight: float = 0.3,
+        search_mode: str = "two_stage",
+        l2_top_k: int = 5,
+        chunk_top_k: int = 50
     ):
         """
         Initialize RetrievalService.
@@ -31,6 +34,9 @@ class RetrievalService:
             verbosity: Logging verbosity level
             use_topic_retrieval: Enable hierarchical topic-based retrieval
             topic_retrieval_weight: Weight for topic-based results (0.0-1.0)
+            search_mode: "two_stage" (L2→L1) or "direct" (direct chunk search)
+            l2_top_k: Number of L2 topics to select in two-stage search
+            chunk_top_k: Number of chunks to return in two-stage search
         """
         self.vector_store = vector_store
         self.db = db
@@ -38,6 +44,12 @@ class RetrievalService:
         self.verbosity = verbosity
         self.use_topic_retrieval = use_topic_retrieval
         self.topic_retrieval_weight = topic_retrieval_weight
+        self.search_mode = search_mode
+        self.l2_top_k = l2_top_k
+        self.chunk_top_k = chunk_top_k
+        
+        # Get topics_l2 collection
+        self.topics_l2_collection = vector_store.get_topics_l2_collection()
 
         
     def _find_similar_topics(
@@ -197,6 +209,205 @@ class RetrievalService:
         
         return retrieved_chunks
 
+    def _two_stage_search(
+        self,
+        query_embedding: List[float],
+        n_results: int = 50
+    ) -> List[Dict]:
+        """
+        Two-stage search: L2 topics → chunks within selected L2 topics.
+        
+        Args:
+            query_embedding: Query embedding vector
+            n_results: Number of chunks to return
+            
+        Returns:
+            List of chunk dictionaries with text and metadata
+        """
+        # Step 1: Search for relevant L2 topics
+        if self.verbosity >= 2:
+            syslog2(LOG_DEBUG, "two_stage_search: searching l2 topics", l2_top_k=self.l2_top_k)
+        
+        try:
+            l2_results = self.topics_l2_collection.query(
+                query_embeddings=[query_embedding],
+                n_results=self.l2_top_k,
+                include=["metadatas", "distances"]
+            )
+        except Exception as e:
+            if self.verbosity >= 1:
+                syslog2(LOG_WARNING, "failed to query l2 topics, falling back to direct search", error=str(e))
+            return []
+        
+        if not l2_results or not l2_results.get("ids") or not l2_results["ids"][0]:
+            if self.verbosity >= 2:
+                syslog2(LOG_DEBUG, "no l2 topics found, falling back to direct search")
+            return []
+        
+        # Extract L2 topic IDs
+        l2_ids = []
+        l2_metadatas = l2_results.get("metadatas", [[]])[0] if l2_results.get("metadatas") else []
+        for meta in l2_metadatas:
+            if meta and "topic_l2_id" in meta:
+                l2_ids.append(meta["topic_l2_id"])
+        
+        if not l2_ids:
+            if self.verbosity >= 2:
+                syslog2(LOG_DEBUG, "no valid l2 topic ids found, falling back to direct search")
+            return []
+        
+        if self.verbosity >= 2:
+            syslog2(LOG_DEBUG, "two_stage_search: found l2 topics", l2_ids=l2_ids, count=len(l2_ids))
+        
+        # Step 2: Search chunks within selected L2 topics
+        # Try Option A: Filter by topic_l2_id in chroma metadata
+        try:
+            # Check if chunks have topic_l2_id in metadata
+            # Try to query with filter
+            chunk_results = self.vector_store.collection.query(
+                query_embeddings=[query_embedding],
+                n_results=n_results,
+                where={"topic_l2_id": {"$in": l2_ids}},
+                include=["documents", "metadatas", "distances"]
+            )
+            
+            if chunk_results and chunk_results.get("ids") and chunk_results["ids"][0]:
+                # Successfully used filter
+                if self.verbosity >= 2:
+                    syslog2(LOG_DEBUG, "two_stage_search: found chunks via chroma filter", count=len(chunk_results["ids"][0]))
+                
+                return self._process_chunk_results(chunk_results, query_embedding)
+        except Exception as e:
+            if self.verbosity >= 2:
+                syslog2(LOG_DEBUG, "chroma filter not available, using sqlite fallback", error=str(e))
+        
+        # Option B: Get chunks via SQLite, then compute similarity
+        if self.verbosity >= 2:
+            syslog2(LOG_DEBUG, "two_stage_search: using sqlite fallback")
+        
+        all_chunk_ids = []
+        for l2_id in l2_ids:
+            chunks = self.db.get_chunks_by_topic_l2(l2_id)
+            all_chunk_ids.extend([chunk.id for chunk in chunks])
+        
+        if not all_chunk_ids:
+            if self.verbosity >= 2:
+                syslog2(LOG_DEBUG, "no chunks found for l2 topics")
+            return []
+        
+        # Remove duplicates
+        all_chunk_ids = list(set(all_chunk_ids))
+        
+        if self.verbosity >= 2:
+            syslog2(LOG_DEBUG, "two_stage_search: found chunks via sqlite", count=len(all_chunk_ids))
+        
+        # Get embeddings for these chunks
+        try:
+            embeddings_data = self.vector_store.get_embeddings_by_ids(all_chunk_ids)
+            chunk_embeddings = embeddings_data.get("embeddings", [])
+            chunk_ids_with_emb = embeddings_data.get("ids", [])
+            
+            if not chunk_embeddings:
+                return []
+            
+            # Compute cosine similarity
+            query_vec = np.array(query_embedding)
+            similarities = []
+            
+            for i, chunk_id in enumerate(chunk_ids_with_emb):
+                if i < len(chunk_embeddings):
+                    chunk_vec = np.array(chunk_embeddings[i])
+                    # Cosine similarity
+                    dot_product = np.dot(query_vec, chunk_vec)
+                    norm_query = np.linalg.norm(query_vec)
+                    norm_chunk = np.linalg.norm(chunk_vec)
+                    
+                    if norm_query > 0 and norm_chunk > 0:
+                        similarity = dot_product / (norm_query * norm_chunk)
+                        similarities.append((chunk_id, float(similarity)))
+            
+            # Sort by similarity and take top n_results
+            similarities.sort(key=lambda x: x[1], reverse=True)
+            top_chunk_ids = [cid for cid, _ in similarities[:n_results]]
+            
+            # Get full chunk data from database
+            return self._get_chunks_by_ids(top_chunk_ids, similarities[:n_results])
+            
+        except Exception as e:
+            if self.verbosity >= 1:
+                syslog2(LOG_WARNING, "failed to get chunk embeddings for two_stage_search", error=str(e))
+            return []
+
+    def _process_chunk_results(self, chunk_results: Dict, query_embedding: List[float]) -> List[Dict]:
+        """Process chunk results from chroma query."""
+        if not chunk_results or not chunk_results.get("ids") or not chunk_results["ids"][0]:
+            return []
+        
+        ids = chunk_results["ids"][0]
+        distances = chunk_results.get("distances", [[]])[0] if chunk_results.get("distances") else []
+        metadatas = chunk_results.get("metadatas", [[]])[0] if chunk_results.get("metadatas") else []
+        
+        # Convert distances to similarities
+        similarities = []
+        for i, chunk_id in enumerate(ids):
+            distance = distances[i] if i < len(distances) else 0
+            if distance <= 1.0:
+                similarity = 1.0 - distance
+            elif distance <= 2.0:
+                similarity = 1.0 - (distance / 2.0)
+            else:
+                similarity = max(0.0, 1.0 - distance)
+            similarities.append((chunk_id, similarity))
+        
+        return self._get_chunks_by_ids(ids, similarities)
+
+    def _get_chunks_by_ids(self, chunk_ids: List[str], similarities: List[Tuple[str, float]]) -> List[Dict]:
+        """Get full chunk data from database by IDs."""
+        if not chunk_ids:
+            return []
+        
+        # Create similarity map
+        sim_map = {cid: sim for cid, sim in similarities}
+        
+        session = self.db.get_session()
+        try:
+            chunks = session.query(ChunkModel)\
+                .options(joinedload(ChunkModel.topic_l1), joinedload(ChunkModel.topic_l2))\
+                .filter(ChunkModel.id.in_(chunk_ids))\
+                .all()
+            
+            result = []
+            for chunk in chunks:
+                meta = {}
+                if chunk.metadata_json:
+                    try:
+                        meta = json.loads(chunk.metadata_json)
+                    except json.JSONDecodeError:
+                        pass
+                
+                if chunk.topic_l1:
+                    meta["topic_l1_id"] = chunk.topic_l1.id
+                    meta["topic_l1_title"] = chunk.topic_l1.title
+                if chunk.topic_l2:
+                    meta["topic_l2_id"] = chunk.topic_l2.id
+                    meta["topic_l2_title"] = chunk.topic_l2.title
+                
+                similarity = sim_map.get(chunk.id, 0.0)
+                
+                result.append({
+                    "id": chunk.id,
+                    "text": chunk.text,
+                    "metadata": meta,
+                    "score": similarity,
+                    "source": "two_stage"
+                })
+            
+            # Sort by similarity (already sorted, but ensure)
+            result.sort(key=lambda x: x["score"], reverse=True)
+            return result
+        finally:
+            session.close()
+
     def retrieve(
         self, 
         query: str, 
@@ -231,7 +442,23 @@ class RetrievalService:
         if not query_emb:
             return []
         
-        # 2. Vector-based retrieval (always performed)
+        # 2. Choose search strategy
+        if self.search_mode == "two_stage":
+            if self.verbosity >= 1:
+                syslog2(LOG_DEBUG, "using two_stage search mode")
+            
+            two_stage_results = self._two_stage_search(query_emb, n_results=self.chunk_top_k)
+            
+            if two_stage_results:
+                if self.verbosity >= 2:
+                    syslog2(LOG_DEBUG, "two_stage search returned results", count=len(two_stage_results))
+                return two_stage_results[:n_results]
+            else:
+                # Fallback to direct search if two_stage found nothing
+                if self.verbosity >= 1:
+                    syslog2(LOG_DEBUG, "two_stage search found nothing, falling back to direct search")
+        
+        # 3. Direct vector-based retrieval (fallback or default mode)
         if self.verbosity >= 2:
             collection_count = self.vector_store.collection.count()
             syslog2(LOG_DEBUG, "searching vector store", 
@@ -327,7 +554,7 @@ class RetrievalService:
             finally:
                 session.close()
         
-        # 3. Topic-based retrieval (if enabled)
+        # 4. Topic-based retrieval (if enabled)
         topic_chunks: List[Dict] = []
         if use_topics:
             if self.verbosity >= 2:
@@ -360,7 +587,7 @@ class RetrievalService:
                     max_chunks_per_topic=3
                 )
         
-        # 4. Merge and deduplicate results
+        # 5. Merge and deduplicate results
         all_chunks: Dict[str, Dict] = {}
         
         # Add vector chunks (weighted by vector weight)
@@ -391,7 +618,7 @@ class RetrievalService:
                 topic_score = chunk["score"] * topic_weight
                 all_chunks[chunk_id]["score"] = existing_score + topic_score * 0.5  # Partial boost
         
-        # 5. Sort by score and return top n_results
+        # 6. Sort by score and return top n_results
         final_chunks = sorted(all_chunks.values(), key=lambda x: x["score"], reverse=True)
         
         if self.verbosity >= 2:
