@@ -223,11 +223,11 @@ class IngestionPipeline:
         """Run stage2: cluster chunk embeddings into topics_l1 (HDBSCAN clustering)."""
         from src.ai.clustering import TopicClusterer
         
-        llm_client = self._get_llm_client()
+        # LLM client not needed for clustering - only for naming (stage3)
         clusterer = TopicClusterer(
             db=self.db,
             vector_store=self.vector_store,
-            llm_client=llm_client
+            llm_client=None
         )
         
         # Default parameters if not provided
@@ -251,11 +251,11 @@ class IngestionPipeline:
         
         from src.ai.clustering import TopicClusterer
         
-        llm_client = self._get_llm_client()
+        # LLM client not needed for assignment - only for naming (stage3)
         clusterer = TopicClusterer(
             db=self.db,
             vector_store=self.vector_store,
-            llm_client=llm_client
+            llm_client=None
         )
         
         # Restore assignments to clusterer
