@@ -706,7 +706,8 @@ async def handle_message(update: Update):
         user_id=user_id,
         chat_id=chat_id,
         is_private=is_private,
-        is_command=is_command
+        is_command=is_command,
+        command_text=text if is_command else None
     )
     
     if not is_allowed:

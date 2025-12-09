@@ -109,6 +109,23 @@ class TestIsAllowed:
         assert allowed is False
         assert reason == "private_non_admin"
     
+    def test_private_non_admin_admin_set_allowed(self):
+        """Test /admin_set command is allowed for non-admin in private chat."""
+        admin_manager = Mock()
+        admin_manager.is_admin.return_value = False
+        
+        service = AccessControlService(admin_manager)
+        allowed, reason = service.is_allowed(
+            user_id=67890,
+            chat_id=67890,
+            is_private=True,
+            is_command=True,
+            command_text="/admin_set password123"
+        )
+        
+        assert allowed is True
+        assert reason is None
+    
     def test_group_command_always_allowed(self):
         """Test commands are always allowed in group chats."""
         admin_manager = Mock()

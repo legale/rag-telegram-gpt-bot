@@ -40,12 +40,13 @@ class AccessControlService:
         return self.admin_manager.is_admin(user_id)
     
     def is_allowed(self, user_id: int, chat_id: int, 
-                   is_private: bool, is_command: bool) -> tuple[bool, Optional[str]]:
+                   is_private: bool, is_command: bool, 
+                   command_text: Optional[str] = None) -> tuple[bool, Optional[str]]:
         """
         Check if user/chat is allowed to interact with the bot.
         
         Logic:
-        - Private chats: Only admins are allowed
+        - Private chats: Only admins are allowed, except /admin_set command
         - Group chats: Commands are always allowed, messages only if chat is whitelisted
         - Admins: Always allowed everywhere
         
@@ -54,10 +55,16 @@ class AccessControlService:
             chat_id: Telegram chat ID
             is_private: True if private chat
             is_command: True if message is a command
+            command_text: Optional command text (e.g., "/admin_set password")
             
         Returns:
             Tuple of (is_allowed, denial_reason)
         """
+        # Public commands that bypass access control (available to everyone)
+        if is_command and command_text and command_text.startswith("/admin_set"):
+            syslog2(LOG_DEBUG, "access granted public command", user_id=user_id, command="/admin_set")
+            return True, None
+        
         # Admins are always allowed
         if self.is_admin(user_id):
             syslog2(LOG_DEBUG, "access granted admin", user_id=user_id)

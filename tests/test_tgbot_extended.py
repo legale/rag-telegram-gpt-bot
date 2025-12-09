@@ -681,3 +681,41 @@ class TestHandleMessage:
             chat_id=999,
             text="Bot response"
         )
+    
+    @pytest.mark.asyncio
+    async def test_admin_set_in_private_chat_non_admin(self, mock_deps):
+        """Test /admin_set command works in private chat for non-admin user."""
+        from src.bot.tgbot import handle_message
+        
+        # Setup: non-admin user, private chat, correct password
+        mock_deps['admin'].is_admin.return_value = False
+        mock_deps['admin'].verify_password.return_value = True
+        mock_deps['admin'].set_admin.return_value = True
+        
+        # Create MessageHandler mock response
+        from unittest.mock import MagicMock
+        handler_mock = MagicMock()
+        handler_mock.handle_admin_set_command = AsyncMock(return_value="Вы успешно назначены администратором!")
+        
+        with patch("src.bot.tgbot.MessageHandler", return_value=handler_mock):
+            update = Mock()
+            update.message.text = "/admin_set correct_password"
+            update.message.chat_id = 86872
+            update.message.chat.type = "private"
+            update.message.from_user.id = 86872
+            update.message.from_user.username = "testuser"
+            update.message.from_user.first_name = "Test"
+            update.message.from_user.last_name = "User"
+            
+            await handle_message(update)
+            
+            # Should process /admin_set and send response (bypasses access control)
+            mock_deps['app'].bot.send_message.assert_called_once()
+            call_args = mock_deps['app'].bot.send_message.call_args[1]
+            assert call_args['chat_id'] == 86872
+            assert "назначены администратором" in call_args['text']
+            
+            # Verify access_control.is_allowed was NOT called (command handled before access check)
+            # Actually, it might be called but should return True for /admin_set
+            # Let's verify the command was processed correctly
+            handler_mock.handle_admin_set_command.assert_called_once()
