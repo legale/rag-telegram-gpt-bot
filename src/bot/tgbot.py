@@ -439,6 +439,9 @@ def setup_logging(log_level: Optional[str] = None, verbosity: Optional[int] = No
     """
     # Map log_level to logging level
     if log_level:
+        # Convert to string if it's a number
+        if not isinstance(log_level, str):
+            log_level = str(log_level)
         log_level_upper = log_level.upper()
         level_map = {
             "1": logging.CRITICAL,  # ALERT
@@ -875,6 +878,9 @@ def run_server(host: str = "127.0.0.1", port: int = 8000, log_level: Optional[st
     
     # Map log_level to uvicorn log level (lowercase string)
     if log_level:
+        # Convert to string if it's a number
+        if not isinstance(log_level, str):
+            log_level = str(log_level)
         log_level_upper = log_level.upper()
         uvicorn_level_map = {
             "1": "critical",  # ALERT
