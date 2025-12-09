@@ -667,10 +667,15 @@ def cmd_bot(args, profile_manager: ProfileManager):
         log_level = getattr(args, 'log_level', None)
         if log_level:
             # Convert to string first to handle both string and numeric log levels
-            if isinstance(log_level, str):
-                log_level_upper = log_level.upper()
-            else:
-                # If it's a number (like LOG_DEBUG = 7), convert to string first
+            # Always convert to string to avoid any type issues
+            try:
+                if isinstance(log_level, str):
+                    log_level_upper = log_level.upper()
+                else:
+                    # If it's a number (like LOG_DEBUG = 7), convert to string first
+                    log_level_upper = str(log_level).upper()
+            except AttributeError:
+                # Fallback: always convert to string
                 log_level_upper = str(log_level).upper()
             
             if log_level_upper in ('LOG_DEBUG', 'LOG_INFO', 'LOG_NOTICE', 'INFO', 'NOTICE', 'DEBUG', '7', '6', '5'):
