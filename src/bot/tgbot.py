@@ -5,7 +5,7 @@ Telegram Bot Webhook Daemon for Legale Bot.
 This module provides:
 - FastAPI webhook endpoint for Telegram updates
 - CLI utilities for webhook registration/deletion
-- Daemon and foreground modes with verbosity control
+- Daemon and foreground modes with log level control
 - Persistent in-memory LegaleBot instance
 """
 
@@ -13,6 +13,7 @@ import sys
 import os
 import logging
 import signal
+from types import SimpleNamespace
 from typing import Optional, Dict, List
 from contextlib import asynccontextmanager
 
@@ -208,29 +209,71 @@ class MessageHandler:
     
     async def handle_find_command(self, text: str, update: Update) -> Optional[str]:
         """Handle /find command."""
+        syslog2(LOG_ALERT, "handle_find_command", text=text)
         try:
-            # Extract search query from command text
-            parts = text.split(maxsplit=1)
+            # extract search query from command text
+            # Format: /find [thr] <query_string>
+            parts = text.split(maxsplit=2)
             if len(parts) < 2 or not parts[1].strip():
                 return (
-                    "Использование: /find <запрос>\n\n"
+                    "Использование: /find [thr] <запрос>\n\n"
+                    "Примеры:\n"
+                    "  /find vpn туннель          - поиск с threshold=1.5 (по умолчанию)\n"
+                    "  /find 2.0 vpn туннель       - поиск с threshold=2.0\n"
+                    "  /find 0.5 test              - поиск с threshold=0.5"
+                )
+            
+            # Try to parse first argument as threshold (float)
+            threshold = 1.5  # default threshold
+            search_query = ""
+            
+            try:
+                # Check if first argument is a number
+                potential_threshold = float(parts[1].strip())
+                threshold = potential_threshold
+                # If threshold parsed successfully, query is the rest
+                if len(parts) >= 3:
+                    search_query = parts[2].strip()
+                else:
+                    return (
+                        "Использование: /find [thr] <запрос>\n\n"
+                        "Если указан threshold, необходимо также указать запрос.\n"
+                        "Пример: /find 2.0 vpn туннель"
+                    )
+            except ValueError:
+                # First argument is not a number, treat entire rest as query
+                search_query = parts[1].strip()
+            
+            if not search_query:
+                return (
+                    "Использование: /find [thr] <запрос>\n\n"
+                    "Необходимо указать запрос для поиска.\n"
                     "Пример: /find vpn туннель"
                 )
             
-            search_query = parts[1].strip()
-            
-            # Get db and retrieval from bot instance
+            # get db and retrieval from bot instance
             db = self.bot.db
             retrieval = self.bot.retrieval
             from src.core.message_search import search_message_contents
             
-            # Search for message contents
-            message_parts_list = search_message_contents(retrieval, db, search_query, top_k=3)
+            # Get debug_rag from global variable
+            global debug_rag_mode
+            
+            # search for message contents with two-stage search enabled
+            message_parts_list = search_message_contents(
+                retrieval, 
+                db, 
+                search_query, 
+                top_k=3,
+                debug_rag=debug_rag_mode,
+                thr=threshold,
+                use_two_stage=True
+            )
             
             if not message_parts_list:
                 return f'по запросу "{search_query}" ничего не найдено'
             
-            # Send each message part as separate message
+            # send each message part as separate message
             chat_id = update.message.chat_id
             total_parts = 0
             try:
@@ -243,18 +286,27 @@ class MessageHandler:
                         )
                         total_parts += 1
                 
-                syslog2(LOG_NOTICE, "find command response sent", chat_id=chat_id, query=search_query, messages=len(message_parts_list), parts=total_parts)
-                # Return None to indicate messages were sent directly
-                return None
+                syslog2(
+                    LOG_ALERT,
+                    "find command response sent",
+                    chat_id=chat_id,
+                    query=search_query,
+                    messages=len(message_parts_list),
+                    parts=total_parts,
+                )
+                # return empty string to signal "handled, but ничего не слать отдельно"
+                return ""
             except Exception as e:
                 syslog2(LOG_ERR, "failed to send find response", chat_id=chat_id, error=str(e))
                 return f"Ошибка при отправке результатов поиска: {e}"
         except Exception as e:
             syslog2(LOG_ERR, "find command failed", error=str(e))
             return f"Ошибка при выполнении поиска: {e}"
+
     
     async def handle_user_query(self, text: str, respond: bool) -> str:
         """Handle regular user query to bot."""
+        syslog2(LOG_ALERT, "handle_user_query", text=text)
         try:
             # Get system prompt from config
             system_prompt_template = self.admin_manager.config.system_prompt
@@ -295,6 +347,7 @@ class MessageHandler:
     
     async def route_command(self, text: str, update: Update) -> Optional[str]:
         """Route command to appropriate handler."""
+        syslog2(LOG_ALERT, "route_command", text=text)
         message = update.message
         user_id = message.from_user.id
         
@@ -323,7 +376,7 @@ class MessageHandler:
 
 
 # инициализация рантайма под текущий профиль
-async def init_runtime_for_current_profile():
+async def init_runtime_for_current_profile(args: Optional[SimpleNamespace] = None):
     """
     создать/переинициализировать bot_instance, admin_manager, admin_router и связанные команды
     под текущий активный профиль profile_manager
@@ -343,12 +396,37 @@ async def init_runtime_for_current_profile():
 
     # Загружаем сохраненную модель
     model_name = admin_manager_local.config.current_model or "openai/gpt-oss-20b:free"
+    debug_rag = getattr(args, 'debug_rag', False) if args else False
+    
+    # Получаем log_level из args, преобразуем строку в константу если нужно
+    log_level = getattr(args, 'log_level', LOG_WARNING) if args else LOG_WARNING
+    if isinstance(log_level, str):
+        log_level_upper = log_level.upper()
+        log_level_map = {
+            "LOG_ALERT": LOG_ALERT,
+            "LOG_CRIT": LOG_CRIT,
+            "LOG_ERR": LOG_ERR,
+            "LOG_WARNING": LOG_WARNING,
+            "LOG_NOTICE": LOG_NOTICE,
+            "LOG_INFO": LOG_INFO,
+            "LOG_DEBUG": LOG_DEBUG,
+            "ALERT": LOG_ALERT,
+            "CRIT": LOG_CRIT,
+            "ERR": LOG_ERR,
+            "WARNING": LOG_WARNING,
+            "NOTICE": LOG_NOTICE,
+            "INFO": LOG_INFO,
+            "DEBUG": LOG_DEBUG,
+        }
+        log_level = log_level_map.get(log_level_upper, LOG_WARNING)
 
     # пересоздаем core
     bot_instance = LegaleBot(
         db_url=paths["db_url"],
         vector_db_path=str(paths["vector_db_path"]),
         model_name=model_name,
+        log_level=log_level,
+        debug_rag=debug_rag,
         profile_dir=profile_dir
     )
     syslog2(LOG_WARNING, "bot core initialized", profile=profile_manager.get_current_profile(), db_url=paths["db_url"], vector=paths["vector_db_path"], model=model_name)
@@ -420,23 +498,22 @@ async def init_runtime_for_current_profile():
 
 
 # hot-reload рантайма под активный профиль (используется /admin restart)
-async def reload_for_current_profile():
+async def reload_for_current_profile(args: Optional[SimpleNamespace] = None):
     """
     hot-reload рантайма под активный профиль (используется /admin restart)
     """
     syslog2(LOG_WARNING, "hot reload requested")
-    paths = await init_runtime_for_current_profile()
+    paths = await init_runtime_for_current_profile(args)
     syslog2(LOG_WARNING, "hot reload completed", profile=profile_manager.get_current_profile(), db=paths["db_path"], vector=paths["vector_db_path"])
     return paths
 
 
-def setup_logging(log_level: Optional[str] = None, verbosity: Optional[int] = None, use_syslog: bool = False):
+def setup_logging(log_level: Optional[str] = None, use_syslog: bool = False):
     """
-    Configure logging based on log level or verbosity.
+    Configure logging based on log level.
     
     Args:
         log_level: Log level string (INFO, DEBUG, WARNING, etc.) or number (6=INFO, 7=DEBUG)
-        verbosity: Legacy verbosity level (0=WARNING, 1=INFO, 2=DEBUG, 3=TRACE) - for backward compatibility
         use_syslog: If True, log to syslog instead of stdout
     """
     # Map log_level to logging level
@@ -463,10 +540,6 @@ def setup_logging(log_level: Optional[str] = None, verbosity: Optional[int] = No
             "DEBUG": logging.DEBUG,
         }
         level = level_map.get(log_level_upper, logging.WARNING)
-    elif verbosity is not None:
-        # Legacy support for verbosity
-        levels = [logging.WARNING, logging.INFO, logging.DEBUG, logging.DEBUG]
-        level = levels[min(verbosity, 3)]
     else:
         level = logging.WARNING
     
@@ -490,7 +563,7 @@ def setup_logging(log_level: Optional[str] = None, verbosity: Optional[int] = No
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI, args: Optional[SimpleNamespace] = None):
     """
     Lifespan context manager for FastAPI.
     Loads bot instance on startup, cleans up on shutdown.
@@ -522,7 +595,7 @@ async def lifespan(app: FastAPI):
 
     # инициализация рантайма под активный профиль
     try:
-        await init_runtime_for_current_profile()
+        await init_runtime_for_current_profile(args)
     except Exception as e:
         syslog2(LOG_ERR, "runtime init failed", error=str(e))
         raise
@@ -553,56 +626,65 @@ async def lifespan(app: FastAPI):
     syslog2(LOG_NOTICE, "shutdown complete")
 
 
-# Create FastAPI app
-app = FastAPI(lifespan=lifespan)
-
-
-@app.get("/health")
-async def health_check():
-    """Health check endpoint for monitoring."""
-    return {"status": "healthy", "bot_loaded": bot_instance is not None}
-
-
-@app.post("/webhook")
-async def webhook(request: Request):
+def create_app(args: Optional[SimpleNamespace] = None):
     """
-    Handle incoming Telegram webhook updates.
+    Create FastAPI app with lifespan that captures args.
     """
-    try:
-        # Parse update
-        data = await request.json()
-        update = Update.de_json(data, telegram_app.bot)
-        
-        syslog2(LOG_DEBUG, "update received", update_id=update.update_id)
-        
-        # Handle file upload (for ingestion)
-        if update.message and update.message.document and ingest_commands:
-            response_text = await ingest_commands.handle_file_upload(update, None, admin_manager)
-            if response_text:
-                await telegram_app.bot.send_message(chat_id=update.message.chat_id, text=response_text)
+    # Create lifespan with closure on args
+    @asynccontextmanager
+    async def lifespan_with_args(app: FastAPI):
+        async with lifespan(app, args):
+            yield
+    
+    app = FastAPI(lifespan=lifespan_with_args)
+    
+    @app.get("/health")
+    async def health_check():
+        """Health check endpoint for monitoring."""
+        return {"status": "healthy", "bot_loaded": bot_instance is not None}
+    
+    @app.post("/webhook")
+    async def webhook(request: Request):
+        """
+        Handle incoming Telegram webhook updates.
+        """
+        try:
+            # Parse update
+            data = await request.json()
+            update = Update.de_json(data, telegram_app.bot)
+            
+            syslog2(LOG_DEBUG, "update received", update_id=update.update_id)
+            
+            # Handle file upload (for ingestion)
+            if update.message and update.message.document and ingest_commands:
+                response_text = await ingest_commands.handle_file_upload(update, None, admin_manager)
+                if response_text:
+                    await telegram_app.bot.send_message(chat_id=update.message.chat_id, text=response_text)
+                return Response(status_code=200)
+            
+            # Handle message
+            if update.message and update.message.text:
+                try:
+                    await handle_message(update)
+                except Exception as e:
+                    syslog2(LOG_ERR, "handle_message failed", error=str(e), update_id=update.update_id)
+                    # Try to send error message to user
+                    try:
+                        if update.message:
+                            await telegram_app.bot.send_message(
+                                chat_id=update.message.chat_id,
+                                text="Произошла ошибка при обработке сообщения. Попробуйте позже."
+                            )
+                    except:
+                        pass
+            
             return Response(status_code=200)
         
-        # Handle message
-        if update.message and update.message.text:
-            try:
-                await handle_message(update)
-            except Exception as e:
-                syslog2(LOG_ERR, "handle_message failed", error=str(e), update_id=update.update_id)
-                # Try to send error message to user
-                try:
-                    if update.message:
-                        await telegram_app.bot.send_message(
-                            chat_id=update.message.chat_id,
-                            text="Произошла ошибка при обработке сообщения. Попробуйте позже."
-                        )
-                except:
-                    pass
-        
-        return Response(status_code=200)
+        except Exception as e:
+            syslog2(LOG_ERR, "webhook processing failed", error=str(e))
+            return Response(status_code=500)
     
-    except Exception as e:
-        syslog2(LOG_ERR, "webhook processing failed", error=str(e))
-        return Response(status_code=500)
+    return app
 
 
 # Chat message counters for frequency control
@@ -800,6 +882,7 @@ async def handle_message(update: Update):
         response = await handler.route_command(text, update)
         if response is None:
             # Not a recognized command, treat as regular query
+            syslog2(LOG_ALERT, "handle_user_query as not a recognized command", text=text, respond=respond)
             response = await handler.handle_user_query(text, respond)
     else:
         # Regular user query
@@ -810,6 +893,7 @@ async def handle_message(update: Update):
             syslog2(LOG_DEBUG, "message ignored", chat_id=chat_id, reason="freq=0, no mention")
             return
 
+        syslog2(LOG_ALERT, "handle_user_query as regular query", text=text, respond=respond)
         response = await handler.handle_user_query(text, respond)
 
     # Send response if available
@@ -866,7 +950,7 @@ def delete_webhook(token: str):
         sys.exit(1)
 
 
-def run_server(host: str = "127.0.0.1", port: int = 8000, log_level: Optional[str] = None, debug_rag: bool = False):
+def run_server(host: str = "127.0.0.1", port: int = 8000, log_level: Optional[str] = None, debug_rag: bool = False, args: Optional[SimpleNamespace] = None):
     """
     Run the FastAPI server in foreground mode.
     
@@ -875,6 +959,7 @@ def run_server(host: str = "127.0.0.1", port: int = 8000, log_level: Optional[st
         port: Port to bind
         log_level: Log level string (INFO, DEBUG, WARNING, etc.) or number (6=INFO, 7=DEBUG)
         debug_rag: Enable RAG debug mode
+        args: Parsed command line arguments (SimpleNamespace)
     """
     global debug_rag_mode
     debug_rag_mode = debug_rag
@@ -910,6 +995,9 @@ def run_server(host: str = "127.0.0.1", port: int = 8000, log_level: Optional[st
         uvicorn_log_level = "warning"
         access_log = False
     
+    # Create app with args
+    app = create_app(args)
+    
     uvicorn.run(
         app,
         host=host,
@@ -919,9 +1007,14 @@ def run_server(host: str = "127.0.0.1", port: int = 8000, log_level: Optional[st
     )
 
 
-def run_daemon(host: str = "127.0.0.1", port: int = 8000):
+def run_daemon(host: str = "127.0.0.1", port: int = 8000, args: Optional[SimpleNamespace] = None):
     """
     Run the FastAPI server in daemon mode (background).
+    
+    Args:
+        host: Host to bind
+        port: Port to bind
+        args: Parsed command line arguments (SimpleNamespace)
     """
     import daemon
     from daemon import pidfile
@@ -929,7 +1022,10 @@ def run_daemon(host: str = "127.0.0.1", port: int = 8000):
     pid_file = "/var/run/legale-bot.pid"
     
     # Setup syslog logging
-    setup_logging(verbosity=1, use_syslog=True)
+    setup_logging(log_level="INFO", use_syslog=True)
+    
+    # Create app with args
+    app = create_app(args)
     
     with daemon.DaemonContext(
         pidfile=pidfile.TimeoutPIDLockFile(pid_file),

@@ -91,8 +91,10 @@ class VectorStore:
             added = end
             if show_progress:
                 pct = added * 100 // total
-                syslog2(LOG_DEBUG, "vector_store progress", added=added, total=total, percent=pct)
+                print(f"\rvector_store progress: {added}/{total} ({pct}%)", flush=True, end="")
 
+        if show_progress:
+            print()
         if show_progress and total > 0:
             syslog2(LOG_DEBUG, "vector_store batch complete", total=total)
 

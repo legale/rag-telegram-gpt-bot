@@ -321,7 +321,7 @@ def test_two_stage_search_no_l2_topics():
     }
     mock_vector_store.get_topics_l2_collection.return_value = mock_topics_collection
     
-    service = RetrievalService(mock_vector_store, mock_db, mock_embedding_client, verbosity=2)
+    service = RetrievalService(mock_vector_store, mock_db, mock_embedding_client, log_level=LOG_DEBUG)
     
     query_emb = [0.1, 0.2, 0.3]
     results = service._two_stage_search(query_emb)

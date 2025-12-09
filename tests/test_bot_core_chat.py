@@ -49,7 +49,7 @@ class TestChatBasic:
     
     def test_chat_basic_query(self, mock_dependencies):
         """Test basic chat query with mocked retrieval."""
-        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
+        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", log_level=LOG_WARNING)
         
         response = bot.chat("What is the weather?")
         
@@ -64,7 +64,7 @@ class TestChatBasic:
     
     def test_chat_with_custom_n_results(self, mock_dependencies):
         """Test chat with custom number of retrieval results."""
-        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
+        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", log_level=LOG_WARNING)
         
         bot.chat("Test query", n_results=5)
         
@@ -73,7 +73,7 @@ class TestChatBasic:
     
     def test_chat_calls_prompt_engine(self, mock_dependencies):
         """Test that chat() calls prompt engine with correct parameters."""
-        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
+        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", log_level=LOG_WARNING)
         
         bot.chat("Test query")
         
@@ -93,7 +93,7 @@ class TestChatHistory:
     
     def test_chat_history_accumulation(self, mock_dependencies):
         """Test that chat history accumulates correctly."""
-        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
+        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", log_level=LOG_WARNING)
         
         # Initial state
         assert len(bot.chat_history) == 0
@@ -113,7 +113,7 @@ class TestChatHistory:
     
     def test_chat_history_format(self, mock_dependencies):
         """Test that chat history is stored in correct format."""
-        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
+        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", log_level=LOG_WARNING)
         
         bot.chat("Test message")
         
@@ -133,7 +133,7 @@ class TestChatAutoReset:
     
     def test_chat_auto_reset_on_token_limit(self, mock_dependencies):
         """Test that chat auto-resets when token limit is reached."""
-        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
+        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", log_level=LOG_WARNING)
         bot.max_context_tokens = 100
         
         # Add some history
@@ -154,7 +154,7 @@ class TestChatAutoReset:
     
     def test_chat_auto_reset_warning_message(self, mock_dependencies):
         """Test that auto-reset includes warning message."""
-        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=1)
+        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", log_level=LOG_INFO)
         bot.max_context_tokens = 100
         
         bot.chat_history = [{"role": "user", "content": "Old"}]
@@ -167,7 +167,7 @@ class TestChatAutoReset:
     
     def test_chat_no_auto_reset_below_limit(self, mock_dependencies):
         """Test that auto-reset doesn't happen below token limit."""
-        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
+        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", log_level=LOG_WARNING)
         bot.max_context_tokens = 1000
         
         bot.chat_history = [{"role": "user", "content": "Previous"}]
@@ -184,7 +184,7 @@ class TestChatErrorHandling:
     
     def test_chat_llm_failure(self, mock_dependencies):
         """Test chat behavior when LLM fails."""
-        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
+        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", log_level=LOG_WARNING)
         
         # Make LLM raise an exception
         mock_dependencies['llm_instance'].complete.side_effect = Exception("LLM Error")
@@ -196,7 +196,7 @@ class TestChatErrorHandling:
     
     def test_chat_retrieval_failure(self, mock_dependencies):
         """Test chat behavior when retrieval fails."""
-        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
+        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", log_level=LOG_WARNING)
         
         # Make retrieval raise an exception
         mock_dependencies['retrieval_instance'].retrieve.side_effect = Exception("Retrieval Error")
@@ -207,7 +207,7 @@ class TestChatErrorHandling:
     
     def test_chat_empty_retrieval_results(self, mock_dependencies):
         """Test chat with empty retrieval results."""
-        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
+        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", log_level=LOG_WARNING)
         
         # Return empty list from retrieval
         mock_dependencies['retrieval_instance'].retrieve.return_value = []
@@ -223,7 +223,7 @@ class TestChatIntegration:
     
     def test_chat_full_flow(self, mock_dependencies):
         """Test complete chat flow from query to response."""
-        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
+        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", log_level=LOG_WARNING)
         
         # Mock the full flow
         mock_dependencies['retrieval_instance'].retrieve.return_value = ["Context 1", "Context 2"]
@@ -252,7 +252,7 @@ class TestChatIntegration:
     
     def test_chat_conversation_flow(self, mock_dependencies):
         """Test multi-turn conversation."""
-        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
+        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", log_level=LOG_WARNING)
         
         # First turn
         response1 = bot.chat("First question")

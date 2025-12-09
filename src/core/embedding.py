@@ -236,8 +236,10 @@ class LocalEmbeddingClient:
             done = end
             if show_progress:
                 pct = done * 100 // total
-                syslog2(LOG_DEBUG, "embeddings progress", done=done, total=total, percent=pct)
+                print(f"\rembeddings progress: {done}/{total} ({pct}%)", flush=True, end="")
 
+        if show_progress:
+            print()
         return all_embs
     
     def get_embedding(self, text: str) -> List[float]:

@@ -23,7 +23,7 @@ def test_retrieval_with_empty_vector_store():
         mock_vector_store,
         mock_db,
         mock_embedding_client,
-        verbosity=2,
+        log_level=LOG_DEBUG,
         use_topic_retrieval=False
     )
     
@@ -81,7 +81,7 @@ def test_retrieval_with_results_but_filtered():
         mock_vector_store,
         mock_db,
         mock_embedding_client,
-        verbosity=2,
+        log_level=LOG_DEBUG,
         use_topic_retrieval=False
     )
     
@@ -131,7 +131,7 @@ def test_retrieval_chunk_not_in_db():
         mock_vector_store,
         mock_db,
         mock_embedding_client,
-        verbosity=2,
+        log_level=LOG_DEBUG,
         use_topic_retrieval=False
     )
     
@@ -164,7 +164,7 @@ def test_retrieval_vector_store_empty_ids():
         mock_vector_store,
         mock_db,
         mock_embedding_client,
-        verbosity=2,
+        log_level=LOG_DEBUG,
         use_topic_retrieval=False
     )
     

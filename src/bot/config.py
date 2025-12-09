@@ -34,7 +34,9 @@ class BotConfig:
             "current_model": "openai/gpt-oss-20b:free",
             "only_unnamed": True,
             "rebuild": False,
-            "chunk_size": 6
+            "chunk_token_min": 50,
+            "chunk_token_max": 500,
+            "chunk_overlap_ratio": 0.15
         }
         
         if not self.config_file.exists():
@@ -169,5 +171,38 @@ class BotConfig:
         if not isinstance(value, int) or value < 1:
             raise ValueError("chunk_size must be a positive integer")
         self.data["chunk_size"] = value
+        self.save()
+
+    @property
+    def chunk_token_min(self) -> int:
+        return self.data.get("chunk_token_min", 50)
+    
+    @chunk_token_min.setter
+    def chunk_token_min(self, value: int):
+        if not isinstance(value, int) or value < 1:
+            raise ValueError("chunk_token_min must be a positive integer")
+        self.data["chunk_token_min"] = value
+        self.save()
+
+    @property
+    def chunk_token_max(self) -> int:
+        return self.data.get("chunk_token_max", 400)
+    
+    @chunk_token_max.setter
+    def chunk_token_max(self, value: int):
+        if not isinstance(value, int) or value < 1:
+            raise ValueError("chunk_token_max must be a positive integer")
+        self.data["chunk_token_max"] = value
+        self.save()
+
+    @property
+    def chunk_overlap_ratio(self) -> float:
+        return self.data.get("chunk_overlap_ratio", 0.3)
+    
+    @chunk_overlap_ratio.setter
+    def chunk_overlap_ratio(self, value: float):
+        if not isinstance(value, (int, float)) or value < 0 or value > 1:
+            raise ValueError("chunk_overlap_ratio must be a float between 0 and 1")
+        self.data["chunk_overlap_ratio"] = float(value)
         self.save()
 

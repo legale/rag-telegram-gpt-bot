@@ -17,7 +17,8 @@ class LegaleBot:
         db_url: str,
         vector_db_path: str,
         model_name: Optional[str] = None,
-        verbosity: int = 0,
+        log_level: int = LOG_WARNING,
+        debug_rag: bool = False,
         profile_dir: Optional[Union[str, Path]] = None
     ):
         # Initialize components
@@ -25,8 +26,8 @@ class LegaleBot:
             raise ValueError("db_url and vector_db_path must be provided")
             
         self.db = Database(db_url)
-        self.verbosity = verbosity
-        
+        self.log_level = log_level
+        self.debug_rag = debug_rag
         # Load profile config if available
         embedding_client = None
         if profile_dir:
@@ -40,7 +41,7 @@ class LegaleBot:
                         model=config.embedding_model
                     )
                 except Exception as e:
-                    if verbosity >= 1:
+                    if self.log_level <= LOG_INFO:
                         syslog2(LOG_WARNING, "profile config load failed", error=str(e), action="using default embedding client")
         
         # Use profile embedding client or create default
@@ -60,7 +61,8 @@ class LegaleBot:
             vector_store=self.vector_store,
             db=self.db,
             embedding_client=self.embedding_client,
-            verbosity=verbosity
+            log_level=log_level,
+            debug_rag=self.debug_rag
         )
         # Alias for compatibility
         self.retrieval = self.retrieval_service
@@ -86,7 +88,7 @@ class LegaleBot:
              syslog2(LOG_WARNING, "no model configured and no models found in models.txt")
              model_name = "unknown" # LLMClient might fail or just log warning?
              
-        self.llm_client = LLMClient(model=model_name, verbosity=verbosity)
+        self.llm_client = LLMClient(model=model_name, log_level=log_level)
     
     def _load_available_models(self) -> List[str]:
         """
@@ -101,7 +103,7 @@ class LegaleBot:
                 models = [line.strip() for line in f if line.strip()]
             return models if models else []
         except FileNotFoundError:
-            if self.verbosity >= 1:
+            if self.log_level <= LOG_INFO:
                 syslog2(LOG_WARNING, "models file missing", path=models_file)
             return []
     
@@ -120,9 +122,9 @@ class LegaleBot:
         new_model = self.available_models[self.current_model_index]
         
         # Recreate LLM client with new model
-        self.llm_client = LLMClient(model=new_model, verbosity=self.verbosity)
+        self.llm_client = LLMClient(model=new_model, log_level=self.log_level)
         
-        if self.verbosity >= 1:
+        if self.log_level <= LOG_INFO:
             syslog2(LOG_NOTICE, "model geted", new_model=new_model)
         
         return f"Модель переключена на: {new_model}\n({self.current_model_index + 1}/{len(self.available_models)})"
@@ -143,9 +145,9 @@ class LegaleBot:
         self.current_model_index = self.available_models.index(model_name)
         
         # Recreate LLM client with new model
-        self.llm_client = LLMClient(model=model_name, verbosity=self.verbosity)
+        self.llm_client = LLMClient(model=model_name, log_level=self.log_level)
         
-        if self.verbosity >= 1:
+        if self.log_level <= LOG_INFO:
             syslog2(LOG_NOTICE, "model set", new_model=model_name)
             
         return f"Модель успешно установлена: {model_name}"
@@ -235,7 +237,7 @@ class LegaleBot:
                 auto_reset_warning = (
                     "Контекст был автоматически сброшен из-за достижения лимита токенов.\n\n"
                 )
-                if self.verbosity >= 1:
+                if self.log_level <= LOG_INFO:
                     syslog2(LOG_WARNING, "auto reset context", token_usage=f"{token_usage['current_tokens']}/{self.max_context_tokens}")
 
         if not respond:
@@ -262,7 +264,7 @@ class LegaleBot:
             custom_template=system_prompt_template
         )
 
-        if self.verbosity >= 2:
+        if self.log_level <= LOG_DEBUG:
             syslog2(LOG_DEBUG, "system prompt constructed", length=len(system_prompt))
 
         syslog2(LOG_NOTICE, "querying llm")
@@ -277,7 +279,7 @@ class LegaleBot:
             error_msg = str(e)
             # Check for token limit or payment issues (OpenRouter 402 or context length)
             if "402" in error_msg or "context_length_exceeded" in error_msg or "Prompt tokens limit exceeded" in error_msg:
-                if self.verbosity >= 1:
+                if self.log_level <= LOG_INFO:
                     syslog2(LOG_ERR, "token limit exceeded", error=str(e), action="resetting context and retrying")
                 
                 # Force reset context

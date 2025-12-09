@@ -56,7 +56,7 @@ def main():
     chunks = parse_int_option(stream, "--chunks") or 5
     debug_rag = parse_flag(stream, "--debug-rag")
     
-    # Count -v flags for verbosity (need to check before stream consumes them)
+    # Count -v flags for log level (need to check before stream consumes them)
     verbose = 0
     for arg in sys.argv[1:]:
         if arg == "-v":
@@ -79,12 +79,6 @@ def main():
             "ALERT": LOG_ALERT
         }
         syslog_level = level_map.get(log_level_str.upper(), LOG_WARNING)
-        
-        # Update verbosity for components that use it (LegaleBot, LLMClient)
-        if log_level_str.upper() == 'DEBUG':
-            verbose = max(verbose, 2)
-        elif log_level_str.upper() == 'INFO':
-            verbose = max(verbose, 1)
             
     elif verbose == 1:
         syslog_level = LOG_INFO
@@ -104,7 +98,7 @@ def main():
         syslog2(LOG_ERR, "models file missing")
         sys.exit(1)
 
-    syslog2(LOG_NOTICE, "cli bot initializing", model=model_name, verbosity=verbose, chunks=chunks)
+    syslog2(LOG_NOTICE, "cli bot initializing", model=model_name, log_level=syslog_level, chunks=chunks)
     
     # Get paths from environment (set by legale.py)
     db_url = os.getenv("DATABASE_URL")
@@ -121,7 +115,8 @@ def main():
             db_url=db_url,
             vector_db_path=vector_db_path,
             model_name=model_name, 
-            verbosity=verbose,
+            log_level=syslog_level,
+            debug_rag=debug_rag,
             profile_dir=profile_dir
         )
         print("Bot ready! Type 'exit' or 'quit' to stop.")

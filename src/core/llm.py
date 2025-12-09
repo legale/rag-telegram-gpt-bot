@@ -8,13 +8,13 @@ from src.core.syslog2 import *
 class LLMClient:
     """Client for interacting with LLM APIs (OpenRouter/OpenAI)."""
     
-    def __init__(self, model: str, verbosity: int = 0):
+    def __init__(self, model: str, log_level: int = LOG_WARNING):
         """
         Initialize the LLM client.
         
         Args:
             model: The model name to use (e.g., "openai/gpt-oss-20b:free", "anthropic/claude-3-opus").
-            verbosity: Logging level (0=none, 1=info, 2=debug, 3=trace).
+            log_level: Logging level (LOG_ALERT=1, LOG_CRIT=2, LOG_ERR=3, LOG_WARNING=4, LOG_NOTICE=5, LOG_INFO=6, LOG_DEBUG=7).
         """
         self.api_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
         if not self.api_key:
@@ -22,7 +22,7 @@ class LLMClient:
             
         self.base_url = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
         self.model = model
-        self.verbosity = verbosity
+        self.log_level = log_level
         
 
         self.client = OpenAI(
@@ -39,16 +39,16 @@ class LLMClient:
             # Fallback to cl100k_base encoding (used by gpt-3.5-turbo and gpt-4)
             self.encoding = tiktoken.get_encoding("cl100k_base")
         
-        # Control HTTP logging based on verbosity
+        # Control HTTP logging based on log_level
         import logging
-        if verbosity == 0:
-            # Completely silence HTTP logging at verbosity 0
+        if log_level >= LOG_WARNING:
+            # Completely silence HTTP logging at LOG_WARNING and above (less verbose)
             logging.getLogger("httpx").setLevel(logging.WARNING)
             logging.getLogger("httpcore").setLevel(logging.WARNING)
             logging.getLogger("urllib3").setLevel(logging.WARNING)
             logging.getLogger("openai").setLevel(logging.WARNING)
-        elif verbosity >= 3:
-            # Enable low-level HTTP logging only at verbosity 3+
+        elif log_level <= LOG_DEBUG:
+            # Enable low-level HTTP logging only at LOG_DEBUG and below (more verbose)
             httpx_logger = logging.getLogger("httpx")
             httpx_logger.setLevel(logging.DEBUG)
             httpx_logger.propagate = True
@@ -88,10 +88,10 @@ class LLMClient:
         Returns:
             The generated text response.
         """
-        if self.verbosity >= 2:
+        if self.log_level <= LOG_INFO:
             syslog2(LOG_DEBUG, "LLM request", model=self.model)
-            # Log full messages only at higher verbosity to avoid spam, or truncating
-            if self.verbosity >= 3:
+            # Log full messages only at LOG_DEBUG to avoid spam, or truncating
+            if self.log_level <= LOG_DEBUG:
                  syslog2(LOG_DEBUG, "LLM messages", messages=messages)
 
         try:
@@ -104,7 +104,7 @@ class LLMClient:
             
             content = response.choices[0].message.content
             
-            if self.verbosity >= 2:
+            if self.log_level <= LOG_INFO:
                 syslog2(LOG_DEBUG, "LLM response", response=response)
             
             if not content:

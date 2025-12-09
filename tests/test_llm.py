@@ -14,7 +14,7 @@ class TestLLMInit:
         """Test initialization with OPENROUTER_API_KEY."""
         with patch.dict('os.environ', {'OPENROUTER_API_KEY': 'test-key'}):
             with patch('src.core.llm.OpenAI') as mock_openai:
-                client = LLMClient(model="test-model", verbosity=0)
+                client = LLMClient(model="test-model", log_level=LOG_WARNING)
                 
                 assert client.api_key == 'test-key'
                 assert client.model == 'test-model'
@@ -24,7 +24,7 @@ class TestLLMInit:
         """Test initialization with OPENAI_API_KEY (fallback)."""
         with patch.dict('os.environ', {'OPENAI_API_KEY': 'openai-key'}, clear=True):
             with patch('src.core.llm.OpenAI') as mock_openai:
-                client = LLMClient(model="test-model", verbosity=0)
+                client = LLMClient(model="test-model", log_level=LOG_WARNING)
                 
                 assert client.api_key == 'openai-key'
     
@@ -41,7 +41,7 @@ class TestLLMInit:
             'OPENROUTER_BASE_URL': 'https://custom.api.com/v1'
         }):
             with patch('src.core.llm.OpenAI') as mock_openai:
-                client = LLMClient(model="test-model", verbosity=0)
+                client = LLMClient(model="test-model", log_level=LOG_WARNING)
                 
                 assert client.base_url == 'https://custom.api.com/v1'
                 mock_openai.assert_called_with(
@@ -53,7 +53,7 @@ class TestLLMInit:
         """Test initialization with default base URL."""
         with patch.dict('os.environ', {'OPENROUTER_API_KEY': 'test-key'}):
             with patch('src.core.llm.OpenAI'):
-                client = LLMClient(model="test-model", verbosity=0)
+                client = LLMClient(model="test-model", log_level=LOG_WARNING)
                 
                 assert client.base_url == 'https://openrouter.ai/api/v1'
     
@@ -64,7 +64,7 @@ class TestLLMInit:
                 with patch('src.core.llm.tiktoken.encoding_for_model') as mock_encoding:
                     mock_encoding.return_value = Mock()
                     
-                    client = LLMClient(model="gpt-3.5-turbo", verbosity=0)
+                    client = LLMClient(model="gpt-3.5-turbo", log_level=LOG_WARNING)
                     
                     # Should try to get encoding for the model name
                     mock_encoding.assert_called_with('gpt-3.5-turbo')
@@ -79,18 +79,18 @@ class TestLLMInit:
                         mock_encoding_for.side_effect = KeyError("Unknown model")
                         mock_get_encoding.return_value = Mock()
                         
-                        client = LLMClient(model="unknown/model", verbosity=0)
+                        client = LLMClient(model="unknown/model", log_level=LOG_WARNING)
                         
                         # Should fallback to cl100k_base
                         mock_get_encoding.assert_called_with('cl100k_base')
     
-    def test_init_verbosity_levels(self):
-        """Test initialization with different verbosity levels."""
+    def test_init_log_levels(self):
+        """Test initialization with different log levels."""
         with patch.dict('os.environ', {'OPENROUTER_API_KEY': 'test-key'}):
             with patch('src.core.llm.OpenAI'):
-                for verbosity in [0, 1, 2, 3]:
-                    client = LLMClient(model="test-model", verbosity=verbosity)
-                    assert client.verbosity == verbosity
+                for log_level in [LOG_WARNING, LOG_INFO, LOG_DEBUG]:
+                    client = LLMClient(model="test-model", log_level=log_level)
+                    assert client.log_level == log_level
 
 
 class TestTokenCounting:
@@ -106,7 +106,7 @@ class TestTokenCounting:
                     mock_enc.encode.return_value = [1, 2, 3]  # 3 tokens
                     mock_encoding.return_value = mock_enc
                     
-                    client = LLMClient(model="test-model", verbosity=0)
+                    client = LLMClient(model="test-model", log_level=LOG_WARNING)
                     yield client
     
     def test_count_tokens_empty_messages(self, llm_client):
@@ -171,7 +171,7 @@ class TestCompletion:
                 mock_client = Mock()
                 mock_openai.return_value = mock_client
                 
-                client = LLMClient(model="test-model", verbosity=0)
+                client = LLMClient(model="test-model", log_level=LOG_WARNING)
                 client.client = mock_client
                 
                 yield client, mock_client
@@ -260,10 +260,10 @@ class TestCompletion:
         with pytest.raises(TimeoutError, match="Timeout"):
              client.complete(messages)
     
-    def test_complete_verbosity_0(self, llm_client):
-        """Test completion with verbosity 0 (no output)."""
+    def test_complete_log_level_warning(self, llm_client):
+        """Test completion with LOG_WARNING (no output)."""
         client, mock_client = llm_client
-        client.verbosity = 0
+        client.log_level = LOG_WARNING
         
         mock_response = Mock()
         mock_response.choices = [Mock()]
@@ -276,10 +276,10 @@ class TestCompletion:
         response = client.complete(messages)
         assert response == "Response"
     
-    def test_complete_verbosity_3(self, llm_client, capsys):
-        """Test completion with verbosity 3 (full logging)."""
+    def test_complete_log_level_debug(self, llm_client, capsys):
+        """Test completion with LOG_DEBUG (full logging)."""
         client, mock_client = llm_client
-        client.verbosity = 3
+        client.log_level = LOG_DEBUG
         
         mock_response = Mock()
         mock_response.choices = [Mock()]
@@ -289,7 +289,7 @@ class TestCompletion:
         messages = [{"role": "user", "content": "Test"}]
         response = client.complete(messages)
         
-        # With verbosity=3, debug info goes to syslog2, not stdout
+        # With log_level=LOG_DEBUG, debug info goes to syslog2, not stdout
         # Just verify the call succeeded
         assert response == "Response"
 
@@ -305,7 +305,7 @@ class TestStreaming:
                 mock_client = Mock()
                 mock_openai.return_value = mock_client
                 
-                client = LLMClient(model="test-model", verbosity=0)
+                client = LLMClient(model="test-model", log_level=LOG_WARNING)
                 client.client = mock_client
                 
                 yield client, mock_client

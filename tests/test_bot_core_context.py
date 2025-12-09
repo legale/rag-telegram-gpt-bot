@@ -37,7 +37,7 @@ class TestResetContext:
     
     def test_reset_context_clears_history(self, mock_dependencies):
         """Test that reset_context() clears chat history."""
-        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
+        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", log_level=LOG_WARNING)
         
         # Add some history
         bot.chat_history = [
@@ -53,7 +53,7 @@ class TestResetContext:
     
     def test_reset_context_returns_confirmation(self, mock_dependencies):
         """Test that reset_context() returns confirmation message."""
-        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
+        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", log_level=LOG_WARNING)
         
         result = bot.reset_context()
         
@@ -62,7 +62,7 @@ class TestResetContext:
     
     def test_reset_context_multiple_times(self, mock_dependencies):
         """Test that reset_context() can be called multiple times."""
-        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
+        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", log_level=LOG_WARNING)
         
         # Add history and reset
         bot.chat_history = [{"role": "user", "content": "Test"}]
@@ -80,7 +80,7 @@ class TestGetTokenUsage:
     
     def test_get_token_usage_empty_history(self, mock_dependencies):
         """Test get_token_usage() with empty chat history."""
-        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
+        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", log_level=LOG_WARNING)
         
         usage = bot.get_token_usage()
         
@@ -90,7 +90,7 @@ class TestGetTokenUsage:
     
     def test_get_token_usage_with_history(self, mock_dependencies):
         """Test get_token_usage() with chat history."""
-        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
+        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", log_level=LOG_WARNING)
         
         # Add some history
         bot.chat_history = [
@@ -109,7 +109,7 @@ class TestGetTokenUsage:
     
     def test_get_token_usage_percentage_calculation(self, mock_dependencies):
         """Test that percentage is calculated correctly."""
-        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
+        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", log_level=LOG_WARNING)
         bot.max_context_tokens = 1000
         
         bot.chat_history = [{"role": "user", "content": "Test"}]
@@ -122,7 +122,7 @@ class TestGetTokenUsage:
     def test_get_token_usage_custom_max_tokens(self, mock_dependencies):
         """Test get_token_usage() with custom MAX_CONTEXT_TOKENS."""
         with patch.dict('os.environ', {'MAX_CONTEXT_TOKENS': '10000'}):
-            bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
+            bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", log_level=LOG_WARNING)
             
             usage = bot.get_token_usage()
             
@@ -130,7 +130,7 @@ class TestGetTokenUsage:
     
     def test_get_token_usage_threshold_0_percent(self, mock_dependencies):
         """Test token usage at 0% threshold."""
-        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
+        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", log_level=LOG_WARNING)
         bot.llm_client.count_tokens.return_value = 0
         
         usage = bot.get_token_usage()
@@ -139,7 +139,7 @@ class TestGetTokenUsage:
     
     def test_get_token_usage_threshold_50_percent(self, mock_dependencies):
         """Test token usage at 50% threshold."""
-        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
+        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", log_level=LOG_WARNING)
         bot.max_context_tokens = 1000
         bot.chat_history = [{"role": "user", "content": "Test"}]
         bot.llm_client.count_tokens.return_value = 500
@@ -150,7 +150,7 @@ class TestGetTokenUsage:
     
     def test_get_token_usage_threshold_80_percent(self, mock_dependencies):
         """Test token usage at 80% threshold."""
-        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
+        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", log_level=LOG_WARNING)
         bot.max_context_tokens = 1000
         bot.chat_history = [{"role": "user", "content": "Test"}]
         bot.llm_client.count_tokens.return_value = 800
@@ -161,7 +161,7 @@ class TestGetTokenUsage:
     
     def test_get_token_usage_threshold_100_percent(self, mock_dependencies):
         """Test token usage at 100% threshold."""
-        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
+        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", log_level=LOG_WARNING)
         bot.max_context_tokens = 1000
         bot.chat_history = [{"role": "user", "content": "Test"}]
         bot.llm_client.count_tokens.return_value = 1000
@@ -172,7 +172,7 @@ class TestGetTokenUsage:
     
     def test_get_token_usage_over_100_percent(self, mock_dependencies):
         """Test token usage over 100% threshold."""
-        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
+        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", log_level=LOG_WARNING)
         bot.max_context_tokens = 1000
         bot.chat_history = [{"role": "user", "content": "Test"}]
         bot.llm_client.count_tokens.return_value = 1200
@@ -183,7 +183,7 @@ class TestGetTokenUsage:
     
     def test_get_token_usage_uses_last_5_messages(self, mock_dependencies):
         """Test that get_token_usage() only uses last 5 messages for calculation."""
-        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
+        bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", log_level=LOG_WARNING)
         
         # Add 10 messages
         for i in range(10):

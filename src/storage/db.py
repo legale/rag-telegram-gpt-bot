@@ -644,18 +644,32 @@ class Database:
             # Save center_vec to chroma_db if provided
             if center_vec is not None and vector_store is not None:
                 try:
+                    l2_topic_id = f"l2-{topic_id}"
+                    center_vec_list = center_vec if isinstance(center_vec, list) else center_vec.tolist() if hasattr(center_vec, 'tolist') else list(center_vec)
+                    syslog2(LOG_DEBUG, "saving l2 topic to chroma_db", 
+                           topic_id=topic_id, 
+                           l2_topic_id=l2_topic_id,
+                           center_vec_type=type(center_vec).__name__,
+                           center_vec_dim=len(center_vec_list))
+                    
                     vector_store.topics_l2_collection.add(
-                        ids=[f"l2-{topic_id}"],
-                        embeddings=[center_vec],
+                        ids=[l2_topic_id],
+                        embeddings=[center_vec_list],
                         metadatas=[{
                             "topic_l2_id": topic_id,
                             "title": title,
                             "chunk_count": chunk_count
                         }]
                     )
+                    syslog2(LOG_DEBUG, "l2 topic saved to chroma_db successfully", 
+                           topic_id=topic_id, l2_topic_id=l2_topic_id)
                 except Exception as e:
                     # Log error but don't fail the transaction
-                    syslog2(LOG_WARNING, "failed to save l2 topic to chroma_db", topic_id=topic_id, error=str(e))
+                    syslog2(LOG_WARNING, "failed to save l2 topic to chroma_db", 
+                           topic_id=topic_id, 
+                           l2_topic_id=f"l2-{topic_id}",
+                           error=str(e),
+                           center_vec_type=type(center_vec).__name__ if center_vec is not None else None)
             
             return topic_id
         except Exception as e:

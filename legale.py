@@ -345,27 +345,44 @@ def cmd_ingest(args, profile_manager: ProfileManager):
         syslog2(LOG_NOTICE, "stage0 complete")
         
     elif ingest_command == 'stage1':
+        # Check if there are messages in database
+        from src.storage.db import Database
+        db = Database(paths['db_url'])
+        message_count = db.count_messages()
+        if message_count == 0:
+            syslog2(LOG_ERR, "no messages found in database, run ingest stage0 first")
+            sys.exit(1)
+        
+        chunk_size = getattr(args, 'chunk_size', None)
+        syslog2(LOG_NOTICE, "running stage1: create and store chunks")
+        pipeline.run_stage1()
+        syslog2(LOG_NOTICE, "stage1 complete")
+        
+    elif ingest_command == 'stage2':
         # Check if there are chunks in database
         from src.storage.db import Database
         db = Database(paths['db_url'])
         chunk_count = db.count_chunks()
         if chunk_count == 0:
-            syslog2(LOG_ERR, "no chunks found in database, run ingest stage0 first")
+            syslog2(LOG_ERR, "no chunks found in database, run ingest stage1 first")
             sys.exit(1)
         
+        # Get optional parameters for embedding generation
         model = getattr(args, 'model', None)
         batch_size = getattr(args, 'batch_size', 128)
-        syslog2(LOG_NOTICE, "running stage1: generate embeddings")
-        pipeline.run_stage1(model=model, batch_size=batch_size)
-        syslog2(LOG_NOTICE, "stage1 complete")
         
-    elif ingest_command == 'stage2':
-        # Check if there are embeddings
+        syslog2(LOG_NOTICE, "running stage2: generate embeddings")
+        pipeline.run_stage2(model=model, batch_size=batch_size)
+        syslog2(LOG_NOTICE, "stage2 complete")
+        
+    elif ingest_command == 'stage3':
+        # Check if there are embeddings in vector store
         vector_count = pipeline.vector_store.count()
         if vector_count == 0:
-            syslog2(LOG_ERR, "no embeddings found, run ingest stage1 first")
+            syslog2(LOG_ERR, "no embeddings found, run ingest stage2 first")
             sys.exit(1)
         
+        # Get clustering parameters
         clustering_params = {}
         if hasattr(args, 'min_cluster_size') and args.min_cluster_size:
             clustering_params['min_cluster_size'] = args.min_cluster_size
@@ -378,41 +395,18 @@ def cmd_ingest(args, profile_manager: ProfileManager):
         if hasattr(args, 'cluster_selection_epsilon') and args.cluster_selection_epsilon is not None:
             clustering_params['cluster_selection_epsilon'] = args.cluster_selection_epsilon
         
-        syslog2(LOG_NOTICE, "running stage2: cluster l1 topics")
-        pipeline.run_stage2(**clustering_params)
-        syslog2(LOG_NOTICE, "stage2 complete")
+        syslog2(LOG_NOTICE, "running stage3: cluster l1 topics")
+        pipeline.run_stage3(**clustering_params)
+        syslog2(LOG_NOTICE, "stage3 complete")
         
-    elif ingest_command == 'stage3':
+    elif ingest_command == 'stage4':
         # Check if there are L1 topics
         from src.storage.db import Database
         db = Database(paths['db_url'])
         l1_topics = db.get_all_topics_l1()
         if not l1_topics:
-            syslog2(LOG_ERR, "no l1 topics found, run ingest stage2 first")
+            syslog2(LOG_ERR, "no l1 topics found, run ingest stage3 first")
             sys.exit(1)
-        
-        syslog2(LOG_NOTICE, "running stage3: create embeddings for clusters and assign topics")
-        pipeline.run_stage3()
-        syslog2(LOG_NOTICE, "stage3 complete")
-        
-    elif ingest_command == 'stage4':
-        # Check if there are L1 topics
-        from src.storage.db import Database, ChunkModel
-        db = Database(paths['db_url'])
-        l1_topics = db.get_all_topics_l1()
-        if not l1_topics:
-            syslog2(LOG_ERR, "no l1 topics found, run ingest stage2 first")
-            sys.exit(1)
-        
-        # Check if topics are assigned to chunks
-        session = db.get_session()
-        try:
-            chunks_with_topics = session.query(ChunkModel).filter(ChunkModel.topic_l1_id.isnot(None)).count()
-            if chunks_with_topics == 0:
-                syslog2(LOG_ERR, "no chunks have topic assignments, run ingest stage3 first")
-                sys.exit(1)
-        finally:
-            session.close()
         
         syslog2(LOG_WARNING, "stage4 args:", **vars(args))
         only_unnamed = getattr(args, 'only_unnamed', True)  # Default: only process unnamed/unknown
@@ -658,40 +652,24 @@ def cmd_bot(args, profile_manager: ProfileManager):
         delete_webhook(token)
     
     elif args.bot_command == 'run':
-        print(f"Database: {paths['db_path']}")
-        print(f"Vector store: {paths['vector_db_path']}")
-        print()
+        syslog2(LOG_NOTICE, "database", path=str(paths['db_path']))
+        syslog2(LOG_NOTICE, "vector store", path=str(paths['vector_db_path']))
         
-        # Map log_level to verbosity for run_server
-        verbose = 0
+        # Convert log_level to string if it's a number, handle both string and numeric log levels
         log_level = getattr(args, 'log_level', None)
         if log_level:
-            # Convert to string first to handle both string and numeric log levels
-            # Always convert to string to avoid any type issues
-            try:
-                if isinstance(log_level, str):
-                    log_level_upper = log_level.upper()
-                else:
-                    # If it's a number (like LOG_DEBUG = 7), convert to string first
-                    log_level_upper = str(log_level).upper()
-            except AttributeError:
-                # Fallback: always convert to string
-                log_level_upper = str(log_level).upper()
-            
-            if log_level_upper in ('LOG_DEBUG', 'LOG_INFO', 'LOG_NOTICE', 'INFO', 'NOTICE', 'DEBUG', '7', '6', '5'):
-                verbose = 2
-            elif log_level_upper in ('LOG_WARNING', 'WARNING', '4'):
-                verbose = 1
+            # Convert to string if it's a number
+            if not isinstance(log_level, str):
+                log_level = str(log_level)
         
         debug_rag = getattr(args, 'debug_rag', False)
-        run_server(args.host, args.port, verbose, debug_rag=debug_rag)
+        run_server(args.host, args.port, log_level=log_level, debug_rag=debug_rag, args=args)
     
     elif args.bot_command == 'daemon':
-        print(f"Database: {paths['db_path']}")
-        print(f"Vector store: {paths['vector_db_path']}")
-        print()
+        syslog2(LOG_NOTICE, "database", path=str(paths['db_path']))
+        syslog2(LOG_NOTICE, "vector store", path=str(paths['vector_db_path']))
         
-        run_daemon(args.host, args.port)
+        run_daemon(args.host, args.port, args=args)
 
 
 def cmd_test_embedding(args):
@@ -723,8 +701,8 @@ def cmd_test_embedding(args):
         
         syslog2(LOG_NOTICE, "embedding generation success", duration_ms=int(duration_ms), dimensions=len(emb), first_5_values=emb[:5])
     except Exception as e:
-        setup_log(LogLevel.LOG_WARNING)
-        syslog2(LogLevel.LOG_ERR, f"Error: {e}")
+        setup_log(LOG_NOTICE)
+        syslog2(LOG_ERR, f"Error: {e}")
         sys.exit(1)
 
 
@@ -793,8 +771,9 @@ def parse_ingest_all(stream: ArgStream) -> dict:
     file = stream.expect("file path")
     model = parse_option(stream, "model")
     batch_size = parse_int_option(stream, "batch-size", 128)
+    chunk_size = parse_int_option(stream, "chunk-size", 10)
     profile = parse_option(stream, "profile")
-    return {"file": file, "model": model, "batch_size": batch_size, "profile": profile, "ingest_command": "all"}
+    return {"file": file, "model": model, "batch_size": batch_size, "chunk_size": chunk_size, "profile": profile, "ingest_command": "all"}
 
 
 def parse_ingest_stage0(stream: ArgStream) -> dict:
@@ -808,8 +787,9 @@ def parse_ingest_stage1(stream: ArgStream) -> dict:
     """Parse ingest stage1 command."""
     model = parse_option(stream, "model")
     batch_size = parse_int_option(stream, "batch-size", 128)
+    chunk_size = parse_int_option(stream, "chunk-size", 10)
     profile = parse_option(stream, "profile")
-    return {"model": model, "batch_size": batch_size, "profile": profile, "ingest_command": "stage1"}
+    return {"model": model, "batch_size": batch_size, "chunk_size": chunk_size, "profile": profile, "ingest_command": "stage1"}
 
 
 def parse_ingest_stage2(stream: ArgStream) -> dict:
@@ -1314,6 +1294,10 @@ def _parse_topics_subcommand_with_args(args):
 
 def main():
     """Main CLI entry point."""
+
+    # Setup logging early for error messages
+    setup_log(LOG_NOTICE)  # Use default level for error messages    
+    
     # Build command specifications
     commands = [
         # Test embedding
@@ -1326,7 +1310,7 @@ def main():
         CommandSpec(
             "ingest", 
             lambda s: _parse_ingest_subcommand(s),
-            help_text="ingest <subcommand>\n\nSubcommands:\n  all <file> [model <name>] [batch-size <n>] [profile <name>] - Run all stages\n  stage0 <file> [profile <name>] - Parse and store messages/chunks\n  stage1 [model <name>] [batch-size <n>] [profile <name>] - Generate embeddings\n  stage2 [min-cluster-size <n>] [min-samples <n>] [metric <name>] [cluster-selection-method <name>] [cluster-selection-epsilon <f>] [profile <name>] - Cluster chunk embeddings into L1 topics (HDBSCAN)\n  stage3 [profile <name>] - Create embeddings for clusters and assign topic_l1_id to chunks\n  stage4 [only-unnamed] [rebuild] [profile <name>] - Assign topic_l1_id to chunks and generate topic names for L1 topics\n  stage5 [min-cluster-size <n>] [min-samples <n>] [metric <name>] [cluster-selection-method <name>] [cluster-selection-epsilon <f>] [profile <name>] - Cluster L1 topics into L2 and generate names\n  clear all [profile <name>] - Clear all stages\n  clear stage0 [profile <name>] - Clear messages\n  clear stage1 [profile <name>] - Clear embeddings\n  clear stage2 [profile <name>] - Clear L1 topics\n  clear stage3 [profile <name>] - Clear topic_l1_id assignments\n  clear stage4 [profile <name>] - Clear L1 topic names\n  clear stage5 [profile <name>] - Clear L2 topics and assignments\n  info [profile <name>] - Show database statistics"
+            help_text="ingest <subcommand>\n\nSubcommands:\n  all <file> [model <name>] [batch-size <n>] [chunk-size <n>] [profile <name>] - Run all stages\n  stage0 <file> [profile <name>] - Parse and store messages/chunks\n  stage1 [chunk-size <n>] [profile <name>] - Create and store chunks\n  stage2 [min-cluster-size <n>] [min-samples <n>] [metric <name>] [cluster-selection-method <name>] [cluster-selection-epsilon <f>] [profile <name>] - Cluster chunk embeddings into L1 topics (HDBSCAN)\n  stage3 [profile <name>] - Create embeddings for clusters and assign topic_l1_id to chunks\n  stage4 [only-unnamed] [rebuild] [profile <name>] - Assign topic_l1_id to chunks and generate topic names for L1 topics\n  stage5 [min-cluster-size <n>] [min-samples <n>] [metric <name>] [cluster-selection-method <name>] [cluster-selection-epsilon <f>] [profile <name>] - Cluster L1 topics into L2 and generate names\n  clear all [profile <name>] - Clear all stages\n  clear stage0 [profile <name>] - Clear messages\n  clear stage1 [profile <name>] - Clear embeddings\n  clear stage2 [profile <name>] - Clear L1 topics\n  clear stage3 [profile <name>] - Clear topic_l1_id assignments\n  clear stage4 [profile <name>] - Clear L1 topic names\n  clear stage5 [profile <name>] - Clear L2 topics and assignments\n  info [profile <name>] - Show database statistics"
         ),
         
         # Telegram commands
@@ -1350,7 +1334,7 @@ def main():
     try:
         # Parse arguments (skip script name)
         cmd_name, args = parser.parse(sys.argv[1:])
-        syslog2(LOG_WARNING, "args:", **vars(args))
+        syslog2(LOG_NOTICE, "args:", **vars(args))
     
     except CLIHelp:
         # Check if it's a specific command help request
@@ -1362,8 +1346,6 @@ def main():
             syslog2(LOG_NOTICE, "help", help_text=parser.get_help())
         sys.exit(0)
     except CLIError as e:
-        # Setup logging early for error messages
-        setup_log(LOG_WARNING)  # Use default level for error messages
         syslog2(LOG_ERR, f"Error: {e}")
         sys.exit(1)
     
@@ -1382,7 +1364,7 @@ def main():
         cmd_name, args = _parse_topics_subcommand_with_args(args)
 
     # Setup global logging
-    syslog_level = LOG_WARNING
+    syslog_level = LOG_NOTICE
     log_level = getattr(args, 'log_level', None)
     if log_level:
         # Convert string log level to integer if needed
@@ -1493,10 +1475,9 @@ def cmd_topics(args, profile_manager: ProfileManager):
         if not model_name:
             model_name = "openai/gpt-3.5-turbo"
             
-        # For topic naming, always use verbosity=0 to suppress raw LLM output
+        # For topic naming, always use LOG_WARNING to suppress raw LLM output
         # This ensures clean progress bar output without HTTP request/response spam
-        llm_verbosity = 0
-        llm_client = LLMClient(model=model_name, verbosity=llm_verbosity)
+        llm_client = LLMClient(model=model_name, log_level=LOG_WARNING)
         clusterer = TopicClusterer(db, vector_store, llm_client)
     else:
         clusterer = None
@@ -1686,22 +1667,16 @@ def cmd_topics(args, profile_manager: ProfileManager):
 
             l1 = next((t for t in db.get_all_topics_l1() if t.id == tid), None)
             if l1:
-                print(f"=== Topic L1-{l1.id} ===")
-                print(f"Title: {l1.title}")
-                print(f"Description: {l1.descr}")
-                print(f"Parent L2: {l1.parent_l2_id}")
-                print(f"Chunks: {l1.chunk_count}")
-                print(f"Messages: {l1.msg_count}")
-                print(f"Time: {l1.ts_from} - {l1.ts_to}")
+                syslog2(LOG_NOTICE, "topic l1", id=l1.id, title=l1.title, description=l1.descr, parent_l2_id=l1.parent_l2_id, chunks=l1.chunk_count, messages=l1.msg_count, time_from=str(l1.ts_from), time_to=str(l1.ts_to))
                 
                 chunks = db.get_chunks_by_topic_l1(l1.id)
-                print(f"\nSample Content ({min(3, len(chunks))} of {len(chunks)}):")
+                syslog2(LOG_NOTICE, "sample content", count=min(3, len(chunks)), total=len(chunks))
                 for i, c in enumerate(chunks[:3]):
-                    print(f"--- Chunk {i+1} ---")
-                    print(c.text[:200].replace('\n', ' ') + "...")
+                    chunk_preview = c.text[:200].replace('\n', ' ') + "..."
+                    syslog2(LOG_NOTICE, "chunk sample", number=i+1, preview=chunk_preview)
                 return
                 
-            print(f"Topic ID {tid} not found in L1 or L2 tables.")
+            syslog2(LOG_ERR, "topic not found", id=tid)
                 
         except ValueError:
             syslog2(LOG_ERR, "topic id must be an integer")
@@ -1718,7 +1693,7 @@ def cmd_profile_option(args, profile_manager: ProfileManager):
     profile_dir = profile_manager.get_profile_dir(profile_name)
     
     if not profile_dir.exists():
-        print(f"Error: Profile '{profile_name}' does not exist")
+        syslog2(LOG_ERR, "profile does not exist", profile=profile_name)
         sys.exit(1)
     
     config = BotConfig(profile_dir)
@@ -1746,65 +1721,57 @@ def cmd_profile_option(args, profile_manager: ProfileManager):
     
     if option == 'model':
         if action == 'list':
-            print("Available embedding models:")
-            print("\nOpenRouter/OpenAI models:")
+            syslog2(LOG_NOTICE, "available embedding models")
+            syslog2(LOG_NOTICE, "openrouter/openai models")
             for model in available_models["openrouter"]:
                 marker = " (current)" if model == config.embedding_model else ""
-                print(f"  - {model}{marker}")
-            print("\nLocal models (sentence-transformers):")
+                syslog2(LOG_NOTICE, "model", name=model, marker=marker)
+            syslog2(LOG_NOTICE, "local models (sentence-transformers)")
             for model in available_models["local"]:
                 marker = " (current)" if model == config.embedding_model else ""
-                print(f"  - {model}{marker}")
+                syslog2(LOG_NOTICE, "model", name=model, marker=marker)
         
         elif action == 'get':
-            print(f"Current embedding model: {config.embedding_model}")
+            syslog2(LOG_NOTICE, "current embedding model", model=config.embedding_model)
         
         elif action == 'set':
             if not args.value:
                 syslog2(LOG_ERR, "value is required for set action")
                 sys.exit(1)
             if args.value not in all_models:
-                syslog2(LOG_ERR, "unknown model", model=args.value)
-                print(f"  Available models: {', '.join(all_models)}")
+                syslog2(LOG_ERR, "unknown model", model=args.value, available=", ".join(all_models))
                 sys.exit(1)
             config.embedding_model = args.value
-            print(f"Embedding model set to: {args.value}")
+            syslog2(LOG_NOTICE, "embedding model set", model=args.value)
     
     elif option == 'generator':
         if action == 'list':
-            print("Available embedding generators:")
+            syslog2(LOG_NOTICE, "available embedding generators")
             for gen in available_generators:
                 marker = " (current)" if gen == config.embedding_generator else ""
-                print(f"  - {gen}{marker}")
-            print("\nNote:")
-            print("  - openrouter/openai: Use OpenRouter/OpenAI API")
-            print("  - local: Use local sentence-transformers (no API key required)")
+                syslog2(LOG_NOTICE, "generator", name=gen, marker=marker)
+            syslog2(LOG_NOTICE, "note", openrouter="Use OpenRouter/OpenAI API", local="Use local sentence-transformers (no API key required)")
         
         elif action == 'get':
-            print(f"Current embedding generator: {config.embedding_generator}")
+            syslog2(LOG_NOTICE, "current embedding generator", generator=config.embedding_generator)
         
         elif action == 'set':
             if not args.value:
                 syslog2(LOG_ERR, "value is required for set action")
                 sys.exit(1)
             if args.value.lower() not in available_generators:
-                syslog2(LOG_ERR, "unknown generator", generator=args.value)
-                print(f"  Available generators: {', '.join(available_generators)}")
+                syslog2(LOG_ERR, "unknown generator", generator=args.value, available=", ".join(available_generators))
                 sys.exit(1)
             try:
                 config.embedding_generator = args.value.lower()
-                print(f"Embedding generator set to: {args.value.lower()}")
+                syslog2(LOG_NOTICE, "embedding generator set", generator=args.value.lower())
             except ValueError as e:
                 syslog2(LOG_ERR, "error", error=str(e))
                 sys.exit(1)
     
     elif option == 'frequency':
         if action == 'list':
-            print("Response frequency options:")
-            print("  - 0: Respond only to mentions")
-            print("  - 1: Respond to every message")
-            print("  - N: Respond to every N-th message (N > 1)")
-            print(f"\nCurrent value: {config.response_frequency}")
+            syslog2(LOG_NOTICE, "response frequency options", option_0="Respond only to mentions", option_1="Respond to every message", option_n="Respond to every N-th message (N > 1)", current=config.response_frequency)
         
         elif action == 'get':
             freq = config.response_frequency
@@ -1814,7 +1781,7 @@ def cmd_profile_option(args, profile_manager: ProfileManager):
                 desc = "Respond to every message"
             else:
                 desc = f"Respond to every {freq}-th message"
-            print(f"Current response frequency: {freq} ({desc})")
+            syslog2(LOG_NOTICE, "current response frequency", frequency=freq, description=desc)
         
         elif action == 'set':
             if not args.value:
@@ -1826,7 +1793,7 @@ def cmd_profile_option(args, profile_manager: ProfileManager):
                     syslog2(LOG_ERR, "frequency must be >= 0")
                     sys.exit(1)
                 config.response_frequency = freq_value
-                print(f"Response frequency set to: {freq_value}")
+                syslog2(LOG_NOTICE, "response frequency set", frequency=freq_value)
             except ValueError:
                 syslog2(LOG_ERR, "frequency must be an integer")
                 sys.exit(1)
@@ -1840,7 +1807,7 @@ def cmd_config(args, profile_manager: ProfileManager):
     profile_dir = profile_manager.get_profile_dir(profile_name)
     
     if not profile_dir.exists():
-         print(f"Error: Profile '{profile_name}' does not exist")
+         syslog2(LOG_ERR, "profile does not exist", profile=profile_name)
          sys.exit(1)
          
     config = BotConfig(profile_dir)
@@ -1851,16 +1818,16 @@ def cmd_config(args, profile_manager: ProfileManager):
             if not prompt:
                 from src.core.prompt import PromptEngine
                 prompt = f"(Default)\n{PromptEngine.SYSTEM_PROMPT_TEMPLATE}"
-            print(f"System Prompt for profile '{profile_name}':\n\n{prompt}")
+            syslog2(LOG_NOTICE, "system prompt", profile=profile_name, prompt=prompt)
         else:
-             print(f"Unknown config key: {args.key}")
+             syslog2(LOG_ERR, "unknown config key", key=args.key)
 
     elif args.config_command == 'set':
         if args.key == 'system_prompt':
              config.system_prompt = args.value
-             print(f"System prompt updated for profile '{profile_name}'")
+             syslog2(LOG_NOTICE, "system prompt updated", profile=profile_name)
         else:
-             print(f"Unknown config key: {args.key}")
+             syslog2(LOG_ERR, "unknown config key", key=args.key)
 
 
 if __name__ == '__main__':

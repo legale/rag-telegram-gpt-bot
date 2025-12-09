@@ -117,8 +117,7 @@ class TelegramFetcher:
                 
                 # Progress update on every message (overwrites same line)
                 date_str = last_date.strftime('%Y-%m-%d %H:%M') if last_date else "Unknown"
-                sys.stdout.write(f"\rFetched {count} messages... (Last: {date_str})")
-                sys.stdout.flush()
+                print(f"\rFetched {count} messages... (Last: {date_str})", flush=True, end="")
 
                 if message.text:
                     sender_name = "Unknown"
@@ -138,7 +137,7 @@ class TelegramFetcher:
                     }
                     messages_data.append(msg_data)
             
-            print() # Newline after progress bar
+            print()  # Newline after progress
             
             messages_data.sort(key=lambda x: x['date'])
             

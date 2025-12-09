@@ -165,21 +165,21 @@ class CommandParser:
             import sys
             sys.exit(0)
         
-        # Handle verbosity (-V <level>)
-        verbosity = None
+        # Handle log level (-V <level>)
+        log_level_arg = None
         if "-V" in args:
             idx = args.index("-V")
             if idx + 1 < len(args):
-                verbosity = args.pop(idx + 1)
+                log_level_arg = args.pop(idx + 1)
                 args.pop(idx)
             else:
-                raise CLIError("-V requires a verbosity level (1-7 or LOG_ERR, LOG_WARNING, LOG_INFO, LOG_DEBUG)")
+                raise CLIError("-V requires a log level (1-7 or LOG_ERR, LOG_WARNING, LOG_INFO, LOG_DEBUG)")
         
-        if verbosity:
-            # Map verbosity to log level (without LOG_ prefix for CLI compatibility)
-            # Convert verbosity to string if it's a number
-            verbosity_str = str(verbosity).upper() if not isinstance(verbosity, str) else verbosity.upper()
-            verbosity_map = {
+        if log_level_arg:
+            # Map log level argument to log level (without LOG_ prefix for CLI compatibility)
+            # Convert log level to string if it's a number
+            log_level_str = str(log_level_arg).upper() if not isinstance(log_level_arg, str) else log_level_arg.upper()
+            log_level_map = {
                 "1": "ALERT",
                 "2": "CRIT",
                 "3": "ERR",
@@ -202,7 +202,7 @@ class CommandParser:
                 "INFO": "INFO",
                 "DEBUG": "DEBUG",
             }
-            log_level = verbosity_map.get(verbosity_str, verbosity_str)
+            log_level = log_level_map.get(log_level_str, log_level_str)
             global_opts["log_level"] = log_level
         
         # Handle log-level (deprecated, use -V instead)
@@ -261,7 +261,7 @@ class CommandParser:
             lines.append(f"  {spec.name}")
         lines.append("")
         lines.append("Use 'legale <command>' for command-specific help")
-        lines.append("Global flags: -v (version), -V <level> (verbosity), -h (help)")
+        lines.append("Global flags: -v (version), -V <level> (log level), -h (help)")
         return "\n".join(lines)
 
 

@@ -34,7 +34,6 @@ except ImportError:
 class IngestionPipeline:
     def __init__(self, db_url: str, vector_db_path: str, collection_name: str = "default", profile_dir: Optional[str] = None):
         self.parser = ChatParser()
-        self.chunker = MessageChunker()
         self.db = Database(db_url)
         self.profile_dir = Path(profile_dir) if profile_dir else None
         
@@ -60,6 +59,13 @@ class IngestionPipeline:
             embedding_client = create_embedding_client(
                 generator=embedding_generator,
                 model=embedding_model
+            )
+            
+            # Initialize chunker with token-based parameters from config
+            self.chunker = MessageChunker(
+                chunk_token_min=config.chunk_token_min,
+                chunk_token_max=config.chunk_token_max,
+                chunk_overlap_ratio=config.chunk_overlap_ratio
             )
         except SystemExit:
             # Already handled in create_embedding_client
@@ -151,20 +157,16 @@ class IngestionPipeline:
             raise ValueError("file_path is required for stage0")
         self.parse_and_store_messages(file_path)
 
-    def run_stage1(self, chunk_size: Optional[int] = None):
+    def run_stage1(self):
         """Run stage1: create and store chunks."""
-        # If chunk_size not provided, get from profile config
-        if chunk_size is None:
-            if not self.profile_dir or not self.profile_dir.exists():
-                import sys
-                syslog2(LOG_ERR, "profile directory not found")
-                sys.exit(1)
-            
-            from src.bot.config import BotConfig
-            config = BotConfig(self.profile_dir)
-            chunk_size = config.chunk_size
+        # chunk_size parameter is kept for backward compatibility but not used
+        # New token-based chunking uses config parameters
+        if not self.profile_dir or not self.profile_dir.exists():
+            import sys
+            syslog2(LOG_ERR, "profile directory not found")
+            sys.exit(1)
         
-        self.parse_and_store_chunks(chunk_size=chunk_size)
+        self.parse_and_store_chunks()
 
     def run_stage2(self, model: Optional[str] = None, batch_size: int = 128):
         """Run stage2: generate embeddings for chunks."""
@@ -191,7 +193,7 @@ class IngestionPipeline:
                 syslog2(LOG_NOTICE, "example config.json", example='{"embedding_model": "paraphrase-multilingual-mpnet-base-v2", "embedding_generator": "local", "current_model": "openai/gpt-oss-20b:free"}')
                 sys.exit(1)
             
-            return LLMClient(model=model_name, verbosity=0)
+            return LLMClient(model=model_name, log_level=LOG_WARNING)
         except Exception as e:
             syslog2(LOG_ERR, "failed to load model from profile config", error=str(e))
             sys.exit(1)
@@ -297,12 +299,7 @@ class IngestionPipeline:
                 syslog2(LOG_NOTICE, "finding nearest topics for chunks", total_chunks=total_chunks)
                 
                 try:
-                    pbar = tqdm(total=total_chunks, desc="Matching chunks to topics", unit="chunk")
-                except ImportError:
-                    pbar = None
-                
-                try:
-                    for chunk_id, embedding, metadata in zip(chunk_ids, embeddings, metadatas):
+                    for idx, (chunk_id, embedding, metadata) in enumerate(zip(chunk_ids, embeddings, metadatas), 1):
                         chunk_emb = np.array(embedding)
                         
                         # Calculate cosine similarity to each topic centroid
@@ -319,12 +316,10 @@ class IngestionPipeline:
                         if best_topic_id:
                             assignments[best_topic_id].append(chunk_id)
                         
-                        if pbar:
-                            pbar.update(1)
-                            pbar.set_postfix({"topics": len([a for a in assignments.values() if a])})
+                        topics_count = len([a for a in assignments.values() if a])
+                        print(f"\rMatching chunks to topics: {idx}/{total_chunks} (topics: {topics_count})", flush=True, end="")
                 finally:
-                    if pbar:
-                        pbar.close()
+                    print()  # Newline after progress
                 
                 # Assign topics to chunks
                 clusterer._l1_topic_assignments = assignments
@@ -333,28 +328,15 @@ class IngestionPipeline:
         # Name L1 topics (after assignments are done)
         # Create progress callback for topic naming
         def progress_callback(current, total, stage, total_all=None):
-            try:
-                from tqdm import tqdm
-                if not hasattr(progress_callback, 'pbar'):
-                    desc = f"Naming {stage.upper()} topics"
-                    progress_callback.pbar = tqdm(total=total, desc=desc, unit="topic")
-                progress_callback.pbar.update(1)
-                if total_all is not None and total_all != total:
-                    progress_callback.pbar.set_postfix({"progress": f"{current}/{total} filtered/total: {total}/{total_all}"})
-                elif total_all is not None:
-                    progress_callback.pbar.set_postfix({"progress": f"{current}/{total} (all: {total_all})"})
-                else:
-                    progress_callback.pbar.set_postfix({"progress": f"{current}/{total}"})
-                if current == total:
-                    progress_callback.pbar.close()
-                    delattr(progress_callback, 'pbar')
-            except ImportError:
-                if total_all is not None and total_all != total:
-                    syslog2(LOG_NOTICE, f"naming {stage} topics", current=current, filtered=total, total=total_all)
-                elif total_all is not None:
-                    syslog2(LOG_NOTICE, f"naming {stage} topics", current=current, total=total, all=total_all)
-                else:
-                    syslog2(LOG_NOTICE, f"naming {stage} topics", current=current, total=total)
+            percentage = int((current / total * 100)) if total > 0 else 0
+            if total_all is not None and total_all != total:
+                print(f"\rNaming {stage.upper()} topics: {current}/{total} ({percentage}%) (filtered/total: {total}/{total_all})", flush=True, end="")
+            elif total_all is not None:
+                print(f"\rNaming {stage.upper()} topics: {current}/{total} ({percentage}%) (all: {total_all})", flush=True, end="")
+            else:
+                print(f"\rNaming {stage.upper()} topics: {current}/{total} ({percentage}%)", flush=True, end="")
+            if current == total:
+                print()  # Newline after progress
         
         syslog2(LOG_NOTICE, "naming l1 topics")
         clusterer.name_topics(
@@ -389,39 +371,25 @@ class IngestionPipeline:
         
         # Create progress callback for topic naming
         def progress_callback(current, total, stage, total_all=None):
-            try:
-                from tqdm import tqdm
-                if not hasattr(progress_callback, 'pbar'):
-                    desc = f"Naming {stage.upper()} topics"
-                    progress_callback.pbar = tqdm(total=total, desc=desc, unit="topic")
-                progress_callback.pbar.update(1)
-                if total_all is not None and total_all != total:
-                    progress_callback.pbar.set_postfix({"progress": f"{current}/{total} filtered/total: {total}/{total_all}"})
-                elif total_all is not None:
-                    progress_callback.pbar.set_postfix({"progress": f"{current}/{total} (all: {total_all})"})
-                else:
-                    progress_callback.pbar.set_postfix({"progress": f"{current}/{total}"})
-                if current == total:
-                    progress_callback.pbar.close()
-                    delattr(progress_callback, 'pbar')
-            except ImportError:
-                if total_all is not None and total_all != total:
-                    syslog2(LOG_NOTICE, f"naming {stage} topics", current=current, filtered=total, total=total_all)
-                elif total_all is not None:
-                    syslog2(LOG_NOTICE, f"naming {stage} topics", current=current, total=total, all=total_all)
-                else:
-                    syslog2(LOG_NOTICE, f"naming {stage} topics", current=current, total=total)
+            percentage = int((current / total * 100)) if total > 0 else 0
+            if total_all is not None and total_all != total:
+                print(f"\rNaming {stage.upper()} topics: {current}/{total} ({percentage}%) (filtered/total: {total}/{total_all})", flush=True, end="")
+            elif total_all is not None:
+                print(f"\rNaming {stage.upper()} topics: {current}/{total} ({percentage}%) (all: {total_all})", flush=True, end="")
+            else:
+                print(f"\rNaming {stage.upper()} topics: {current}/{total} ({percentage}%)", flush=True, end="")
+            if current == total:
+                print()  # Newline after progress
         
         clusterer.name_topics(progress_callback=progress_callback, only_unnamed=True, target='l2')
 
-    def run_all(self, file_path: str, chunk_size: Optional[int] = None, model: Optional[str] = None, batch_size: int = 128, **clustering_params):
+    def run_all(self, file_path: str, model: Optional[str] = None, batch_size: int = 128, **clustering_params):
         """Run all stages in sequence."""
         syslog2(LOG_NOTICE, "running stage0: parse and store messages")
         self.run_stage0(file_path)
         
         syslog2(LOG_NOTICE, "running stage1: create and store chunks")
-        # chunk_size will be taken from config in run_stage1 if None
-        self.run_stage1(chunk_size=chunk_size)
+        self.run_stage1()
         
         syslog2(LOG_NOTICE, "running stage2: generate embeddings")
         self.run_stage2(model=model, batch_size=batch_size)
@@ -464,7 +432,8 @@ class IngestionPipeline:
         # Store messages in sql db
         syslog2(LOG_NOTICE, "preparing messages for database")
         db_messages = []
-        for msg in tqdm(messages, desc="  Processing messages", unit="msg"):
+        for i, msg in enumerate(messages, 1):
+            print(f"\rProcessing messages: {i}/{len(messages)}", flush=True, end="")
             # Composite ID: {chat_id}_{msg_id} to ensure global uniqueness
             # Note: msg.id from parser is usually the telegram integer ID as string
             composite_id = f"{chat_id}_{msg.id}"
@@ -475,6 +444,7 @@ class IngestionPipeline:
                 "from_id": msg.sender, # Using sender name as ID for now since parser doesn't provide user ID
                 "text": msg.content
             })
+        print()  # Newline after progress
         syslog2(LOG_NOTICE, "messages prepared for database", count=len(db_messages))
         
         syslog2(LOG_NOTICE, "saving messages to database")
@@ -494,14 +464,30 @@ class IngestionPipeline:
         syslog2(LOG_NOTICE, "stage0 complete", messages_saved=inserted_count)
         syslog2(LOG_NOTICE, "stage0 complete", messages_count=inserted_count)
 
-    def parse_and_store_chunks(self, chunk_size: int = 6):
+    def parse_and_store_chunks(self, chunk_size: Optional[int] = None):
         """
         Create chunks from messages and store in SQLite database.
+        Uses token-based chunking with parameters from profile config.
         
         Args:
-            chunk_size: Number of messages per chunk (default: 10)
+            chunk_size: Deprecated parameter, kept for backward compatibility
         """
-        syslog2(LOG_NOTICE, "starting parse and store chunks", chunk_size=chunk_size)
+        # Get chunking parameters from profile config
+        if not self.profile_dir or not self.profile_dir.exists():
+            import sys
+            syslog2(LOG_ERR, "profile directory not found")
+            sys.exit(1)
+        
+        from src.bot.config import BotConfig
+        config = BotConfig(self.profile_dir)
+        chunk_token_min = config.chunk_token_min
+        chunk_token_max = config.chunk_token_max
+        chunk_overlap_ratio = config.chunk_overlap_ratio
+        
+        syslog2(LOG_NOTICE, "starting parse and store chunks", 
+                chunk_token_min=chunk_token_min, 
+                chunk_token_max=chunk_token_max, 
+                chunk_overlap_ratio=chunk_overlap_ratio)
 
         # Get all messages from database
         session = self.db.get_session()
@@ -534,14 +520,21 @@ class IngestionPipeline:
 
         syslog2(LOG_NOTICE, "found messages in database", count=len(messages))
 
-        # Update chunker with new chunk_size
-        self.chunker = MessageChunker(max_messages_per_chunk=chunk_size, overlap=0)
+        # Initialize chunker with token-based parameters
+        self.chunker = MessageChunker(
+            chunk_token_min=chunk_token_min,
+            chunk_token_max=chunk_token_max,
+            chunk_overlap_ratio=chunk_overlap_ratio
+        )
 
         # Create chunks
-        syslog2(LOG_NOTICE, "creating chunks", chunk_size=chunk_size)
+        syslog2(LOG_NOTICE, "creating chunks", 
+                chunk_token_min=chunk_token_min, 
+                chunk_token_max=chunk_token_max, 
+                chunk_overlap_ratio=chunk_overlap_ratio)
         chunks = self.chunker.chunk_messages(messages)
         syslog2(LOG_NOTICE, "chunks created", count=len(chunks))
-        syslog2(LOG_NOTICE, "chunks created", chunks_count=len(chunks), chunk_size=chunk_size)
+        syslog2(LOG_NOTICE, "chunks created", chunks_count=len(chunks))
 
         # Store chunks in sql db
         chunk_models = []
@@ -552,7 +545,8 @@ class IngestionPipeline:
         session = self.db.get_session()
         try:
             syslog2(LOG_NOTICE, "preparing chunks for database")
-            for chunk in tqdm(chunks, desc="  Processing chunks", unit="chunk"):
+            for i, chunk in enumerate(chunks, 1):
+                print(f"\rProcessing chunks: {i}/{len(chunks)}", end="", flush=True)
                 chunk_id = str(uuid.uuid4())
                 
                 # Prepare metadata (enhanced fields)
@@ -582,6 +576,7 @@ class IngestionPipeline:
                 ids.append(chunk_id)
                 documents.append(chunk.text)
                 metadatas.append(meta_dict)
+            print() # Newline after progress
             syslog2(LOG_NOTICE, "chunks prepared for database", count=len(chunk_models))
 
             syslog2(LOG_NOTICE, "saving chunks to database")

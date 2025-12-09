@@ -52,7 +52,7 @@ class TestLoadAvailableModels:
     def test_load_models_with_valid_file(self, mock_dependencies, temp_models_file):
         """Test loading models from a valid models.txt file."""
         with patch('src.bot.core.os.path.join', return_value=temp_models_file):
-            bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
+            bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", log_level=LOG_WARNING)
             
             assert len(bot.available_models) == 4
             assert "openai/gpt-oss-20b:free" in bot.available_models
@@ -63,7 +63,7 @@ class TestLoadAvailableModels:
     def test_load_models_with_missing_file(self, mock_dependencies):
         """Test loading models when models.txt is missing (should use fallback)."""
         with patch('src.bot.core.os.path.join', return_value='/nonexistent/models.txt'):
-            bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
+            bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", log_level=LOG_WARNING)
             
             # Should return empty list when file is missing (no fallback to default)
             assert len(bot.available_models) == 0
@@ -75,7 +75,7 @@ class TestLoadAvailableModels:
         
         try:
             with patch('src.bot.core.os.path.join', return_value=temp_path):
-                bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
+                bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", log_level=LOG_WARNING)
                 
                 # Should return empty list for empty file (no fallback)
                 assert len(bot.available_models) == 0
@@ -95,7 +95,7 @@ class TestLoadAvailableModels:
         
         try:
             with patch('src.bot.core.os.path.join', return_value=temp_path):
-                bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
+                bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", log_level=LOG_WARNING)
                 
                 assert len(bot.available_models) == 3
                 assert "model1" in bot.available_models
@@ -117,7 +117,7 @@ class TestgetModel:
         
         try:
             with patch('src.bot.core.os.path.join', return_value=single_model_path):
-                bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
+                bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", log_level=LOG_WARNING)
                 
                 result = bot.get_model()
                 
@@ -132,7 +132,7 @@ class TestgetModel:
     def test_get_model_multiple_models_cycling(self, mock_dependencies, temp_models_file):
         """Test cycling through multiple models."""
         with patch('src.bot.core.os.path.join', return_value=temp_models_file):
-            bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
+            bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", log_level=LOG_WARNING)
             
             # Initial state
             assert bot.current_model_index == 0
@@ -164,7 +164,7 @@ class TestgetModel:
     def test_get_model_recreates_llm_client(self, mock_dependencies, temp_models_file):
         """Test that get_model() recreates the LLM client with new model."""
         with patch('src.bot.core.os.path.join', return_value=temp_models_file):
-            bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
+            bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", log_level=LOG_WARNING)
             
             # Get initial LLM client
             initial_llm_client = bot.llm_client
@@ -179,7 +179,7 @@ class TestgetModel:
     def test_get_model_empty_list(self, mock_dependencies):
         """Test get_model() with empty model list."""
         with patch('src.bot.core.os.path.join', return_value='/nonexistent/models.txt'):
-            bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
+            bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", log_level=LOG_WARNING)
             bot.available_models = []  # Force empty list
             
             result = bot.get_model()
@@ -193,7 +193,7 @@ class TestGetCurrentModel:
     def test_get_current_model_correct_info(self, mock_dependencies, temp_models_file):
         """Test that get_current_model() returns correct model and position."""
         with patch('src.bot.core.os.path.join', return_value=temp_models_file):
-            bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
+            bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", log_level=LOG_WARNING)
             
             result = bot.get_current_model()
             
@@ -204,7 +204,7 @@ class TestGetCurrentModel:
     def test_get_current_model_after_get(self, mock_dependencies, temp_models_file):
         """Test get_current_model() after geting models."""
         with patch('src.bot.core.os.path.join', return_value=temp_models_file):
-            bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
+            bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", log_level=LOG_WARNING)
             
             # get to second model
             bot.get_model()
@@ -217,7 +217,7 @@ class TestGetCurrentModel:
     def test_get_current_model_empty_list(self, mock_dependencies):
         """Test get_current_model() with empty model list."""
         with patch('src.bot.core.os.path.join', return_value='/nonexistent/models.txt'):
-            bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
+            bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", log_level=LOG_WARNING)
             bot.available_models = []  # Force empty list
             
             result = bot.get_current_model()
@@ -231,21 +231,21 @@ class TestInitialModelIndex:
     def test_initial_index_default_model(self, mock_dependencies, temp_models_file):
         """Test that initial index is 0 when using default model."""
         with patch('src.bot.core.os.path.join', return_value=temp_models_file):
-            bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", verbosity=0)
+            bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", log_level=LOG_WARNING)
             
             assert bot.current_model_index == 0
     
     def test_initial_index_custom_model_in_list(self, mock_dependencies, temp_models_file):
         """Test that initial index is set correctly when custom model is in list."""
         with patch('src.bot.core.os.path.join', return_value=temp_models_file):
-            bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", model_name="nvidia/nemotron-nano-9b-v2:free", verbosity=0)
+            bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", model_name="nvidia/nemotron-nano-9b-v2:free", log_level=LOG_WARNING)
             
             assert bot.current_model_index == 1
     
     def test_initial_index_custom_model_not_in_list(self, mock_dependencies, temp_models_file):
         """Test that initial index stays 0 when custom model is not in list."""
         with patch('src.bot.core.os.path.join', return_value=temp_models_file):
-            bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", model_name="some-other-model", verbosity=0)
+            bot = LegaleBot(db_url="sqlite:///test.db", vector_db_path="test_chroma", model_name="some-other-model", log_level=LOG_WARNING)
             
             # If model not in list, it may not have current_model_index attribute
             # Just verify bot was created successfully

@@ -220,8 +220,8 @@ class TestCommandParser:
         with pytest.raises(SystemExit):
             parser.parse(["-v"])
     
-    def test_parse_verbosity_option(self):
-        """Test -V verbosity option."""
+    def test_parse_log_level_option(self):
+        """Test -V log level option."""
         def parse_test(stream):
             return {}
         
@@ -237,6 +237,6 @@ class TestCommandParser:
         commands = [CommandSpec("test", lambda s: {})]
         parser = CommandParser(commands)
         
-        with pytest.raises(CLIError, match="requires a verbosity level"):
+        with pytest.raises(CLIError, match="requires a log level"):
             parser.parse(["test", "-V"])
 

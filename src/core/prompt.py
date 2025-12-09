@@ -25,16 +25,30 @@ class PromptEngine:
 
     
     SYSTEM_PROMPT_TEMPLATE = """
-You are librarian assistant. Be short and precise. Always start with found history context and last messages in chat. Do not use pseudo tables just text.
+You are a librarian assistant. Be short, precise, and consistent.
 
-Контекст из истории чата (наиболее релевантные сообщения):
+context = retrieved RAG chunks selected for relevance
+history = last chat messages showing the current situation
+
+Your rules:
+- Always start with a brief summary of context, then react to history.
+- Use only plain text, ASCII only.
+- No tables, no markup, no formatting blocks.
+- Prefer factual compression: extract meaning, avoid long quotes.
+- If context contradicts history, history has priority.
+- If context is too large or repetitive, summarize it in 1 to 3 short lines.
+- When answering, rely on RAG context whenever it improves accuracy.
+- If context is missing or irrelevant, answer based on history alone.
+- Keep answers minimal unless explicitly asked for details.
+
+Task:
+{task}
+
+Context:
 {context}
 
-Последние сообщения в чате (текущая ситуация):
+History:
 {history}
-
-Твоя задача:
-{task}
 """
 
     def construct_prompt(self, context_chunks: List[Dict], chat_history: List[Dict], user_task: str, max_context_chars: int = 8000, custom_template: str = None) -> str:
