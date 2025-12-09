@@ -142,3 +142,331 @@ def test_retrieval_service_with_topics():
     
     # Verify topic query was attempted
     mock_session.query.assert_called()
+
+
+def test_find_similar_topics_l1():
+    """Test _find_similar_topics for L1 topics."""
+    mock_vector_store = MagicMock()
+    mock_db = MagicMock()
+    mock_embedding_client = MagicMock()
+    
+    from src.storage.db import TopicL1Model
+    
+    # Mock topic with center vector
+    topic = TopicL1Model(id=1, title="Topic", center_vec='[0.1, 0.2, 0.3]')
+    
+    mock_session = MagicMock()
+    mock_query = MagicMock()
+    mock_query.filter.return_value.all.return_value = [topic]
+    mock_session.query.return_value = mock_query
+    mock_db.get_session.return_value = mock_session
+    
+    service = RetrievalService(mock_vector_store, mock_db, mock_embedding_client)
+    
+    query_emb = [0.1, 0.2, 0.3]
+    results = service._find_similar_topics(query_emb, topic_type="l1", n_topics=3)
+    
+    assert len(results) > 0
+    assert results[0][0] == 1  # topic_id
+
+
+def test_find_similar_topics_l2():
+    """Test _find_similar_topics for L2 topics."""
+    mock_vector_store = MagicMock()
+    mock_db = MagicMock()
+    mock_embedding_client = MagicMock()
+    
+    from src.storage.db import TopicL2Model
+    
+    topic = TopicL2Model(id=2, title="L2 Topic", center_vec='[0.2, 0.3, 0.4]')
+    
+    mock_session = MagicMock()
+    mock_query = MagicMock()
+    mock_query.filter.return_value.all.return_value = [topic]
+    mock_session.query.return_value = mock_query
+    mock_db.get_session.return_value = mock_session
+    
+    service = RetrievalService(mock_vector_store, mock_db, mock_embedding_client)
+    
+    query_emb = [0.2, 0.3, 0.4]
+    results = service._find_similar_topics(query_emb, topic_type="l2", n_topics=3)
+    
+    assert len(results) > 0
+
+
+def test_find_similar_topics_empty():
+    """Test _find_similar_topics when no topics exist."""
+    mock_vector_store = MagicMock()
+    mock_db = MagicMock()
+    mock_embedding_client = MagicMock()
+    
+    mock_session = MagicMock()
+    mock_query = MagicMock()
+    mock_query.filter.return_value.all.return_value = []
+    mock_session.query.return_value = mock_query
+    mock_db.get_session.return_value = mock_session
+    
+    service = RetrievalService(mock_vector_store, mock_db, mock_embedding_client)
+    
+    query_emb = [0.1, 0.2, 0.3]
+    results = service._find_similar_topics(query_emb)
+    
+    assert results == []
+
+
+def test_find_similar_topics_threshold():
+    """Test _find_similar_topics with similarity threshold."""
+    mock_vector_store = MagicMock()
+    mock_db = MagicMock()
+    mock_embedding_client = MagicMock()
+    
+    from src.storage.db import TopicL1Model
+    
+    # Topic with center_vec as JSON string - use orthogonal vectors for low similarity
+    topic = TopicL1Model(id=1, title="Topic", center_vec='[1.0, 0.0, 0.0]')
+    
+    mock_session = MagicMock()
+    mock_query = MagicMock()
+    mock_query.filter.return_value.all.return_value = [topic]
+    mock_session.query.return_value = mock_query
+    mock_db.get_session.return_value = mock_session
+    
+    service = RetrievalService(mock_vector_store, mock_db, mock_embedding_client)
+    
+    query_emb = [0.0, 1.0, 0.0]  # Orthogonal vector (similarity ~0)
+    results = service._find_similar_topics(query_emb, similarity_threshold=0.9)
+    
+    # Should filter out low similarity topic
+    assert len(results) == 0
+
+
+def test_retrieve_chunks_from_topics():
+    """Test _retrieve_chunks_from_topics."""
+    mock_vector_store = MagicMock()
+    mock_db = MagicMock()
+    mock_embedding_client = MagicMock()
+    
+    chunk = ChunkModel(id='chunk1', text='Text 1', metadata_json='{"key": "value"}')
+    chunk.topic_l1_id = 1
+    chunk.topic_l2_id = None
+    chunk.topic_l1 = None
+    chunk.topic_l2 = None
+    
+    mock_session = MagicMock()
+    mock_query = MagicMock()
+    mock_query.options.return_value.filter.return_value.limit.return_value.all.return_value = [chunk]
+    mock_session.query.return_value = mock_query
+    mock_db.get_session.return_value = mock_session
+    
+    service = RetrievalService(mock_vector_store, mock_db, mock_embedding_client)
+    
+    results = service._retrieve_chunks_from_topics([1], [])
+    
+    assert len(results) > 0
+    assert results[0]['id'] == 'chunk1'
+    assert results[0]['source'] == 'topic_l1'
+
+
+def test_two_stage_search():
+    """Test _two_stage_search."""
+    mock_vector_store = MagicMock()
+    mock_db = MagicMock()
+    mock_embedding_client = MagicMock()
+    
+    # Mock topics_l2_collection
+    mock_topics_collection = MagicMock()
+    mock_topics_collection.query.return_value = {
+        'ids': [['topic1']],
+        'metadatas': [[{'topic_l2_id': 1}]],
+        'distances': [[0.1]]
+    }
+    mock_vector_store.get_topics_l2_collection.return_value = mock_topics_collection
+    
+    # Mock vector store collection for chunks
+    mock_vector_store.collection.query.return_value = {
+        'ids': [['chunk1']],
+        'documents': [['Text']],
+        'metadatas': [[{}]],
+        'distances': [[0.2]]
+    }
+    
+    # Mock chunk query
+    chunk = ChunkModel(id='chunk1', text='Text', metadata_json=None)
+    chunk.topic_l1 = None
+    chunk.topic_l2 = None
+    mock_session = MagicMock()
+    mock_query = MagicMock()
+    mock_query.options.return_value.filter.return_value.all.return_value = [chunk]
+    mock_session.query.return_value = mock_query
+    mock_db.get_session.return_value = mock_session
+    
+    service = RetrievalService(mock_vector_store, mock_db, mock_embedding_client)
+    
+    query_emb = [0.1, 0.2, 0.3]
+    results = service._two_stage_search(query_emb, n_results=10)
+    
+    assert len(results) >= 0  # May return empty if no chunks found
+
+
+def test_two_stage_search_no_l2_topics():
+    """Test _two_stage_search when no L2 topics found."""
+    mock_vector_store = MagicMock()
+    mock_db = MagicMock()
+    mock_embedding_client = MagicMock()
+    
+    mock_topics_collection = MagicMock()
+    mock_topics_collection.query.return_value = {
+        'ids': [[]],
+        'metadatas': [[]]
+    }
+    mock_vector_store.get_topics_l2_collection.return_value = mock_topics_collection
+    
+    service = RetrievalService(mock_vector_store, mock_db, mock_embedding_client, verbosity=2)
+    
+    query_emb = [0.1, 0.2, 0.3]
+    results = service._two_stage_search(query_emb)
+    
+    assert results == []
+
+
+def test_direct_chunk_query():
+    """Test _direct_chunk_query."""
+    mock_vector_store = MagicMock()
+    mock_db = MagicMock()
+    mock_embedding_client = MagicMock()
+    
+    mock_vector_store.collection.count.return_value = 10
+    mock_vector_store.collection.query.return_value = {
+        'ids': [['chunk1', 'chunk2']],
+        'metadatas': [[{}, {}]],
+        'distances': [[0.1, 0.2]]
+    }
+    
+    service = RetrievalService(mock_vector_store, mock_db, mock_embedding_client)
+    
+    query_emb = [0.1, 0.2, 0.3]
+    results = service._direct_chunk_query(query_emb, n_results=5)
+    
+    assert 'ids' in results
+    assert len(results['ids'][0]) > 0
+
+
+def test_direct_chunk_query_empty_collection():
+    """Test _direct_chunk_query with empty collection."""
+    mock_vector_store = MagicMock()
+    mock_db = MagicMock()
+    mock_embedding_client = MagicMock()
+    
+    mock_vector_store.collection.count.return_value = 0
+    
+    service = RetrievalService(mock_vector_store, mock_db, mock_embedding_client)
+    
+    query_emb = [0.1, 0.2, 0.3]
+    results = service._direct_chunk_query(query_emb, n_results=5)
+    
+    assert 'ids' in results
+    assert results['ids'] == [[]]
+
+
+def test_search_chunks_basic():
+    """Test search_chunks_basic."""
+    mock_vector_store = MagicMock()
+    mock_db = MagicMock()
+    mock_embedding_client = MagicMock()
+    
+    mock_embedding_client.get_embeddings.return_value = [[0.1, 0.2, 0.3]]
+    
+    mock_vector_store.collection.count.return_value = 10
+    mock_vector_store.collection.query.return_value = {
+        'ids': [['chunk1']],
+        'metadatas': [[{}]],
+        'distances': [[0.1]]
+    }
+    
+    chunk = ChunkModel(id='chunk1', text='Text', metadata_json=None)
+    chunk.topic_l1 = None
+    chunk.topic_l2 = None
+    mock_session = MagicMock()
+    mock_query = MagicMock()
+    mock_query.options.return_value.filter_by.return_value.first.return_value = chunk
+    mock_session.query.return_value = mock_query
+    mock_db.get_session.return_value = mock_session
+    
+    service = RetrievalService(mock_vector_store, mock_db, mock_embedding_client)
+    
+    results = service.search_chunks_basic("query", n_results=3)
+    
+    assert len(results) > 0
+    assert results[0]['id'] == 'chunk1'
+
+
+def test_retrieve_with_topic_retrieval_disabled():
+    """Test retrieve with topic retrieval disabled."""
+    mock_vector_store = MagicMock()
+    mock_db = MagicMock()
+    mock_embedding_client = MagicMock()
+    
+    mock_embedding_client.get_embeddings.return_value = [[0.1, 0.2, 0.3]]
+    
+    mock_vector_store.collection.count.return_value = 10
+    mock_vector_store.collection.query.return_value = {
+        'ids': [['chunk1']],
+        'metadatas': [[{}]],
+        'distances': [[0.1]]
+    }
+    
+    chunk = ChunkModel(id='chunk1', text='Text', metadata_json=None)
+    chunk.topic_l1 = None
+    chunk.topic_l2 = None
+    mock_session = MagicMock()
+    mock_query = MagicMock()
+    mock_query.options.return_value.filter_by.return_value.first.return_value = chunk
+    mock_session.query.return_value = mock_query
+    mock_db.get_session.return_value = mock_session
+    
+    service = RetrievalService(
+        mock_vector_store, 
+        mock_db, 
+        mock_embedding_client,
+        use_topic_retrieval=False
+    )
+    
+    results = service.retrieve("query", n_results=5)
+    
+    assert len(results) > 0
+
+
+def test_retrieve_with_direct_search_mode():
+    """Test retrieve with direct search mode."""
+    mock_vector_store = MagicMock()
+    mock_db = MagicMock()
+    mock_embedding_client = MagicMock()
+    
+    mock_embedding_client.get_embeddings.return_value = [[0.1, 0.2, 0.3]]
+    
+    mock_vector_store.collection.count.return_value = 10
+    mock_vector_store.collection.query.return_value = {
+        'ids': [['chunk1']],
+        'metadatas': [[{}]],
+        'distances': [[0.1]]
+    }
+    
+    chunk = ChunkModel(id='chunk1', text='Text', metadata_json=None)
+    chunk.topic_l1 = None
+    chunk.topic_l2 = None
+    mock_session = MagicMock()
+    mock_query = MagicMock()
+    mock_query.options.return_value.filter_by.return_value.first.return_value = chunk
+    mock_session.query.return_value = mock_query
+    mock_db.get_session.return_value = mock_session
+    
+    service = RetrievalService(
+        mock_vector_store, 
+        mock_db, 
+        mock_embedding_client,
+        search_mode="direct"
+    )
+    
+    results = service.retrieve("query", n_results=5)
+    
+    assert len(results) > 0

@@ -457,3 +457,156 @@ def test_name_topics_l2_no_subtopics(test_db, mock_vector_store):
     # LLM should not be called for topic with no subtopics
     # (method returns early)
     # This is tested implicitly - no error should occur
+
+
+def test_assign_l1_topics_to_chunks(test_db, mock_vector_store):
+    """Test assign_l1_topics_to_chunks method."""
+    # Create topics and chunks
+    l1_id = test_db.create_topic_l1(
+        title="Topic 1",
+        descr="Desc",
+        chunk_count=2,
+        msg_count=4,
+        center_vec=[0.1] * 10
+    )
+    
+    chunk_id1 = "chunk1"
+    chunk_id2 = "chunk2"
+    test_db.add_chunk_with_messages(
+        chunk_id=chunk_id1,
+        text="Text 1",
+        chat_id="chat1",
+        msg_id_start="1",
+        msg_id_end="2",
+        ts_from=datetime.now(),
+        ts_to=datetime.now()
+    )
+    test_db.add_chunk_with_messages(
+        chunk_id=chunk_id2,
+        text="Text 2",
+        chat_id="chat1",
+        msg_id_start="3",
+        msg_id_end="4",
+        ts_from=datetime.now(),
+        ts_to=datetime.now()
+    )
+    
+    # Set up assignments
+    clusterer = TopicClusterer(test_db, mock_vector_store)
+    clusterer._l1_topic_assignments = {
+        l1_id: [chunk_id1, chunk_id2]
+    }
+    
+    clusterer.assign_l1_topics_to_chunks(show_progress=False)
+    
+    # Verify chunks are assigned
+    session = test_db.get_session()
+    chunk1 = session.query(ChunkModel).filter(ChunkModel.id == chunk_id1).first()
+    chunk2 = session.query(ChunkModel).filter(ChunkModel.id == chunk_id2).first()
+    session.close()
+    
+    assert chunk1.topic_l1_id == l1_id
+    assert chunk2.topic_l1_id == l1_id
+
+
+def test_cosine_similarity(test_db, mock_vector_store):
+    """Test _cosine_similarity helper method."""
+    clusterer = TopicClusterer(test_db, mock_vector_store)
+    
+    v1 = np.array([1.0, 0.0, 0.0])
+    v2 = np.array([1.0, 0.0, 0.0])
+    
+    similarity = clusterer._cosine_similarity(v1, v2)
+    assert abs(similarity - 1.0) < 0.01  # Should be 1.0 for identical vectors
+    
+    # Test orthogonal vectors
+    v3 = np.array([1.0, 0.0, 0.0])
+    v4 = np.array([0.0, 1.0, 0.0])
+    similarity = clusterer._cosine_similarity(v3, v4)
+    assert abs(similarity) < 0.01  # Should be ~0 for orthogonal
+
+
+def test_get_chunk_embeddings(test_db, mock_vector_store):
+    """Test _get_chunk_embeddings helper method."""
+    chunk_ids = ["chunk1", "chunk2"]
+    embeddings = [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
+    
+    mock_vector_store.get_embeddings_by_ids.return_value = {
+        "ids": chunk_ids,
+        "embeddings": embeddings
+    }
+    
+    clusterer = TopicClusterer(test_db, mock_vector_store)
+    result = clusterer._get_chunk_embeddings(chunk_ids)
+    
+    assert len(result) == 2
+    assert "chunk1" in result
+    assert "chunk2" in result
+    np.testing.assert_array_almost_equal(result["chunk1"], np.array([0.1, 0.2, 0.3]))
+
+
+@patch('src.ai.clustering.LLMClient')
+def test_call_llm_json_success(MockLLM, test_db, mock_vector_store):
+    """Test _call_llm_json with successful response."""
+    mock_llm = MockLLM.return_value
+    mock_llm.complete.return_value = '{"title": "Test Topic", "description": "Test"}'
+    
+    clusterer = TopicClusterer(test_db, mock_vector_store, mock_llm)
+    result = clusterer._call_llm_json("Test prompt")
+    
+    assert result is not None
+    assert result["title"] == "Test Topic"
+    assert result["description"] == "Test"
+
+
+@patch('src.ai.clustering.LLMClient')
+def test_call_llm_json_retry_on_error(MockLLM, test_db, mock_vector_store):
+    """Test _call_llm_json retries on errors."""
+    mock_llm = MockLLM.return_value
+    # First call fails, second succeeds
+    mock_llm.complete.side_effect = [
+        Exception("Network error"),
+        '{"title": "Retry Success"}'
+    ]
+    
+    clusterer = TopicClusterer(test_db, mock_vector_store, mock_llm)
+    result = clusterer._call_llm_json("Test prompt", max_retries=5)
+    
+    assert result is not None
+    assert result["title"] == "Retry Success"
+    assert mock_llm.complete.call_count == 2
+
+
+def test_name_topics_with_progress_callback(test_db, mock_vector_store):
+    """Test name_topics with progress callback."""
+    l1_id = test_db.create_topic_l1(
+        title="Topic L1-0",
+        descr="Pending",
+        chunk_count=1,
+        msg_count=1,
+        center_vec=json.dumps([0.1] * 10)
+    )
+    
+    test_db.add_chunk_with_messages(
+        chunk_id="chunk1",
+        text="Sample text",
+        chat_id="chat1",
+        msg_id_start="1",
+        msg_id_end="2",
+        ts_from=datetime.now(),
+        ts_to=datetime.now()
+    )
+    test_db.update_chunk_topics("chunk1", topic_l1_id=l1_id, topic_l2_id=None)
+    
+    progress_calls = []
+    def progress_callback(current, total, stage, total_all=None):
+        progress_calls.append((current, total, stage, total_all))
+    
+    mock_llm = MagicMock()
+    mock_llm.complete.return_value = '{"title": "Named Topic"}'
+    
+    clusterer = TopicClusterer(test_db, mock_vector_store, mock_llm)
+    clusterer.name_topics(progress_callback=progress_callback, target='l1')
+    
+    # Progress callback should have been called
+    assert len(progress_calls) > 0
