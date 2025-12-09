@@ -48,7 +48,7 @@ if not is_in_virtualenv():
 import warnings
 from typing import Optional
 from dotenv import load_dotenv, set_key, find_dotenv
-from src.core.syslog2 import syslog2, setup_log, LogLevel
+from src.core.syslog2 import *
 from src.core.cli_parser import (
     CommandParser, CommandSpec, ArgStream, CLIError, CLIHelp,
     parse_flag, parse_option, parse_int_option, parse_float_option, parse_choice_option
@@ -712,7 +712,6 @@ def cmd_test_embedding(args):
         
         syslog2(LOG_NOTICE, "embedding generation success", duration_ms=int(duration_ms), dimensions=len(emb), first_5_values=emb[:5])
     except Exception as e:
-        from src.core.syslog2 import syslog2, LogLevel, setup_log
         setup_log(LogLevel.LOG_WARNING)
         syslog2(LogLevel.LOG_ERR, f"Error: {e}")
         sys.exit(1)

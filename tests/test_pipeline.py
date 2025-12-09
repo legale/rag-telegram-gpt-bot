@@ -606,3 +606,356 @@ def test_integration_ingestion_pipeline(tmp_path):
     # and proper file format which is complex to mock
     pytest.skip("Integration test requires real file parsing - skipping for now")
 
+
+def test_list_topics_no_topics(pipeline, capsys):
+    """Test list_topics when no topics exist."""
+    pipeline.db.get_all_topics_l2.return_value = []
+    pipeline.db.get_all_topics_l1.return_value = []
+    
+    pipeline.list_topics()
+    
+    captured = capsys.readouterr()
+    assert "No topics found" in captured.out
+
+
+def test_list_topics_l2_with_l1_children(pipeline, capsys):
+    """Test list_topics with L2 topics and their L1 children."""
+    from unittest.mock import MagicMock
+    
+    # Create mock L2 topic
+    l2_topic = MagicMock()
+    l2_topic.id = 1
+    l2_topic.title = "L2 Topic Title"
+    
+    # Create mock L1 topics
+    l1_topic1 = MagicMock()
+    l1_topic1.id = 10
+    l1_topic1.title = "L1 Topic 1"
+    l1_topic1.parent_l2_id = 1
+    l1_topic1.chunk_count = 5
+    
+    l1_topic2 = MagicMock()
+    l1_topic2.id = 11
+    l1_topic2.title = "L1 Topic 2"
+    l1_topic2.parent_l2_id = 1
+    l1_topic2.chunk_count = 3
+    
+    pipeline.db.get_all_topics_l2.return_value = [l2_topic]
+    pipeline.db.get_all_topics_l1.return_value = [l1_topic1, l1_topic2]
+    
+    pipeline.list_topics()
+    
+    captured = capsys.readouterr()
+    assert "L2 Topic Title" in captured.out
+    assert "L1 Topic 1" in captured.out
+    assert "L1 Topic 2" in captured.out
+    assert "5" in captured.out  # chunk_count
+    assert "3" in captured.out
+
+
+def test_list_topics_orphaned_l1(pipeline, capsys):
+    """Test list_topics with orphaned L1 topics (no parent L2)."""
+    from unittest.mock import MagicMock
+    
+    l1_topic = MagicMock()
+    l1_topic.id = 20
+    l1_topic.title = "Orphaned L1"
+    l1_topic.parent_l2_id = None
+    l1_topic.chunk_count = 7
+    
+    pipeline.db.get_all_topics_l2.return_value = []
+    pipeline.db.get_all_topics_l1.return_value = [l1_topic]
+    
+    pipeline.list_topics()
+    
+    captured = capsys.readouterr()
+    assert "Orphaned L1 Topics" in captured.out
+    assert "Orphaned L1" in captured.out
+    assert "7" in captured.out
+
+
+def test_list_topics_l1_only_no_l2(pipeline, capsys):
+    """Test list_topics when only L1 topics exist (no L2)."""
+    from unittest.mock import MagicMock
+    
+    l1_topic = MagicMock()
+    l1_topic.id = 30
+    l1_topic.title = "L1 Only Topic"
+    l1_topic.chunk_count = 10
+    
+    pipeline.db.get_all_topics_l2.return_value = []
+    pipeline.db.get_all_topics_l1.return_value = [l1_topic]
+    
+    pipeline.list_topics()
+    
+    captured = capsys.readouterr()
+    assert "L1 Only Topic" in captured.out
+    assert "10" in captured.out
+
+
+def test_list_topics_error_handling(pipeline, capsys):
+    """Test list_topics error handling."""
+    pipeline.db.get_all_topics_l2.side_effect = Exception("DB Error")
+    
+    pipeline.list_topics()
+    
+    captured = capsys.readouterr()
+    assert "Error listing topics" in captured.out or "DB Error" in captured.out
+
+
+def test_show_topic_l2(pipeline, capsys):
+    """Test show_topic for L2 topic."""
+    from unittest.mock import MagicMock
+    
+    l2_topic = MagicMock()
+    l2_topic.id = 1
+    l2_topic.title = "L2 Super Topic"
+    l2_topic.descr = "L2 Description"
+    l2_topic.chunk_count = 15
+    
+    l1_subtopic1 = MagicMock()
+    l1_subtopic1.id = 10
+    l1_subtopic1.title = "L1 Subtopic 1"
+    l1_subtopic1.chunk_count = 8
+    
+    l1_subtopic2 = MagicMock()
+    l1_subtopic2.id = 11
+    l1_subtopic2.title = "L1 Subtopic 2"
+    l1_subtopic2.chunk_count = 7
+    
+    pipeline.db.get_all_topics_l2.return_value = [l2_topic]
+    pipeline.db.get_all_topics_l1.return_value = []
+    pipeline.db.get_l1_topics_by_l2.return_value = [l1_subtopic1, l1_subtopic2]
+    
+    pipeline.show_topic(1)
+    
+    captured = capsys.readouterr()
+    assert "Super-Topic L2-1" in captured.out
+    assert "L2 Super Topic" in captured.out
+    assert "L2 Description" in captured.out
+    assert "15" in captured.out
+    assert "L1 Subtopic 1" in captured.out
+    assert "L1 Subtopic 2" in captured.out
+
+
+def test_show_topic_l1(pipeline, capsys):
+    """Test show_topic for L1 topic."""
+    from unittest.mock import MagicMock
+    from datetime import datetime
+    
+    l1_topic = MagicMock()
+    l1_topic.id = 20
+    l1_topic.title = "L1 Topic"
+    l1_topic.descr = "L1 Description"
+    l1_topic.parent_l2_id = 1
+    l1_topic.chunk_count = 5
+    l1_topic.msg_count = 10
+    l1_topic.ts_from = datetime(2025, 1, 1, 10, 0, 0)
+    l1_topic.ts_to = datetime(2025, 1, 1, 12, 0, 0)
+    
+    chunk1 = MagicMock()
+    chunk1.text = "Sample chunk text 1"
+    chunk2 = MagicMock()
+    chunk2.text = "Sample chunk text 2"
+    
+    pipeline.db.get_all_topics_l2.return_value = []
+    pipeline.db.get_all_topics_l1.return_value = [l1_topic]
+    pipeline.db.get_chunks_by_topic_l1.return_value = [chunk1, chunk2]
+    
+    pipeline.show_topic(20)
+    
+    captured = capsys.readouterr()
+    assert "Topic L1-20" in captured.out
+    assert "L1 Topic" in captured.out
+    assert "L1 Description" in captured.out
+    assert "5" in captured.out  # chunk_count
+    assert "10" in captured.out  # msg_count
+    assert "Sample chunk text" in captured.out
+
+
+def test_show_topic_not_found(pipeline, capsys):
+    """Test show_topic for non-existent topic."""
+    pipeline.db.get_all_topics_l2.return_value = []
+    pipeline.db.get_all_topics_l1.return_value = []
+    
+    pipeline.show_topic(999)
+    
+    captured = capsys.readouterr()
+    assert "not found" in captured.out.lower()
+
+
+def test_show_topic_error_handling(pipeline, capsys):
+    """Test show_topic error handling."""
+    pipeline.db.get_all_topics_l2.side_effect = Exception("DB Error")
+    
+    pipeline.show_topic(1)
+    
+    captured = capsys.readouterr()
+    assert "Error" in captured.out
+
+
+def test_run_stage4_with_stage3_assignments(pipeline, mock_dependencies):
+    """Test run_stage4 with in-memory assignments from stage3."""
+    from unittest.mock import MagicMock, patch
+    
+    # Setup stage3 assignments
+    pipeline._stage3_assignments = {
+        1: ["chunk1", "chunk2"],
+        2: ["chunk3"]
+    }
+    
+    # Mock TopicClusterer
+    mock_clusterer = MagicMock()
+    mock_clusterer.assign_l1_topics_to_chunks = MagicMock()
+    mock_clusterer.name_topics = MagicMock()
+    
+    with patch('src.ingestion.pipeline.TopicClusterer', return_value=mock_clusterer):
+        with patch.object(pipeline, '_get_llm_client', return_value=MagicMock()):
+            pipeline.run_stage4()
+    
+    # Verify assignments were used
+    assert mock_clusterer._l1_topic_assignments == pipeline._stage3_assignments
+    mock_clusterer.assign_l1_topics_to_chunks.assert_called_once()
+    mock_clusterer.name_topics.assert_called_once()
+    
+    # Verify assignments were cleared
+    assert not hasattr(pipeline, '_stage3_assignments')
+
+
+def test_run_stage4_restore_from_db(pipeline, mock_dependencies):
+    """Test run_stage4 restoring assignments from database."""
+    from unittest.mock import MagicMock, patch
+    import json
+    import numpy as np
+    
+    # Mock L1 topics with centroids
+    l1_topic1 = MagicMock()
+    l1_topic1.id = 1
+    l1_topic1.center_vec = json.dumps([0.1, 0.2, 0.3])
+    
+    l1_topic2 = MagicMock()
+    l1_topic2.id = 2
+    l1_topic2.center_vec = json.dumps([0.4, 0.5, 0.6])
+    
+    pipeline.db.get_all_topics_l1.return_value = [l1_topic1, l1_topic2]
+    
+    # Mock session - chunks not assigned
+    mock_session = MagicMock()
+    mock_query = MagicMock()
+    mock_filter = MagicMock()
+    mock_filter.count.return_value = 0  # No chunks with topics
+    mock_query.filter.return_value = mock_filter
+    mock_session.query.return_value = mock_query
+    pipeline.db.get_session.return_value = mock_session
+    
+    # Mock vector store embeddings
+    pipeline.vector_store.get_all_embeddings.return_value = {
+        'ids': ['chunk1', 'chunk2'],
+        'embeddings': [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]],
+        'metadatas': [None, None]
+    }
+    
+    # Mock TopicClusterer
+    mock_clusterer = MagicMock()
+    mock_clusterer.assign_l1_topics_to_chunks = MagicMock()
+    mock_clusterer.name_topics = MagicMock()
+    
+    with patch('src.ingestion.pipeline.TopicClusterer', return_value=mock_clusterer):
+        with patch.object(pipeline, '_get_llm_client', return_value=MagicMock()):
+            with patch('src.ingestion.pipeline.tqdm', side_effect=ImportError):  # Skip tqdm
+                pipeline.run_stage4()
+    
+    # Verify clusterer was called
+    mock_clusterer.assign_l1_topics_to_chunks.assert_called_once()
+    mock_clusterer.name_topics.assert_called_once()
+    assert mock_clusterer._l1_topic_assignments is not None
+
+
+def test_run_stage4_chunks_already_assigned(pipeline, mock_dependencies):
+    """Test run_stage4 when chunks already have topic_l1_id."""
+    from unittest.mock import MagicMock, patch
+    
+    # Mock L1 topics
+    l1_topic = MagicMock()
+    l1_topic.id = 1
+    pipeline.db.get_all_topics_l1.return_value = [l1_topic]
+    
+    # Mock session - chunks already assigned
+    mock_session = MagicMock()
+    mock_query = MagicMock()
+    mock_filter = MagicMock()
+    mock_filter.count.return_value = 5  # Chunks already have topics
+    mock_query.filter.return_value = mock_filter
+    mock_session.query.return_value = mock_query
+    pipeline.db.get_session.return_value = mock_session
+    
+    # Mock TopicClusterer
+    mock_clusterer = MagicMock()
+    mock_clusterer.name_topics = MagicMock()
+    
+    with patch('src.ingestion.pipeline.TopicClusterer', return_value=mock_clusterer):
+        with patch.object(pipeline, '_get_llm_client', return_value=MagicMock()):
+            pipeline.run_stage4()
+    
+    # Verify assignment step was skipped but naming was called
+    assert not hasattr(mock_clusterer, '_l1_topic_assignments') or mock_clusterer._l1_topic_assignments is None
+    mock_clusterer.name_topics.assert_called_once()
+
+
+def test_run_stage4_no_topics_error(pipeline, mock_dependencies):
+    """Test run_stage4 raises error when no topics_l1 found."""
+    pipeline.db.get_all_topics_l1.return_value = []
+    
+    with pytest.raises(ValueError, match="stage4 requires stage3"):
+        pipeline.run_stage4()
+
+
+def test_run_stage4_no_centroids_error(pipeline, mock_dependencies):
+    """Test run_stage4 raises error when no topic centroids found."""
+    from unittest.mock import MagicMock
+    
+    # Mock L1 topics without centroids
+    l1_topic = MagicMock()
+    l1_topic.id = 1
+    l1_topic.center_vec = None
+    pipeline.db.get_all_topics_l1.return_value = [l1_topic]
+    
+    # Mock session - chunks not assigned
+    mock_session = MagicMock()
+    mock_query = MagicMock()
+    mock_filter = MagicMock()
+    mock_filter.count.return_value = 0
+    mock_query.filter.return_value = mock_filter
+    mock_session.query.return_value = mock_query
+    pipeline.db.get_session.return_value = mock_session
+    
+    with pytest.raises(ValueError, match="no topic centroids"):
+        pipeline.run_stage4()
+
+
+def test_run_stage4_no_embeddings_error(pipeline, mock_dependencies):
+    """Test run_stage4 raises error when no chunks with embeddings found."""
+    from unittest.mock import MagicMock
+    import json
+    
+    # Mock L1 topics with centroids
+    l1_topic = MagicMock()
+    l1_topic.id = 1
+    l1_topic.center_vec = json.dumps([0.1, 0.2, 0.3])
+    pipeline.db.get_all_topics_l1.return_value = [l1_topic]
+    
+    # Mock session - chunks not assigned
+    mock_session = MagicMock()
+    mock_query = MagicMock()
+    mock_filter = MagicMock()
+    mock_filter.count.return_value = 0
+    mock_query.filter.return_value = mock_filter
+    mock_session.query.return_value = mock_query
+    pipeline.db.get_session.return_value = mock_session
+    
+    # Mock vector store - no embeddings
+    pipeline.vector_store.get_all_embeddings.return_value = None
+    
+    with pytest.raises(ValueError, match="no chunks with embeddings"):
+        pipeline.run_stage4()
+

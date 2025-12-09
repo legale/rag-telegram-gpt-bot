@@ -33,7 +33,7 @@ except ImportError as e:
         sys.exit(1)
 
 from dotenv import load_dotenv
-from src.core.syslog2 import syslog2, setup_log, LogLevel, LOG_DEBUG, LOG_INFO, LOG_WARNING, LOG_ERR, LOG_CRIT, LOG_ALERT, LOG_NOTICE
+from src.core.syslog2 import *
 from src.core.cli_parser import ArgStream, parse_int_option, parse_flag, parse_option, CLIError
 
 def main():

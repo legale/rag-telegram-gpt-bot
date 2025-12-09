@@ -610,3 +610,249 @@ def test_name_topics_with_progress_callback(test_db, mock_vector_store):
     
     # Progress callback should have been called
     assert len(progress_calls) > 0
+
+
+def test_name_l2_topic_success(test_db, mock_vector_store):
+    """Test successful naming of L2 topic."""
+    import json
+    import numpy as np
+    from unittest.mock import MagicMock, patch
+    
+    # Create mock L2 topic
+    l2_topic = MagicMock()
+    l2_topic.id = 1
+    l2_topic.center_vec = json.dumps([0.1, 0.2, 0.3])
+    
+    # Create mock L1 subtopics
+    l1_topic1 = MagicMock()
+    l1_topic1.id = 10
+    l1_topic1.center_vec = json.dumps([0.1, 0.2, 0.3])
+    
+    l1_topic2 = MagicMock()
+    l1_topic2.id = 11
+    l1_topic2.center_vec = json.dumps([0.4, 0.5, 0.6])
+    
+    # Create mock chunks
+    chunk1 = MagicMock()
+    chunk1.id = "chunk1"
+    chunk1.text = "Sample chunk text 1" * 10  # Long text
+    
+    chunk2 = MagicMock()
+    chunk2.id = "chunk2"
+    chunk2.text = "Sample chunk text 2" * 10
+    
+    # Setup mocks
+    test_db.get_l1_topics_by_l2.return_value = [l1_topic1, l1_topic2]
+    test_db.get_chunks_by_topic_l1.return_value = [chunk1, chunk2]
+    test_db.update_topic_l2_info = MagicMock()
+    
+    # Mock embeddings
+    mock_embeddings = {
+        "chunk1": np.array([0.1, 0.2, 0.3]),
+        "chunk2": np.array([0.4, 0.5, 0.6])
+    }
+    
+    # Mock LLM response
+    mock_llm = MagicMock()
+    mock_llm_response = MagicMock()
+    mock_llm_response.text = '{"title": "Test L2 Topic", "description": "Test description"}'
+    mock_llm.complete.return_value = mock_llm_response.text
+    
+    clusterer = TopicClusterer(test_db, mock_vector_store, mock_llm)
+    
+    # Mock _get_chunk_embeddings
+    with patch.object(clusterer, '_get_chunk_embeddings', return_value=mock_embeddings):
+        with patch.object(clusterer, '_call_llm_json', return_value={"title": "Test L2 Topic", "description": "Test description"}):
+            clusterer._name_l2_topic(l2_topic)
+    
+    # Verify update was called
+    test_db.update_topic_l2_info.assert_called_once()
+    call_args = test_db.update_topic_l2_info.call_args
+    assert call_args[0][0] == 1  # topic.id
+    assert call_args[0][1] == "Test L2 Topic"
+    assert call_args[0][2] == "Test description"
+
+
+def test_name_l2_topic_no_center_vec(test_db, mock_vector_store):
+    """Test _name_l2_topic with topic without center_vec."""
+    from unittest.mock import MagicMock
+    
+    l2_topic = MagicMock()
+    l2_topic.id = 1
+    l2_topic.center_vec = None
+    
+    mock_llm = MagicMock()
+    clusterer = TopicClusterer(test_db, mock_vector_store, mock_llm)
+    
+    clusterer._name_l2_topic(l2_topic)
+    
+    # Should return early, no DB update
+    test_db.update_topic_l2_info.assert_not_called()
+
+
+def test_name_l2_topic_invalid_center_vec(test_db, mock_vector_store):
+    """Test _name_l2_topic with invalid center_vec JSON."""
+    from unittest.mock import MagicMock, patch
+    
+    l2_topic = MagicMock()
+    l2_topic.id = 1
+    l2_topic.center_vec = "invalid json {"
+    
+    mock_llm = MagicMock()
+    clusterer = TopicClusterer(test_db, mock_vector_store, mock_llm)
+    
+    with patch('src.ai.clustering.syslog2'):
+        clusterer._name_l2_topic(l2_topic)
+    
+    # Should return early, no DB update
+    test_db.update_topic_l2_info.assert_not_called()
+
+
+def test_name_l2_topic_no_subtopics(test_db, mock_vector_store):
+    """Test _name_l2_topic with no L1 subtopics."""
+    import json
+    from unittest.mock import MagicMock
+    
+    l2_topic = MagicMock()
+    l2_topic.id = 1
+    l2_topic.center_vec = json.dumps([0.1, 0.2, 0.3])
+    
+    test_db.get_l1_topics_by_l2.return_value = []
+    
+    mock_llm = MagicMock()
+    clusterer = TopicClusterer(test_db, mock_vector_store, mock_llm)
+    
+    clusterer._name_l2_topic(l2_topic)
+    
+    # Should return early, no DB update
+    test_db.update_topic_l2_info.assert_not_called()
+
+
+def test_name_l2_topic_no_valid_l1_centers(test_db, mock_vector_store):
+    """Test _name_l2_topic with L1 topics but no valid centers."""
+    import json
+    from unittest.mock import MagicMock, patch
+    
+    l2_topic = MagicMock()
+    l2_topic.id = 1
+    l2_topic.center_vec = json.dumps([0.1, 0.2, 0.3])
+    
+    # L1 topics without center_vec
+    l1_topic = MagicMock()
+    l1_topic.id = 10
+    l1_topic.center_vec = None
+    
+    test_db.get_l1_topics_by_l2.return_value = [l1_topic]
+    
+    mock_llm = MagicMock()
+    clusterer = TopicClusterer(test_db, mock_vector_store, mock_llm)
+    
+    with patch('src.ai.clustering.syslog2'):
+        clusterer._name_l2_topic(l2_topic)
+    
+    # Should return early, no DB update
+    test_db.update_topic_l2_info.assert_not_called()
+
+
+def test_name_l2_topic_no_chunks_selected(test_db, mock_vector_store):
+    """Test _name_l2_topic when no chunks are selected."""
+    import json
+    import numpy as np
+    from unittest.mock import MagicMock, patch
+    
+    l2_topic = MagicMock()
+    l2_topic.id = 1
+    l2_topic.center_vec = json.dumps([0.1, 0.2, 0.3])
+    
+    l1_topic = MagicMock()
+    l1_topic.id = 10
+    l1_topic.center_vec = json.dumps([0.1, 0.2, 0.3])
+    
+    test_db.get_l1_topics_by_l2.return_value = [l1_topic]
+    test_db.get_chunks_by_topic_l1.return_value = []  # No chunks
+    
+    mock_llm = MagicMock()
+    clusterer = TopicClusterer(test_db, mock_vector_store, mock_llm)
+    
+    with patch('src.ai.clustering.syslog2'):
+        clusterer._name_l2_topic(l2_topic)
+    
+    # Should return early, no DB update
+    test_db.update_topic_l2_info.assert_not_called()
+
+
+def test_name_l2_topic_llm_failure(test_db, mock_vector_store):
+    """Test _name_l2_topic when LLM call fails."""
+    import json
+    import numpy as np
+    from unittest.mock import MagicMock, patch
+    
+    l2_topic = MagicMock()
+    l2_topic.id = 1
+    l2_topic.center_vec = json.dumps([0.1, 0.2, 0.3])
+    
+    l1_topic = MagicMock()
+    l1_topic.id = 10
+    l1_topic.center_vec = json.dumps([0.1, 0.2, 0.3])
+    
+    chunk = MagicMock()
+    chunk.id = "chunk1"
+    chunk.text = "Sample text"
+    
+    test_db.get_l1_topics_by_l2.return_value = [l1_topic]
+    test_db.get_chunks_by_topic_l1.return_value = [chunk]
+    test_db.update_topic_l2_info = MagicMock()
+    
+    mock_embeddings = {"chunk1": np.array([0.1, 0.2, 0.3])}
+    
+    mock_llm = MagicMock()
+    clusterer = TopicClusterer(test_db, mock_vector_store, mock_llm)
+    
+    with patch.object(clusterer, '_get_chunk_embeddings', return_value=mock_embeddings):
+        with patch.object(clusterer, '_call_llm_json', return_value=None):  # LLM fails
+            with patch('src.ai.clustering.syslog2'):
+                clusterer._name_l2_topic(l2_topic)
+    
+    # Should update with "unknown"
+    test_db.update_topic_l2_info.assert_called_once()
+    call_args = test_db.update_topic_l2_info.call_args
+    assert call_args[0][1] == "unknown"
+
+
+def test_name_l2_topic_llm_exception(test_db, mock_vector_store):
+    """Test _name_l2_topic when LLM raises exception."""
+    import json
+    import numpy as np
+    from unittest.mock import MagicMock, patch
+    
+    l2_topic = MagicMock()
+    l2_topic.id = 1
+    l2_topic.center_vec = json.dumps([0.1, 0.2, 0.3])
+    
+    l1_topic = MagicMock()
+    l1_topic.id = 10
+    l1_topic.center_vec = json.dumps([0.1, 0.2, 0.3])
+    
+    chunk = MagicMock()
+    chunk.id = "chunk1"
+    chunk.text = "Sample text"
+    
+    test_db.get_l1_topics_by_l2.return_value = [l1_topic]
+    test_db.get_chunks_by_topic_l1.return_value = [chunk]
+    test_db.update_topic_l2_info = MagicMock()
+    
+    mock_embeddings = {"chunk1": np.array([0.1, 0.2, 0.3])}
+    
+    mock_llm = MagicMock()
+    clusterer = TopicClusterer(test_db, mock_vector_store, mock_llm)
+    
+    with patch.object(clusterer, '_get_chunk_embeddings', return_value=mock_embeddings):
+        with patch.object(clusterer, '_call_llm_json', side_effect=Exception("LLM Error")):
+            with patch('src.ai.clustering.syslog2'):
+                clusterer._name_l2_topic(l2_topic)
+    
+    # Should update with "unknown" and error message
+    test_db.update_topic_l2_info.assert_called_once()
+    call_args = test_db.update_topic_l2_info.call_args
+    assert call_args[0][1] == "unknown"
+    assert "Error:" in call_args[0][2]

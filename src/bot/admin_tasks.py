@@ -6,7 +6,7 @@ Handles long-running operations like data ingestion.
 import asyncio
 import logging
 from pathlib import Path
-from src.core.syslog2 import syslog2, LOG_INFO, LOG_WARNING, LOG_ERR, LOG_NOTICE
+from src.core.syslog2 import *
 from typing import Optional, Callable
 from telegram import Bot
 

@@ -17,7 +17,7 @@ from src.bot.utils import (
     CommandValidator,
     HealthChecker,
 )
-from src.core.syslog2 import syslog2, LOG_INFO, LOG_WARNING, LOG_ERR, LOG_NOTICE
+from src.core.syslog2 import *
 
 logger = logging.getLogger("legale_admin_commands")
 

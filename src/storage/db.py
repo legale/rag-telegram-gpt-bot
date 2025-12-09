@@ -332,6 +332,69 @@ class Database:
         finally:
             session.close()
 
+    def get_message_by_id(self, msg_id: str) -> Optional[MessageModel]:
+        """
+        Get a message by its ID.
+        
+        Args:
+            msg_id: Message ID (can be composite format "{chat_id}_{msg_id}")
+            
+        Returns:
+            MessageModel instance or None if not found
+        """
+        session = self.get_session()
+        try:
+            return session.query(MessageModel).filter(MessageModel.msg_id == msg_id).first()
+        finally:
+            session.close()
+
+    def get_messages_by_chunk(self, chunk_id: str) -> List[MessageModel]:
+        """
+        Get all messages included in a chunk.
+        
+        Args:
+            chunk_id: Chunk ID
+            
+        Returns:
+            List of MessageModel instances, ordered by timestamp
+        """
+        session = self.get_session()
+        try:
+            chunk = session.query(ChunkModel).filter(ChunkModel.id == chunk_id).first()
+            if chunk is None or not chunk.msg_id_start:
+                return []
+            
+            # Get start message
+            start_msg = session.query(MessageModel).filter(
+                MessageModel.msg_id == chunk.msg_id_start
+            ).first()
+            
+            if not start_msg:
+                return []
+            
+            # If msg_id_end is specified, get messages in range
+            if chunk.msg_id_end:
+                end_msg = session.query(MessageModel).filter(
+                    MessageModel.msg_id == chunk.msg_id_end
+                ).first()
+                
+                if end_msg:
+                    # Get all messages between start and end (inclusive) by timestamp
+                    messages = session.query(MessageModel).filter(
+                        MessageModel.chat_id == chunk.chat_id,
+                        MessageModel.ts >= start_msg.ts,
+                        MessageModel.ts <= end_msg.ts
+                    ).order_by(MessageModel.ts).all()
+                    return messages
+                else:
+                    # End message not found, return just start message
+                    return [start_msg]
+            else:
+                # Only start message specified
+                return [start_msg]
+        finally:
+            session.close()
+
     # ========================================================================
     # Message Methods
     # ========================================================================
@@ -592,7 +655,6 @@ class Database:
                     )
                 except Exception as e:
                     # Log error but don't fail the transaction
-                    from src.core.syslog2 import syslog2, LOG_WARNING
                     syslog2(LOG_WARNING, "failed to save l2 topic to chroma_db", topic_id=topic_id, error=str(e))
             
             return topic_id
@@ -703,7 +765,6 @@ class Database:
                         )
                     except Exception as e:
                         # Log error but don't fail the transaction
-                        from src.core.syslog2 import syslog2, LOG_WARNING
                         syslog2(LOG_WARNING, "failed to update l2 topic metadata in chroma_db", topic_id=topic_l2_id, error=str(e))
         except Exception as e:
             session.rollback()

@@ -399,3 +399,264 @@ class TestIngestCommands:
         # User not in dict
         res = await ingest.handle_file_upload(update, context, admin_manager)
         assert res is None
+
+
+class TestProfileCommands:
+    @pytest.mark.asyncio
+    async def test_profile_info_active_profile(self, mock_context, tmp_path):
+        """Test profile_info for active profile with all resources."""
+        from pathlib import Path
+        update, context, admin_manager, pm = mock_context
+        
+        # Setup profile manager
+        pm.get_current_profile.return_value = "test_profile"
+        pm.get_profile_paths.return_value = {
+            'profile_dir': tmp_path / "test_profile",
+            'db_path': tmp_path / "test_profile" / "legale_bot.db",
+            'vector_db_path': tmp_path / "test_profile" / "vector_db",
+            'session_file': tmp_path / "test_profile" / "session.session"
+        }
+        pm.get_profile_dir.return_value = tmp_path / "test_profile"
+        
+        # Create profile directory and files
+        profile_dir = tmp_path / "test_profile"
+        profile_dir.mkdir()
+        (profile_dir / "legale_bot.db").write_bytes(b"test data")
+        (profile_dir / "session.session").write_bytes(b"session data")
+        (profile_dir / "admin.json").write_text('{"user_id": 1}')
+        
+        # Mock db_stats
+        db_stats = MagicMock()
+        db_stats.get_database_stats.return_value = {
+            'exists': True,
+            'size_mb': 0.001,
+            'chunk_count': 100
+        }
+        db_stats.get_vector_store_stats.return_value = {
+            'exists': True,
+            'size_mb': 0.002
+        }
+        
+        # Mock formatter
+        formatter = MagicMock()
+        formatter.format_number.return_value = "100"
+        
+        # Mock validator
+        validator = MagicMock()
+        validator.validate_profile_exists.return_value = (True, None)
+        
+        profile_cmd = ProfileCommands(pm)
+        profile_cmd.db_stats = db_stats
+        profile_cmd.formatter = formatter
+        profile_cmd.validator = validator
+        
+        result = await profile_cmd.profile_info(update, context, admin_manager, ["test_profile"])
+        
+        assert "Информация о профиле" in result
+        assert "test_profile" in result
+        assert "Активный" in result
+        assert "База данных" in result
+        assert "Векторное хранилище" in result
+        assert "Создана" in result or "Создано" in result
+
+
+    @pytest.mark.asyncio
+    async def test_profile_info_inactive_profile(self, mock_context, tmp_path):
+        """Test profile_info for inactive profile."""
+        from pathlib import Path
+        update, context, admin_manager, pm = mock_context
+        
+        pm.get_current_profile.return_value = "other_profile"
+        pm.get_profile_paths.return_value = {
+            'profile_dir': tmp_path / "test_profile",
+            'db_path': tmp_path / "test_profile" / "legale_bot.db",
+            'vector_db_path': tmp_path / "test_profile" / "vector_db",
+            'session_file': tmp_path / "test_profile" / "session.session"
+        }
+        pm.get_profile_dir.return_value = tmp_path / "test_profile"
+        
+        profile_dir = tmp_path / "test_profile"
+        profile_dir.mkdir()
+        
+        db_stats = MagicMock()
+        db_stats.get_database_stats.return_value = {'exists': False}
+        db_stats.get_vector_store_stats.return_value = {'exists': False}
+        
+        formatter = MagicMock()
+        validator = MagicMock()
+        validator.validate_profile_exists.return_value = (True, None)
+        
+        profile_cmd = ProfileCommands(pm)
+        profile_cmd.db_stats = db_stats
+        profile_cmd.formatter = formatter
+        profile_cmd.validator = validator
+        
+        result = await profile_cmd.profile_info(update, context, admin_manager, ["test_profile"])
+        
+        assert "Неактивный" in result
+        assert "Не создана" in result
+
+
+    @pytest.mark.asyncio
+    async def test_profile_info_not_found(self, mock_context):
+        """Test profile_info for non-existent profile."""
+        update, context, admin_manager, pm = mock_context
+        
+        validator = MagicMock()
+        validator.validate_profile_exists.return_value = (False, "Profile not found")
+        
+        profile_cmd = ProfileCommands(pm)
+        profile_cmd.validator = validator
+        
+        result = await profile_cmd.profile_info(update, context, admin_manager, ["nonexistent"])
+        
+        assert "Profile not found" in result
+
+
+class TestStatsCommands:
+    @pytest.mark.asyncio
+    async def test_show_logs_success(self, mock_context, tmp_path):
+        """Test show_logs reading log file successfully."""
+        from pathlib import Path
+        update, context, admin_manager, pm = mock_context
+        
+        # Create log file
+        profile_dir = tmp_path / "test_profile"
+        profile_dir.mkdir()
+        log_file = profile_dir / "bot.log"
+        log_lines = [f"Log line {i}\n" for i in range(100)]
+        log_file.write_text("".join(log_lines))
+        
+        # Setup profile manager
+        def get_profile_paths():
+            return {
+                'profile_dir': profile_dir
+            }
+        
+        formatter = MagicMock()
+        formatter.format_info_message.return_value = "Info message"
+        
+        validator = MagicMock()
+        validator.validate_log_lines.return_value = (True, 50, None)
+        
+        stats_cmd = StatsCommands(pm)
+        stats_cmd.get_profile_paths = get_profile_paths
+        stats_cmd.formatter = formatter
+        stats_cmd.validator = validator
+        
+        result = await stats_cmd.show_logs(update, context, admin_manager, ["50"])
+        
+        assert "Последние" in result
+        assert "50" in result
+        assert "Log line" in result
+        assert "```" in result  # Code block format
+
+
+    @pytest.mark.asyncio
+    async def test_show_logs_file_not_found(self, mock_context, tmp_path):
+        """Test show_logs when log file doesn't exist."""
+        from pathlib import Path
+        update, context, admin_manager, pm = mock_context
+        
+        profile_dir = tmp_path / "test_profile"
+        profile_dir.mkdir()
+        # No log file created
+        
+        def get_profile_paths():
+            return {
+                'profile_dir': profile_dir
+            }
+        
+        formatter = MagicMock()
+        formatter.format_info_message.return_value = "Log file not found"
+        
+        stats_cmd = StatsCommands(pm)
+        stats_cmd.get_profile_paths = get_profile_paths
+        stats_cmd.formatter = formatter
+        
+        result = await stats_cmd.show_logs(update, context, admin_manager, [])
+        
+        assert "не найден" in result.lower() or "Log file not found" in result
+
+
+    @pytest.mark.asyncio
+    async def test_show_logs_default_lines(self, mock_context, tmp_path):
+        """Test show_logs with default number of lines."""
+        from pathlib import Path
+        update, context, admin_manager, pm = mock_context
+        
+        profile_dir = tmp_path / "test_profile"
+        profile_dir.mkdir()
+        log_file = profile_dir / "bot.log"
+        log_lines = [f"Log line {i}\n" for i in range(100)]
+        log_file.write_text("".join(log_lines))
+        
+        def get_profile_paths():
+            return {
+                'profile_dir': profile_dir
+            }
+        
+        formatter = MagicMock()
+        validator = MagicMock()
+        validator.validate_log_lines.return_value = (True, 50, None)  # Default
+        
+        stats_cmd = StatsCommands(pm)
+        stats_cmd.get_profile_paths = get_profile_paths
+        stats_cmd.formatter = formatter
+        stats_cmd.validator = validator
+        
+        result = await stats_cmd.show_logs(update, context, admin_manager, [])
+        
+        assert "Последние" in result
+        assert "50" in result
+
+
+    @pytest.mark.asyncio
+    async def test_show_logs_truncate_long(self, mock_context, tmp_path):
+        """Test show_logs truncating very long log output."""
+        from pathlib import Path
+        update, context, admin_manager, pm = mock_context
+        
+        profile_dir = tmp_path / "test_profile"
+        profile_dir.mkdir()
+        log_file = profile_dir / "bot.log"
+        # Create very long log lines
+        long_line = "A" * 200 + "\n"
+        log_lines = [long_line] * 100
+        log_file.write_text("".join(log_lines))
+        
+        def get_profile_paths():
+            return {
+                'profile_dir': profile_dir
+            }
+        
+        formatter = MagicMock()
+        validator = MagicMock()
+        validator.validate_log_lines.return_value = (True, 100, None)
+        
+        stats_cmd = StatsCommands(pm)
+        stats_cmd.get_profile_paths = get_profile_paths
+        stats_cmd.formatter = formatter
+        stats_cmd.validator = validator
+        
+        result = await stats_cmd.show_logs(update, context, admin_manager, ["100"])
+        
+        # Should be truncated if too long
+        if len(result) > 4000:
+            assert "обрезаны" in result.lower() or "..." in result
+
+
+    @pytest.mark.asyncio
+    async def test_show_logs_invalid_lines(self, mock_context):
+        """Test show_logs with invalid lines parameter."""
+        update, context, admin_manager, pm = mock_context
+        
+        validator = MagicMock()
+        validator.validate_log_lines.return_value = (False, None, "Invalid lines parameter")
+        
+        stats_cmd = StatsCommands(pm)
+        stats_cmd.validator = validator
+        
+        result = await stats_cmd.show_logs(update, context, admin_manager, ["invalid"])
+        
+        assert "Invalid" in result or "ошибка" in result.lower()

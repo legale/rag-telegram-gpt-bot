@@ -206,7 +206,7 @@ class MessageHandler:
             syslog2(LOG_ERR, "admin command failed", error=str(e))
             return f"Ошибка при выполнении админ-команды: {e}"
     
-    async def handle_find_command(self, text: str) -> str:
+    async def handle_find_command(self, text: str, update: Update) -> Optional[str]:
         """Handle /find command."""
         try:
             # Extract search query from command text
@@ -222,20 +222,33 @@ class MessageHandler:
             # Get db and retrieval from bot instance
             db = self.bot.db
             retrieval = self.bot.retrieval
-            from src.core.message_search import search_message_links
+            from src.core.message_search import search_message_contents
             
-            # Search for message links
-            links = search_message_links(retrieval, db, search_query, top_k=3)
+            # Search for message contents
+            message_parts_list = search_message_contents(retrieval, db, search_query, top_k=3)
             
-            if not links:
+            if not message_parts_list:
                 return f'по запросу "{search_query}" ничего не найдено'
             
-            # Format response with links
-            lines = [f'найдено по запросу: "{search_query}"']
-            for idx, link in enumerate(links, start=1):
-                lines.append(f"{idx}. {link}")
-            
-            return "\n".join(lines)
+            # Send each message part as separate message
+            chat_id = update.message.chat_id
+            total_parts = 0
+            try:
+                for message_parts in message_parts_list:
+                    for part in message_parts:
+                        await telegram_app.bot.send_message(
+                            chat_id=chat_id,
+                            text=part["content"],
+                            parse_mode="HTML"
+                        )
+                        total_parts += 1
+                
+                syslog2(LOG_NOTICE, "find command response sent", chat_id=chat_id, query=search_query, messages=len(message_parts_list), parts=total_parts)
+                # Return None to indicate messages were sent directly
+                return None
+            except Exception as e:
+                syslog2(LOG_ERR, "failed to send find response", chat_id=chat_id, error=str(e))
+                return f"Ошибка при отправке результатов поиска: {e}"
         except Exception as e:
             syslog2(LOG_ERR, "find command failed", error=str(e))
             return f"Ошибка при выполнении поиска: {e}"
@@ -280,7 +293,7 @@ class MessageHandler:
             syslog2(LOG_ERR, "process user query failed", error=str(e))
             return f"Произошла ошибка при обработке вашего запроса. error={e}"
     
-    async def route_command(self, text: str, update: Update) -> str:
+    async def route_command(self, text: str, update: Update) -> Optional[str]:
         """Route command to appropriate handler."""
         message = update.message
         user_id = message.from_user.id
@@ -296,7 +309,7 @@ class MessageHandler:
         elif text.startswith("/model"):
             return await self.handle_model_command()
         elif text.startswith("/find"):
-            return await self.handle_find_command(text)
+            return await self.handle_find_command(text, update)
         elif text.startswith("/admin_set"):
             return await self.handle_admin_set_command(text, message)
         elif text.startswith("/admin_get"):
@@ -740,21 +753,33 @@ async def handle_message(update: Update):
     if is_search_command:
         db = bot_instance.db
         retrieval = bot_instance.retrieval
-        from src.core.message_search import search_message_links
+        from src.core.message_search import search_message_contents
         
-        links = search_message_links(retrieval, db, search_query, top_k=3)
+        message_parts_list = search_message_contents(retrieval, db, search_query, top_k=3)
         
-        if not links:
-            reply = f'по запросу "{search_query}" ничего не найдено'
-        else:
-            lines = [f'найдено по запросу: "{search_query}"']
-            for idx, link in enumerate(links, start=1):
-                lines.append(f"{idx}. {link}")
-            reply = "\n".join(lines)
+        if not message_parts_list:
+            try:
+                await telegram_app.bot.send_message(
+                    chat_id=chat_id,
+                    text=f'по запросу "{search_query}" ничего не найдено'
+                )
+            except Exception as e:
+                syslog2(LOG_ERR, "failed to send search response", chat_id=chat_id, error=str(e))
+            return
         
+        # Send each message part as separate message
+        total_parts = 0
         try:
-            await telegram_app.bot.send_message(chat_id=chat_id, text=reply)
-            syslog2(LOG_NOTICE, "search response sent", chat_id=chat_id, query=search_query, links=len(links))
+            for message_parts in message_parts_list:
+                for part in message_parts:
+                    await telegram_app.bot.send_message(
+                        chat_id=chat_id,
+                        text=part["content"],
+                        parse_mode="HTML"
+                    )
+                    total_parts += 1
+            
+            syslog2(LOG_NOTICE, "search response sent", chat_id=chat_id, query=search_query, messages=len(message_parts_list), parts=total_parts)
         except Exception as e:
             syslog2(LOG_ERR, "failed to send search response", chat_id=chat_id, error=str(e))
         return
