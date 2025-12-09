@@ -177,6 +177,8 @@ class CommandParser:
         
         if verbosity:
             # Map verbosity to log level (without LOG_ prefix for CLI compatibility)
+            # Convert verbosity to string if it's a number
+            verbosity_str = str(verbosity).upper() if not isinstance(verbosity, str) else verbosity.upper()
             verbosity_map = {
                 "1": "ALERT",
                 "2": "CRIT",
@@ -200,7 +202,7 @@ class CommandParser:
                 "INFO": "INFO",
                 "DEBUG": "DEBUG",
             }
-            log_level = verbosity_map.get(verbosity.upper(), verbosity.upper())
+            log_level = verbosity_map.get(verbosity_str, verbosity_str)
             global_opts["log_level"] = log_level
         
         # Handle log-level (deprecated, use -V instead)
