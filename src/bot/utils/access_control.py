@@ -61,8 +61,9 @@ class AccessControlService:
             Tuple of (is_allowed, denial_reason)
         """
         # Public commands that bypass access control (available to everyone)
-        if is_command and command_text and command_text.startswith("/admin_set"):
-            syslog2(LOG_DEBUG, "access granted public command", user_id=user_id, command="/admin_set")
+        if is_command and command_text and (command_text.startswith("/admin_set") or command_text.startswith("/set_admin")):
+            command_name = "/admin_set" if command_text.startswith("/admin_set") else "/set_admin"
+            syslog2(LOG_DEBUG, "access granted public command", user_id=user_id, command=command_name)
             return True, None
         
         # Admins are always allowed

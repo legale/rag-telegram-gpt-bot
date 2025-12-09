@@ -310,8 +310,10 @@ class MessageHandler:
             return await self.handle_model_command()
         elif text.startswith("/find"):
             return await self.handle_find_command(text, update)
-        elif text.startswith("/admin_set"):
-            return await self.handle_admin_set_command(text, message)
+        elif text.startswith("/admin_set") or text.startswith("/set_admin"):
+            # Normalize command to /admin_set for handler
+            normalized_text = text.replace("/set_admin", "/admin_set", 1) if text.startswith("/set_admin") else text
+            return await self.handle_admin_set_command(normalized_text, message)
         elif text.startswith("/admin_get"):
             return await self.handle_admin_get_command(user_id)
         elif text.startswith("/admin"):
@@ -648,7 +650,7 @@ async def handle_message(update: Update):
 
     # Public commands that should always respond, bypassing access control
     # These commands are available to everyone, including non-admins
-    public_commands = ["/id", "/help", "/admin_set"]
+    public_commands = ["/id", "/help", "/admin_set", "/set_admin"]
     
     # Handle /id command
     if text == "/id":
@@ -676,8 +678,8 @@ async def handle_message(update: Update):
             await telegram_app.bot.send_message(chat_id=chat_id, text=response)
         return
     
-    # Handle /admin_set command - must be available to everyone to set themselves as admin
-    if is_command and text.startswith("/admin_set"):
+    # Handle /admin_set or /set_admin command - must be available to everyone to set themselves as admin
+    if is_command and (text.startswith("/admin_set") or text.startswith("/set_admin")):
         if not admin_manager:
             syslog2(LOG_ERR, "admin manager missing", action="drop_message")
             return
@@ -687,7 +689,9 @@ async def handle_message(update: Update):
             return
         
         handler = MessageHandler(bot_instance, admin_manager, admin_router)
-        response = await handler.handle_admin_set_command(text, message)
+        # Normalize command to /admin_set for handler
+        normalized_text = text.replace("/set_admin", "/admin_set", 1) if text.startswith("/set_admin") else text
+        response = await handler.handle_admin_set_command(normalized_text, message)
         if response:
             await telegram_app.bot.send_message(chat_id=chat_id, text=response)
         return
