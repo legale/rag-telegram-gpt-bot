@@ -37,8 +37,8 @@ class BotConfig:
             "chunk_token_min": 50,
             "chunk_token_max": 1024,
             "chunk_overlap_ratio": 0.30,
-            "cosine_distance_thr": 1.5,
-            "rag_ntop": 0
+            "cosine_distance_thr": 4,
+            "rag_ntop": 20
         }
         
         if not self.config_file.exists():
