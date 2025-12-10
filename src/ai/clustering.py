@@ -118,8 +118,7 @@ class TopicClusterer:
                 metric=metric,
                 method=cluster_selection_method)
 
-        # 1. Fetch data from SQLite (chunks.embedding_json) - source of truth
-        # Fallback to vector_db if SQLite doesn't have embeddings yet
+        # 1. fetch data from sqlite (chunks.embedding_json) – source of truth
         session = self.db.get_session()
         try:
             from src.storage.db import ChunkModel
@@ -128,7 +127,6 @@ class TopicClusterer:
             ).all()
             
             if not chunks_with_embeddings:
-                # Fallback to vector_db if SQLite doesn't have embeddings
                 syslog2(LOG_DEBUG, "no embeddings in sqlite, trying vector_db")
                 data = self.vector_store.get_all_embeddings()
                 ids = data.get('ids', [])
@@ -139,7 +137,6 @@ class TopicClusterer:
                     syslog2(LOG_WARNING, "no data for clustering")
                     return
             else:
-                # Read from SQLite
                 ids = []
                 embeddings = []
                 metadatas = []
@@ -150,13 +147,12 @@ class TopicClusterer:
                         ids.append(chunk.id)
                         embeddings.append(embedding)
                         
-                        # Prepare metadata
                         meta_dict = {}
                         if chunk.metadata_json:
                             try:
                                 meta_dict = json.loads(chunk.metadata_json)
-                            except:
-                                pass
+                            except Exception as e:
+                                syslog2(LOG_DEBUG, "metadata_json parse failed", chunk_id=chunk.id, error=str(e))
                         if chunk.topic_l1_id is not None:
                             meta_dict["topic_l1_id"] = chunk.topic_l1_id
                         if chunk.topic_l2_id is not None:
@@ -178,7 +174,6 @@ class TopicClusterer:
 
         X = np.array(embeddings)
 
-        # Check dimensionality
         if len(X.shape) != 2:
             syslog2(LOG_ERR, "invalid embeddings shape", shape=str(X.shape))
             return
@@ -186,20 +181,16 @@ class TopicClusterer:
         n_samples = len(ids)
         syslog2(LOG_NOTICE, "clustering chunks", count=n_samples)
 
-        # Validate min_cluster_size (HDBSCAN requires >= 2)
         if min_cluster_size < 2:
-            syslog2(LOG_ERR, "min_cluster_size must be at least 2 (HDBSCAN requirement)",
+            syslog2(LOG_ERR, "min_cluster_size must be at least 2 (hdbscan requirement)",
                     provided=min_cluster_size)
             raise ValueError(f"min_cluster_size must be at least 2, got {min_cluster_size}")
 
-        # Auto-adjust min_cluster_size if too large for dataset
         if min_cluster_size > n_samples:
             syslog2(LOG_WARNING, "min_cluster_size too large, adjusting",
                     original=min_cluster_size, adjusted=n_samples)
             min_cluster_size = max(2, n_samples // 2)
 
-        # Normalize embeddings if using cosine metric
-        # HDBSCAN doesn't support cosine directly, but euclidean on normalized vectors is equivalent
         actual_metric = metric
         if metric == 'cosine':
             norms = np.linalg.norm(X, axis=1, keepdims=True)
@@ -208,7 +199,6 @@ class TopicClusterer:
             actual_metric = 'euclidean'
             syslog2(LOG_DEBUG, "normalized embeddings for cosine similarity, using euclidean metric")
 
-        # 2. Run HDBSCAN
         try:
             clusterer = hdbscan.HDBSCAN(
                 min_cluster_size=min_cluster_size,
@@ -221,16 +211,14 @@ class TopicClusterer:
         except (ValueError, KeyError) as e:
             error_msg = str(e)
             if "Min cluster size must be greater than one" in error_msg:
-                syslog2(LOG_ERR, "HDBSCAN requires min_cluster_size >= 2", provided=min_cluster_size)
+                syslog2(LOG_ERR, "hdbscan requires min_cluster_size >= 2", provided=min_cluster_size)
                 raise ValueError(f"min_cluster_size must be at least 2, got {min_cluster_size}") from None
             elif "metric" in error_msg.lower() or "unrecognized" in error_msg.lower():
-                raise ValueError(f"Metric '{actual_metric}' not supported by HDBSCAN: {error_msg}") from None
+                raise ValueError(f"metric '{actual_metric}' not supported by hdbscan: {error_msg}") from None
             else:
                 raise
 
-        # 3. Process clusters
         clusters: Dict[int, List[int]] = {}
-
         for idx, label in enumerate(labels):
             if label not in clusters:
                 clusters[label] = []
@@ -238,18 +226,18 @@ class TopicClusterer:
 
         noise_count = len(clusters.get(-1, []))
         valid_clusters = len(clusters) - (1 if -1 in clusters else 0)
-        noise_percentage = (noise_count / n_samples * 100) if n_samples > 0 else 0
+        noise_percentage = (noise_count / n_samples * 100) if n_samples > 0 else 0.0
 
         syslog2(LOG_NOTICE, "clustering complete",
                 clusters_found=valid_clusters,
                 noise_count=noise_count,
                 noise_percentage=f"{noise_percentage:.1f}%")
 
-        if noise_percentage > 50:
+        if noise_percentage > 50.0:
             syslog2(LOG_WARNING, "high noise percentage, consider lowering min_cluster_size or min_samples",
                     noise_percentage=f"{noise_percentage:.1f}%")
 
-        # 4. Save topics
+        # 4. save topics
         self.db.clear_topics_l1()
         self._l1_topic_assignments = {}
 
@@ -268,59 +256,59 @@ class TopicClusterer:
                     self._show_progress(processed, total_clusters, "Creating L1 topics")
                     continue
 
-            cluster_ids = [ids[i] for i in indices]
-            cluster_embeddings = X[indices]
-            cluster_metas = [metadatas[i] for i in indices]
+                # нормальный кластер
+                cluster_ids = [ids[i] for i in indices]
+                cluster_embeddings = X[indices]
+                cluster_metas = [metadatas[i] for i in indices]
 
-            centroid = np.mean(cluster_embeddings, axis=0).tolist()
-            chunk_count = len(cluster_ids)
+                centroid = np.mean(cluster_embeddings, axis=0).tolist()
+                chunk_count = len(cluster_ids)
 
-            total_msg_count = 0
-            ts_start_list = []
-            ts_end_list = []
+                total_msg_count = 0
+                ts_start_list = []
+                ts_end_list = []
 
-            for meta in cluster_metas:
-                if meta:
-                    total_msg_count += int(meta.get('message_count', 0))
-                    s_date = meta.get('start_date')
-                    e_date = meta.get('end_date')
-                    if s_date:
-                        ts_start_list.append(s_date)
-                    if e_date:
-                        ts_end_list.append(e_date)
+                for meta in cluster_metas:
+                    if meta:
+                        total_msg_count += int(meta.get('message_count', 0))
+                        s_date = meta.get('start_date')
+                        e_date = meta.get('end_date')
+                        if s_date:
+                            ts_start_list.append(s_date)
+                        if e_date:
+                            ts_end_list.append(e_date)
 
-            ts_from = None
-            ts_to = None
+                ts_from = None
+                ts_to = None
 
-            if ts_start_list:
-                try:
-                    ts_from = datetime.fromisoformat(min(ts_start_list))
-                except ValueError:
-                    pass
+                if ts_start_list:
+                    try:
+                        ts_from = datetime.fromisoformat(min(ts_start_list))
+                    except ValueError:
+                        pass
 
-            if ts_end_list:
-                try:
-                    ts_to = datetime.fromisoformat(max(ts_end_list))
-                except ValueError:
-                    pass
+                if ts_end_list:
+                    try:
+                        ts_to = datetime.fromisoformat(max(ts_end_list))
+                    except ValueError:
+                        pass
 
-            # Save topic to SQLite with center_vec_json (NOT to vector_db - that's stage5)
-            topic_id = self.db.create_topic_l1(
-                title="unknown",
-                descr="Pending description...",
-                chunk_count=chunk_count,
-                msg_count=total_msg_count,
-                center_vec=centroid,
-                ts_from=ts_from,
-                ts_to=ts_to,
-                vector_store=None  # Don't save to vector_db on stage4
-            )
+                topic_id = self.db.create_topic_l1(
+                    title="unknown",
+                    descr="Pending description...",
+                    chunk_count=chunk_count,
+                    msg_count=total_msg_count,
+                    center_vec=centroid,
+                    ts_from=ts_from,
+                    ts_to=ts_to,
+                    vector_store=None  # to vector_db in stage5
+                )
 
-            self._l1_topic_assignments[topic_id] = cluster_ids
-            processed += 1
-            self._show_progress(processed, total_clusters, "Creating L1 topics")
+                self._l1_topic_assignments[topic_id] = cluster_ids
+                processed += 1
+                self._show_progress(processed, total_clusters, "Creating L1 topics")
         finally:
-            print()  # Newline after progress
+            print()
 
         syslog2(LOG_NOTICE, "l1 topics created", count=valid_clusters)
 
