@@ -232,7 +232,7 @@ class TestCommandParser:
         assert cmd_name == "test"
         assert hasattr(args, 'log_level')
     
-    def test_parse_verbosity_option_missing_value(self):
+    def test_parse_log_level_option_missing_value(self):
         """Test -V without value raises error."""
         commands = [CommandSpec("test", lambda s: {})]
         parser = CommandParser(commands)

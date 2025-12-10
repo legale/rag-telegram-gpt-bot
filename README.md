@@ -120,7 +120,7 @@ legale ingest <file.json> --profile mybot
 # Start chat session
 legale chat
 
-# With verbosity levels
+# With log levels
 legale chat -v      # Basic info
 legale chat -vv     # Retrieval details
 legale chat -vvv    # Full LLM logs

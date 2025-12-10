@@ -450,9 +450,13 @@ class HelpCommands:
                 "Управление списком разрешенных чатов и пользователей.\n\n"
                 "**Команды:**\n"
                 "• `/admin allowed list` - показать разрешенные ID\n"
-                "• `/admin allowed lookup <name>` - поиск чатов по имени (подстрока)\n"
+                "• `/admin allowed lookup <chat_name_substring>` - поиск чатов по имени (подстрока)\n"
                 "• `/admin allowed add <id>` - добавить ID в белый список\n"
                 "• `/admin allowed remove <id>` - удалить ID из белого списка\n\n"
+                "**Примеры:**\n"
+                "`/admin allowed lookup название`\n"
+                "`/admin allowed add -1001234567890`\n"
+                "`/admin allowed remove -1001234567890`\n\n"
                 "**Логика:**\n"
                 "- Администраторы всегда имеют доступ (везде).\n"
                 "- Групповые чаты: Должны быть в списке allowed.\n"
@@ -942,9 +946,9 @@ class SettingsCommands(BaseAdminCommand):
 
     async def manage_chats(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
                           admin_manager, args: List[str]) -> str:
-        """Handle /admin chat commands."""
+        """Handle /admin allowed commands."""
         if not args:
-            return "Не указана подкоманда. Используйте: list, add, remove"
+            return "Не указана подкоманда. Используйте: list, add, remove, lookup"
             
         subcommand = args[0].lower()
         config = admin_manager.config
@@ -998,9 +1002,17 @@ class SettingsCommands(BaseAdminCommand):
             return self.formatter.format_success_message(
                 f"Чат `{chat_id}` удален из списка разрешенных."
             )
+        
+        elif subcommand == 'lookup':
+            # This should be handled by lookup_chats handler, but if it falls through,
+            # provide helpful error message
+            return (
+                "Команда `lookup` должна быть обработана специальным обработчиком.\n\n"
+                "Используйте: `/admin allowed lookup <chat_name_substring>`"
+            )
             
         else:
-            return f"Неизвестная команда: {subcommand}"
+            return f"Неизвестная подкоманда: {subcommand}\n\nИспользуйте /admin help allowed"
 
     async def manage_frequency(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
                              admin_manager, args: List[str]) -> str:
