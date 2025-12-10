@@ -1079,8 +1079,10 @@ class SettingsCommands(BaseAdminCommand):
             # Session file is in project root, not in profile directory
             session_name = str(paths['session_file'].with_suffix(''))  # Remove .session extension
             
+            # Run synchronous Telegram client code in thread executor to avoid event loop conflicts
+            import asyncio
             fetcher = TelegramFetcher(API_ID, API_HASH, session_name=session_name)
-            results = fetcher.search_chats_by_name(chat_name)
+            results = await asyncio.to_thread(fetcher.search_chats_by_name, chat_name)
             
             if not results:
                 return self.formatter.format_info_message(
