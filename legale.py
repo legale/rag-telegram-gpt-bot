@@ -206,7 +206,7 @@ class ProfileManager:
             'db_path': profile_dir / 'legale_bot.db',
             'db_url': f"sqlite:///{profile_dir / 'legale_bot.db'}",
             'vector_db_path': profile_dir / 'chroma_db',
-            'session_file': profile_dir / 'telegram_session.session',
+            'session_file': self.project_root / 'telegram_session.session',  # Shared session for all profiles
         }
 
 
@@ -243,7 +243,7 @@ def cmd_profile(args, profile_manager: ProfileManager):
         db_exists = 'exists' if paths['db_path'].exists() else 'not created'
         vec_exists = 'exists' if paths['vector_db_path'].exists() else 'not created'
         sess_exists = 'exists' if paths['session_file'].exists() else 'not created'
-        syslog2(LOG_NOTICE, "profile info", profile=profile_name, directory=str(paths['profile_dir']), database=str(paths['db_path']), db_status=db_exists, vector_db=str(paths['vector_db_path']), vec_status=vec_exists, session=str(paths['session_file']), sess_status=sess_exists)
+        syslog2(LOG_NOTICE, "profile info", profile=profile_name, directory=str(paths['profile_dir']), database=str(paths['db_path']), db_status=db_exists, vector_db=str(paths['vector_db_path']), vec_status=vec_exists, session=str(paths['session_file']), sess_status=sess_exists, note="session is shared for all profiles")
     
     elif args.profile_command == 'option':
         cmd_profile_option(args, profile_manager)
@@ -551,16 +551,17 @@ def cmd_telegram(args, profile_manager: ProfileManager):
         syslog2(LOG_ERR, "telegram_api_id must be an integer")
         sys.exit(1)
     
-    # Get profile-specific session file
+    # Get profile-specific paths (session file is shared for all profiles)
     profile_name = args.profile if args.profile else profile_manager.get_current_profile()
     paths = profile_manager.get_profile_paths(profile_name)
     
     # Ensure profile directory exists
     paths['profile_dir'].mkdir(parents=True, exist_ok=True)
     
+    # Session file is in project root, shared for all profiles
     session_name = str(paths['session_file'].with_suffix(''))  # Remove .session extension
     
-    syslog2(LOG_NOTICE, "using profile", profile=profile_name, session_file=str(paths['session_file']))
+    syslog2(LOG_NOTICE, "using profile", profile=profile_name, session_file=str(paths['session_file']), note="shared session for all profiles")
     
     fetcher = TelegramFetcher(API_ID, API_HASH, session_name=session_name)
     

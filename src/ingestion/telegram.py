@@ -66,6 +66,30 @@ class TelegramFetcher:
                 
         return None
 
+    def search_chats_by_name(self, name_substring: str):
+        """
+        Search for chats by name substring.
+        
+        Args:
+            name_substring: Substring to search in chat names (case-insensitive)
+            
+        Returns:
+            List of tuples (chat_id, chat_name) matching the substring
+        """
+        results = []
+        name_lower = name_substring.lower()
+        
+        syslog2(LOG_NOTICE, "searching chats by name", substring=name_substring)
+        
+        with self.client:
+            for dialog in self.client.iter_dialogs():
+                if dialog.name and name_lower in dialog.name.lower():
+                    # Use absolute value for negative IDs (groups/channels)
+                    chat_id = abs(dialog.id)
+                    results.append((chat_id, dialog.name))
+        
+        return results
+
     def list_channels(self):
         """Lists all available dialogs (channels/chats)."""
         with self.client:

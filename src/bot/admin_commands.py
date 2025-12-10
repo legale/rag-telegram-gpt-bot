@@ -156,12 +156,12 @@ class ProfileCommands(BaseAdminCommand):
         
         response += "\n"
         
-        # Session file
+        # Session file (shared for all profiles, located in project root)
         session_path = paths['session_file']
         if session_path.exists():
-            response += f"**Telegram сессия:** Создана\n"
+            response += f"**Telegram сессия:** Создана (общая для всех профилей)\n"
         else:
-            response += f"**Telegram сессия:** Не создана\n"
+            response += f"**Telegram сессия:** Не создана (общая для всех профилей)\n"
         
         # Admin file
         admin_file = stats['profile_dir'] / "admin.json"
@@ -401,6 +401,7 @@ class HelpCommands:
                 "• `ingest status` - статус загрузки\n\n"
                 "**Доступ:**\n"
                 "• `allowed list` - список разрешенных чатов\n"
+                "• `allowed lookup <name>` - поиск чатов по имени\n"
                 "• `allowed add <id>` - разрешить чат\n"
                 "• `allowed remove <id>` - запретить чат\n\n"
                 "**Мониторинг:**\n"
@@ -449,6 +450,7 @@ class HelpCommands:
                 "Управление списком разрешенных чатов и пользователей.\n\n"
                 "**Команды:**\n"
                 "• `/admin allowed list` - показать разрешенные ID\n"
+                "• `/admin allowed lookup <name>` - поиск чатов по имени (подстрока)\n"
                 "• `/admin allowed add <id>` - добавить ID в белый список\n"
                 "• `/admin allowed remove <id>` - удалить ID из белого списка\n\n"
                 "**Логика:**\n"
@@ -1026,3 +1028,59 @@ class SettingsCommands(BaseAdminCommand):
         return self.formatter.format_success_message(
             f"Частота ответов установлена: **1 ответ на {freq} сообщений**"
         )
+
+    async def lookup_chats(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
+                          admin_manager, args: List[str]) -> str:
+        """Handle /admin allowed lookup <chat_name> command."""
+        if not args:
+            return "Укажите имя чата для поиска.\nПример: `/admin allowed lookup название`"
+        
+        # Join all args to form the search query (in case chat name has spaces)
+        chat_name = " ".join(args)
+        
+        try:
+            from src.ingestion.telegram import TelegramFetcher
+            import os
+            from dotenv import load_dotenv
+            
+            load_dotenv()
+            
+            API_ID = os.getenv("TELEGRAM_API_ID")
+            API_HASH = os.getenv("TELEGRAM_API_HASH")
+            
+            if not API_ID or not API_HASH:
+                return self.formatter.format_error_message(
+                    "TELEGRAM_API_ID и TELEGRAM_API_HASH должны быть установлены в .env файле"
+                )
+            
+            try:
+                API_ID = int(API_ID)
+            except ValueError:
+                return self.formatter.format_error_message(
+                    "TELEGRAM_API_ID должен быть целым числом"
+                )
+            
+            # Session file is in project root, shared for all profiles
+            profile_name = self.profile_manager.get_current_profile()
+            paths = self.profile_manager.get_profile_paths(profile_name)
+            
+            # Session file is in project root, not in profile directory
+            session_name = str(paths['session_file'].with_suffix(''))  # Remove .session extension
+            
+            fetcher = TelegramFetcher(API_ID, API_HASH, session_name=session_name)
+            results = fetcher.search_chats_by_name(chat_name)
+            
+            if not results:
+                return self.formatter.format_info_message(
+                    f"Чаты с именем, содержащим '{chat_name}', не найдены."
+                )
+            
+            # Format response
+            response = f"**Найдено чатов: {len(results)}**\n\n"
+            for chat_id, chat_name_found in results:
+                response += f"• `{chat_id}` - {chat_name_found}\n"
+            
+            return response
+            
+        except Exception as e:
+            return await self.handle_error(e, "поиске чатов")
