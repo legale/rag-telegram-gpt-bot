@@ -58,15 +58,13 @@ class LegaleBot:
 
         
         # Initialize services
-        rag_strategy_use_ntop = config.rag_strategy_use_ntop if config else False
-        rag_ntop = config.rag_ntop if config else 5
+        rag_ntop = config.rag_ntop if config else 0
         self.retrieval_service = RetrievalService(
             vector_store=self.vector_store,
             db=self.db,
             embedding_client=self.embedding_client,
             log_level=log_level,
             debug_rag=self.debug_rag,
-            rag_strategy_use_ntop=rag_strategy_use_ntop,
             rag_ntop=rag_ntop
         )
         # Alias for compatibility

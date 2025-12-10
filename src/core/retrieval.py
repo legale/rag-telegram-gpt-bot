@@ -23,7 +23,8 @@ class RetrievalService:
         search_mode: str = "two_stage",
         l2_top_k: int = 5,
         chunk_top_k: int = 50,
-        debug_rag: bool = False
+        debug_rag: bool = False,
+        rag_ntop: int = 0
     ):
         """
         Initialize RetrievalService.
@@ -39,6 +40,7 @@ class RetrievalService:
             l2_top_k: Number of L2 topics to select in two-stage search
             chunk_top_k: Number of chunks to return in two-stage search
             debug_rag: enable detailed rag debug logging
+            rag_ntop: Number of top results to limit (if > 0, otherwise no limit)
         """
         self.vector_store = vector_store
         self.db = db
@@ -50,6 +52,7 @@ class RetrievalService:
         self.l2_top_k = l2_top_k
         self.chunk_top_k = chunk_top_k
         self.debug_rag = debug_rag
+        self.rag_ntop = rag_ntop
         
         # Get topics collections
         self.topics_l2_collection = vector_store.get_topics_l2_collection()
@@ -1011,4 +1014,13 @@ class RetrievalService:
                 )
         
         # Step 4: Merge results
-        return self._merge_retrieval_results(vector_chunks, topic_chunks, n_results)
+        merged_results = self._merge_retrieval_results(vector_chunks, topic_chunks, n_results)
+        
+        # Step 5: Apply ntop limit if rag_ntop > 0
+        if self.rag_ntop > 0:
+            original_count = len(merged_results)
+            merged_results = merged_results[:self.rag_ntop]
+            if self.debug_rag:
+                syslog2(LOG_DEBUG, "rag ntop limit applied", original_count=original_count, limited_count=len(merged_results), rag_ntop=self.rag_ntop)
+        
+        return merged_results
