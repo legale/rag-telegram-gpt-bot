@@ -8,14 +8,33 @@ from src.core.syslog2 import *
 class LLMClient:
     """Client for interacting with LLM APIs (OpenRouter/OpenAI)."""
     
-    def __init__(self, model: str, verbosity: int = 0):
+    def __init__(self, model: str, verbosity: Optional[int] = None, log_level: Optional[int] = None):
         """
         Initialize the LLM client.
         
         Args:
             model: The model name to use (e.g., "openai/gpt-oss-20b:free", "anthropic/claude-3-opus").
             verbosity: Logging level (0=none, 1=info, 2=debug, 3=trace).
+            log_level: Alternative to verbosity - syslog2 log level (LOG_WARNING=4, LOG_INFO=6, LOG_DEBUG=7).
+                       If both are provided, verbosity takes precedence.
         """
+        # Convert log_level to verbosity if log_level is provided
+        if verbosity is None:
+            if log_level is not None:
+                # Convert syslog2 log_level to verbosity
+                # LOG_WARNING (4) and below -> 0 (none)
+                # LOG_NOTICE (5) -> 0 (none)
+                # LOG_INFO (6) -> 1 (info)
+                # LOG_DEBUG (7) and above -> 2 (debug)
+                if log_level >= LOG_DEBUG:
+                    verbosity = 2
+                elif log_level >= LOG_INFO:
+                    verbosity = 1
+                else:
+                    verbosity = 0
+            else:
+                verbosity = 0
+        
         self.api_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
         if not self.api_key:
             raise ValueError("OPENROUTER_API_KEY or OPENAI_API_KEY environment variable not set")
