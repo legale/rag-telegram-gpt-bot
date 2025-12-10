@@ -11,6 +11,19 @@ from src.bot.utils.telegram_common import split_message_if_needed, MAX_TG_CONTEN
 from src.core.syslog2 import *
 
 
+def _convert_similarity_to_distance(score: float) -> float:
+    """
+    Convert similarity score to distance.
+    
+    Args:
+        score: Similarity score (0.0-1.0)
+        
+    Returns:
+        Distance value
+    """
+    return 1.0 - float(score)
+
+
 def search_message_links(
     retrieval: RetrievalService,
     db: Database,
@@ -104,35 +117,26 @@ def search_message_links(
     return links
 
 
-def search_message_contents(
+def _search_chunks(
     retrieval: RetrievalService,
-    db: Database,
     query: str,
-    top_k: int = 3,
-    debug_rag: bool = False,
-    thr: Optional[float] = None,
-    use_two_stage: bool = False,
-) -> List[List[Dict]]:
+    top_k: int,
+    use_two_stage: bool,
+    debug_rag: bool
+) -> List[Dict]:
     """
-    Search for message contents by text query and return formatted message parts.
+    Search for chunks using two-stage or direct search.
     
     Args:
         retrieval: RetrievalService instance
-        db: Database instance
         query: Search query string
         top_k: Number of results to return
+        use_two_stage: If True, use two-stage search, else use direct search
         debug_rag: Enable detailed RAG debug logging
-        thr: Maximum distance threshold for filtering results (None = no filtering)
-        use_two_stage: If True, use two-stage search (L2 topics -> chunks), else use direct search
         
     Returns:
-        List of lists, where each inner list contains message parts (Dict with id, date, sender, content, part, distance)
-        Each message may be split into multiple parts if it exceeds MAX_TG_CONTENT_LEN
+        List of chunk dictionaries with id, distance, metadata, source
     """
-    if debug_rag:
-        syslog2(LOG_DEBUG, "msg_search contents start", query=query, top_k=top_k, use_two_stage=use_two_stage, thr=thr)
-
-    # search for chunks - use two-stage or direct search
     if use_two_stage:
         if debug_rag:
             syslog2(LOG_DEBUG, "msg_search using two-stage search")
@@ -151,7 +155,7 @@ def search_message_contents(
                 distance = float(item["distance"])
             else:
                 # Fallback: convert similarity to distance for backward compatibility
-                distance = 1.0 - float(score)
+                distance = _convert_similarity_to_distance(score)
             results.append({
                 "id": item.get("id"),
                 "distance": distance,
@@ -215,50 +219,75 @@ def search_message_contents(
                     metadata=item.get("metadata") or {},
                 )
     
-    # Apply threshold filtering if specified
-    if thr is not None:
-        original_count = len(results)
-        if debug_rag:
-            # Log items that will be filtered out before filtering
-            for idx, item in enumerate(results):
-                item_distance = float(item.get("distance", float('inf')))
-                if item_distance > thr:
-                    syslog2(
-                        LOG_DEBUG,
-                        "msg_search filtering out",
-                        idx=idx,
-                        chunk_id=item.get("id"),
-                        distance=item_distance,
-                        thr=thr,
-                    )
-        results = [item for item in results if float(item.get("distance", float('inf'))) <= thr]
-        filtered_count = original_count - len(results)
-        if debug_rag:
-            syslog2(
-                LOG_DEBUG,
-                "msg_search threshold filtering",
-                thr=thr,
-                original_count=original_count,
-                filtered_count=filtered_count,
-                remaining_count=len(results),
-            )
+    return results
+
+
+def _apply_threshold_filter(
+    results: List[Dict],
+    threshold: Optional[float],
+    debug_rag: bool
+) -> List[Dict]:
+    """
+    Apply threshold filtering to search results.
     
-    # Limit to top_k results after filtering
-    results = results[:top_k]
+    Args:
+        results: List of chunk dictionaries
+        threshold: Maximum distance threshold (None = no filtering)
+        debug_rag: Enable detailed RAG debug logging
+        
+    Returns:
+        Filtered list of chunk dictionaries
+    """
+    if threshold is None:
+        return results
     
-    # Log distance for all results (always visible, not just in debug mode)
-    for idx, item in enumerate(results):
-        distance = float(item.get("distance", 0.0))
-        chunk_id = item.get("id", "unknown")
+    original_count = len(results)
+    if debug_rag:
+        # Log items that will be filtered out before filtering
+        for idx, item in enumerate(results):
+            item_distance = float(item.get("distance", float('inf')))
+            if item_distance > threshold:
+                syslog2(
+                    LOG_DEBUG,
+                    "msg_search filtering out",
+                    idx=idx,
+                    chunk_id=item.get("id"),
+                    distance=item_distance,
+                    thr=threshold,
+                )
+    
+    filtered = [item for item in results if float(item.get("distance", float('inf'))) <= threshold]
+    filtered_count = original_count - len(filtered)
+    
+    if debug_rag:
         syslog2(
-            LOG_ALERT,
-            "msg_search result distance",
-            idx=idx,
-            chunk_id=chunk_id,
-            distance=distance,
-            thr=thr,
+            LOG_DEBUG,
+            "msg_search threshold filtering",
+            thr=threshold,
+            original_count=original_count,
+            filtered_count=filtered_count,
+            remaining_count=len(filtered),
         )
     
+    return filtered
+
+
+def _prepare_message_parts(
+    db: Database,
+    results: List[Dict],
+    debug_rag: bool
+) -> List[List[Dict]]:
+    """
+    Prepare message parts from search results.
+    
+    Args:
+        db: Database instance
+        results: List of chunk dictionaries with id and distance
+        debug_rag: Enable detailed RAG debug logging
+        
+    Returns:
+        List of lists, where each inner list contains message parts
+    """
     all_message_parts: List[List[Dict]] = []
     
     for idx, item in enumerate(results):
@@ -334,6 +363,62 @@ def search_message_contents(
             for part in parts:
                 part["distance"] = distance
             all_message_parts.append(parts)
+    
+    return all_message_parts
+
+
+def search_message_contents(
+    retrieval: RetrievalService,
+    db: Database,
+    query: str,
+    top_k: int = 3,
+    debug_rag: bool = False,
+    thr: Optional[float] = None,
+    use_two_stage: bool = False,
+) -> List[List[Dict]]:
+    """
+    Search for message contents by text query and return formatted message parts.
+    
+    Args:
+        retrieval: RetrievalService instance
+        db: Database instance
+        query: Search query string
+        top_k: Number of results to return
+        debug_rag: Enable detailed RAG debug logging
+        thr: Maximum distance threshold for filtering results (None = no filtering)
+        use_two_stage: If True, use two-stage search (L2 topics -> chunks), else use direct search
+        
+    Returns:
+        List of lists, where each inner list contains message parts (Dict with id, date, sender, content, part, distance)
+        Each message may be split into multiple parts if it exceeds MAX_TG_CONTENT_LEN
+    """
+    if debug_rag:
+        syslog2(LOG_DEBUG, "msg_search contents start", query=query, top_k=top_k, use_two_stage=use_two_stage, thr=thr)
+
+    # Step 1: Search for chunks
+    results = _search_chunks(retrieval, query, top_k * 2, use_two_stage, debug_rag)
+    
+    # Step 2: Apply threshold filtering
+    results = _apply_threshold_filter(results, thr, debug_rag)
+    
+    # Step 3: Limit to top_k results after filtering
+    results = results[:top_k]
+    
+    # Log distance for all results (always visible, not just in debug mode)
+    for idx, item in enumerate(results):
+        distance = float(item.get("distance", 0.0))
+        chunk_id = item.get("id", "unknown")
+        syslog2(
+            LOG_ALERT,
+            "msg_search result distance",
+            idx=idx,
+            chunk_id=chunk_id,
+            distance=distance,
+            thr=thr,
+        )
+    
+    # Step 4: Prepare message parts
+    all_message_parts = _prepare_message_parts(db, results, debug_rag)
     
     syslog2(
         LOG_INFO,

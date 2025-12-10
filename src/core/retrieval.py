@@ -51,8 +51,72 @@ class RetrievalService:
         self.chunk_top_k = chunk_top_k
         self.debug_rag = debug_rag
         
-        # Get topics_l2 collection
+        # Get topics collections
         self.topics_l2_collection = vector_store.get_topics_l2_collection()
+        self.topics_l1_collection = vector_store.get_topics_l1_collection()
+
+    def _convert_distance_to_similarity(self, distance: float) -> float:
+        """
+        Convert distance to similarity score.
+        
+        Args:
+            distance: Distance value from vector search
+            
+        Returns:
+            Similarity score (0.0-1.0)
+        """
+        if distance <= 1.0:
+            return 1.0 - distance
+        elif distance <= 2.0:
+            return 1.0 - (distance / 2.0)
+        else:
+            return max(0.0, 1.0 - distance)
+    
+    def _build_chunk_dict(
+        self, 
+        chunk: ChunkModel, 
+        similarity: float, 
+        distance: Optional[float] = None, 
+        source: str = "vector"
+    ) -> Dict:
+        """
+        Build chunk dictionary with metadata and topics.
+        
+        Args:
+            chunk: ChunkModel instance
+            similarity: Similarity score (0.0-1.0)
+            distance: Original distance value (optional)
+            source: Source of the chunk ("vector", "two_stage", "topic_l1", "topic_l2")
+            
+        Returns:
+            Dictionary with chunk data
+        """
+        meta = {}
+        if chunk.metadata_json:
+            try:
+                meta = json.loads(chunk.metadata_json)
+            except json.JSONDecodeError:
+                pass
+        
+        if chunk.topic_l1:
+            meta["topic_l1_id"] = chunk.topic_l1.id
+            meta["topic_l1_title"] = chunk.topic_l1.title
+        if chunk.topic_l2:
+            meta["topic_l2_id"] = chunk.topic_l2.id
+            meta["topic_l2_title"] = chunk.topic_l2.title
+        
+        result = {
+            "id": chunk.id,
+            "text": chunk.text,
+            "metadata": meta,
+            "score": similarity,
+            "source": source
+        }
+        
+        if distance is not None:
+            result["distance"] = distance
+        
+        return result
 
     def _debug_log_chunk_messages(self, session, chunk: ChunkModel):
         """log messages belonging to chunk for rag debug"""
@@ -105,6 +169,7 @@ class RetrievalService:
     ) -> List[Tuple[int, float]]:
         """
         Find topics similar to the query embedding by comparing with topic centroids.
+        Reads center vectors from ChromaDB collections.
         
         Args:
             query_embedding: Query embedding vector
@@ -115,27 +180,36 @@ class RetrievalService:
         Returns:
             List of (topic_id, similarity_score) tuples, sorted by similarity descending
         """
-        session = self.db.get_session()
         try:
+            # Get topics from ChromaDB
             if topic_type == "l1":
-                topics = session.query(TopicL1Model).filter(
-                    TopicL1Model.center_vec.isnot(None)
-                ).all()
+                collection = self.topics_l1_collection
+                topic_prefix = "l1-"
             else:
-                topics = session.query(TopicL2Model).filter(
-                    TopicL2Model.center_vec.isnot(None)
-                ).all()
+                collection = self.topics_l2_collection
+                topic_prefix = "l2-"
             
-            if not topics:
+            # Get all topics from collection
+            all_topics = collection.get(include=["embeddings", "metadatas"])
+            
+            if not all_topics or not all_topics.get("ids") or not all_topics["ids"]:
+                return []
+            
+            ids = all_topics["ids"]
+            embeddings = all_topics.get("embeddings", [])
+            metadatas = all_topics.get("metadatas", [])
+            
+            if not embeddings or len(embeddings) != len(ids):
                 return []
             
             query_vec = np.array(query_embedding)
             similarities = []
             
-            for topic in topics:
+            for idx, topic_id_str in enumerate(ids):
                 try:
-                    center_vec = json.loads(topic.center_vec)
-                    center_vec = np.array(center_vec)
+                    # Extract numeric topic ID from "l1-123" or "l2-123" format
+                    topic_id = int(topic_id_str.replace(topic_prefix, ""))
+                    center_vec = np.array(embeddings[idx])
                     
                     # Compute cosine similarity
                     dot_product = np.dot(query_vec, center_vec)
@@ -145,10 +219,10 @@ class RetrievalService:
                     if norm_query > 0 and norm_center > 0:
                         similarity = dot_product / (norm_query * norm_center)
                         if similarity >= similarity_threshold:
-                            similarities.append((topic.id, float(similarity)))
-                except (json.JSONDecodeError, ValueError, TypeError) as e:
-                    if  self.debug_rag:
-                        syslog2(LOG_DEBUG, "topic centroid parse error", topic_id=topic.id, error=str(e))
+                            similarities.append((topic_id, float(similarity)))
+                except (ValueError, TypeError, IndexError) as e:
+                    if self.debug_rag:
+                        syslog2(LOG_DEBUG, "topic centroid parse error", topic_id_str=topic_id_str, error=str(e))
                     continue
             
             # Sort by similarity descending and return top n
@@ -166,8 +240,10 @@ class RetrievalService:
                     )
 
             return similarities[:n_topics]
-        finally:
-            session.close()
+        except Exception as e:
+            if self.log_level <= LOG_WARNING:
+                syslog2(LOG_WARNING, "failed to find similar topics", topic_type=topic_type, error=str(e))
+            return []
 
     def _retrieve_chunks_from_topics(
         self,
@@ -474,12 +550,7 @@ class RetrievalService:
         for i, chunk_id in enumerate(ids):
             distance = distances[i] if i < len(distances) else 0
             original_distances.append((chunk_id, float(distance)))
-            if distance <= 1.0:
-                similarity = 1.0 - distance
-            elif distance <= 2.0:
-                similarity = 1.0 - (distance / 2.0)
-            else:
-                similarity = max(0.0, 1.0 - distance)
+            similarity = self._convert_distance_to_similarity(distance)
             similarities.append((chunk_id, similarity))
             
             # Always log distance for processed chunk results
@@ -528,13 +599,6 @@ class RetrievalService:
                     except json.JSONDecodeError:
                         pass
                 
-                if chunk.topic_l1:
-                    meta["topic_l1_id"] = chunk.topic_l1.id
-                    meta["topic_l1_title"] = chunk.topic_l1.title
-                if chunk.topic_l2:
-                    meta["topic_l2_id"] = chunk.topic_l2.id
-                    meta["topic_l2_title"] = chunk.topic_l2.title
-                
                 similarity = sim_map.get(chunk.id, 0.0)
                 original_distance = distance_map.get(chunk.id)
 
@@ -545,22 +609,18 @@ class RetrievalService:
                         chunk_id=chunk.id,
                         score=similarity,
                         original_distance=original_distance,
-                        topic_l1_id=meta.get("topic_l1_id"),
-                        topic_l2_id=meta.get("topic_l2_id"),
+                        topic_l1_id=meta.get("topic_l1_id") if chunk.topic_l1 else None,
+                        topic_l2_id=meta.get("topic_l2_id") if chunk.topic_l2 else None,
                         source="two_stage",
                     )
                     self._debug_log_chunk_messages(session, chunk)
                 
-                result_item = {
-                    "id": chunk.id,
-                    "text": chunk.text,
-                    "metadata": meta,
-                    "score": similarity,
-                    "source": "two_stage"
-                }
-                if original_distance is not None:
-                    result_item["distance"] = original_distance
-                
+                result_item = self._build_chunk_dict(
+                    chunk, 
+                    similarity, 
+                    distance=original_distance, 
+                    source="two_stage"
+                )
                 result.append(result_item)
             
             result.sort(key=lambda x: x["score"], reverse=True)
@@ -662,39 +722,38 @@ class RetrievalService:
         syslog2(LOG_DEBUG, "basic search", query=query, results=len(chunk_list))
         return chunk_list
 
-    def retrieve(
-        self, 
-        query: str, 
-        n_results: int = 5, 
-        score_threshold: float = 0.5,
-        use_topics: Optional[bool] = None
-    ) -> List[Dict]:
+    def _compute_query_embedding(self, query: str) -> Optional[List[float]]:
         """
-        Retrieve relevant chunks for a given query using hybrid vector + topic search.
+        Compute query embedding.
         
         Args:
-            query: User query string.
-            n_results: Number of results to return.
-            score_threshold: Minimum similarity score for vector search.
-            use_topics: Override use_topic_retrieval setting (None = use instance setting)
-                             
+            query: Query string
+            
         Returns:
-            List of dictionaries containing chunk text and metadata.
+            Query embedding vector or None if failed
         """
-        use_topics = use_topics if use_topics is not None else self.use_topic_retrieval
-        
-        if self.log_level <= LOG_INFO or self.debug_rag:
-            syslog2(LOG_DEBUG, "retrieval query", query=query, use_topics=use_topics, mode=self.search_mode, n_results=n_results)
-        
-        if  self.debug_rag:
+        if self.debug_rag:
             syslog2(LOG_DEBUG, "computing query embedding")
         
         query_embs = self.embedding_client.get_embeddings([query])
         query_emb = query_embs[0] if query_embs else []
         
         if not query_emb:
-            return []
+            return None
         
+        return query_emb
+    
+    def _select_search_mode(self, query_emb: List[float], n_results: int) -> List[Dict]:
+        """
+        Select search mode (two_stage or direct) and execute search.
+        
+        Args:
+            query_emb: Query embedding vector
+            n_results: Number of results to return
+            
+        Returns:
+            List of chunk dictionaries
+        """
         if self.search_mode == "two_stage":
             if self.log_level <= LOG_INFO or self.debug_rag:
                 syslog2(LOG_DEBUG, "using two_stage search mode")
@@ -702,7 +761,7 @@ class RetrievalService:
             two_stage_results = self._two_stage_search(query_emb, n_results=self.chunk_top_k)
             
             if two_stage_results:
-                if  self.debug_rag:
+                if self.debug_rag:
                     syslog2(LOG_DEBUG, "two_stage search returned results", count=len(two_stage_results))
                     for idx, item in enumerate(two_stage_results[:n_results]):
                         syslog2(
@@ -718,7 +777,8 @@ class RetrievalService:
                 if self.log_level <= LOG_INFO or self.debug_rag:
                     syslog2(LOG_DEBUG, "two_stage search found nothing, falling back to direct search")
         
-        if  self.debug_rag:
+        # Direct search fallback or default mode
+        if self.debug_rag:
             collection_count = self.vector_store.collection.count()
             syslog2(LOG_DEBUG, "searching vector store", 
                    collection=self.vector_store.collection.name,
@@ -726,7 +786,7 @@ class RetrievalService:
         
         vector_results = self._direct_chunk_query(query_emb, n_results)
         
-        if  self.debug_rag:
+        if self.debug_rag:
             syslog2(LOG_DEBUG, "vector store query result", 
                    has_ids=bool(vector_results.get("ids")),
                    ids_count=len(vector_results.get("ids", [[]])[0]) if vector_results.get("ids") and len(vector_results.get("ids", [])) > 0 else 0,
@@ -741,102 +801,72 @@ class RetrievalService:
             ids = vector_results["ids"][0]
             distances = vector_results["distances"][0] if "distances" in vector_results else []
             
-            if  self.debug_rag:
+            if self.debug_rag:
                 syslog2(LOG_DEBUG, "vector store returned", ids_count=len(ids), distances_count=len(distances))
                 for idx, cid in enumerate(ids):
                     d = distances[idx] if idx < len(distances) else 0.0
                     syslog2(LOG_DEBUG, "rag raw distance", idx=idx, chunk_id=cid, distance=d)
             
-            if  self.debug_rag:
+            if self.debug_rag:
                 syslog2(LOG_DEBUG, "fetching full text from sqlite", count=len(ids))
             
             session = self.db.get_session()
             try:
                 for i, chunk_id in enumerate(ids):
                     distance = distances[i] if i < len(distances) else 0
-                    
-                    if distance <= 1.0:
-                        similarity = 1.0 - distance
-                    elif distance <= 2.0:
-                        similarity = 1.0 - (distance / 2.0)
-                    else:
-                        similarity = max(0.0, 1.0 - distance)
+                    similarity = self._convert_distance_to_similarity(distance)
                     
                     if self.log_level <= LOG_DEBUG or self.debug_rag:
-                        syslog2(LOG_DEBUG, "chunk similarity", chunk_id=chunk_id, distance=distance, similarity=similarity, threshold=score_threshold)
+                        syslog2(LOG_DEBUG, "chunk similarity", chunk_id=chunk_id, distance=distance, similarity=similarity)
                     
                     db_chunk = session.query(ChunkModel)\
                         .options(joinedload(ChunkModel.topic_l1), joinedload(ChunkModel.topic_l2))\
                         .filter_by(id=chunk_id).first()
                     
                     if db_chunk:
-                        meta = {}
-                        if db_chunk.metadata_json:
-                            try:
-                                meta = json.loads(db_chunk.metadata_json)
-                            except json.JSONDecodeError:
-                                pass
-                        
-                        if db_chunk.topic_l1:
-                            meta["topic_l1_id"] = db_chunk.topic_l1.id
-                            meta["topic_l1_title"] = db_chunk.topic_l1.title
-                        if db_chunk.topic_l2:
-                            meta["topic_l2_id"] = db_chunk.topic_l2.id
-                            meta["topic_l2_title"] = db_chunk.topic_l2.title
-                        
                         if self.debug_rag:
+                            meta = {}
+                            if db_chunk.metadata_json:
+                                try:
+                                    meta = json.loads(db_chunk.metadata_json)
+                                except json.JSONDecodeError:
+                                    pass
                             syslog2(
                                 LOG_DEBUG,
                                 "rag chunk result",
                                 chunk_id=db_chunk.id,
                                 score=similarity,
-                                topic_l1_id=meta.get("topic_l1_id"),
-                                topic_l2_id=meta.get("topic_l2_id"),
+                                topic_l1_id=meta.get("topic_l1_id") if db_chunk.topic_l1 else None,
+                                topic_l2_id=meta.get("topic_l2_id") if db_chunk.topic_l2 else None,
                                 source="vector",
                             )
                             self._debug_log_chunk_messages(session, db_chunk)
                         
-                        vector_chunks.append({
-                            "id": chunk_id,
-                            "text": db_chunk.text,
-                            "metadata": meta,
-                            "score": similarity,
-                            "source": "vector"
-                        })
+                        vector_chunks.append(
+                            self._build_chunk_dict(db_chunk, similarity, distance=distance, source="vector")
+                        )
             finally:
                 session.close()
         
-        topic_chunks: List[Dict] = []
-        if use_topics:
-            if  self.debug_rag:
-                syslog2(LOG_DEBUG, "searching topics")
-            
-            similar_l1 = self._find_similar_topics(
-                query_emb, 
-                topic_type="l1", 
-                n_topics=2,
-                similarity_threshold=0.5
-            )
-            similar_l2 = self._find_similar_topics(
-                query_emb,
-                topic_type="l2",
-                n_topics=1,
-                similarity_threshold=0.5
-            )
-            
-            if similar_l1 or similar_l2:
-                topic_ids_l1 = [tid for tid, _ in similar_l1]
-                topic_ids_l2 = [tid for tid, _ in similar_l2]
-                
-                if  self.debug_rag:
-                    syslog2(LOG_DEBUG, "found similar topics", l1_count=len(topic_ids_l1), l2_count=len(topic_ids_l2))
-                
-                topic_chunks = self._retrieve_chunks_from_topics(
-                    topic_ids_l1=topic_ids_l1,
-                    topic_ids_l2=topic_ids_l2,
-                    max_chunks_per_topic=3
-                )
+        return vector_chunks
+    
+    def _merge_retrieval_results(
+        self, 
+        vector_chunks: List[Dict], 
+        topic_chunks: List[Dict], 
+        n_results: int
+    ) -> List[Dict]:
+        """
+        Merge vector and topic-based retrieval results with weights.
         
+        Args:
+            vector_chunks: Chunks from vector search
+            topic_chunks: Chunks from topic-based search
+            n_results: Number of final results to return
+            
+        Returns:
+            Merged and sorted list of chunk dictionaries
+        """
         all_chunks: Dict[str, Dict] = {}
         
         vector_weight = 1.0 - self.topic_retrieval_weight
@@ -865,7 +895,7 @@ class RetrievalService:
         
         final_chunks = sorted(all_chunks.values(), key=lambda x: x["score"], reverse=True)
         
-        if  self.debug_rag:
+        if self.debug_rag:
             syslog2(LOG_DEBUG, "retrieval complete", 
                    vector_count=len(vector_chunks),
                    topic_count=len(topic_chunks),
@@ -884,3 +914,70 @@ class RetrievalService:
                 )
         
         return final_chunks[:n_results]
+    
+    def retrieve(
+        self, 
+        query: str, 
+        n_results: int = 5, 
+        score_threshold: float = 0.5,
+        use_topics: Optional[bool] = None
+    ) -> List[Dict]:
+        """
+        Retrieve relevant chunks for a given query using hybrid vector + topic search.
+        
+        Args:
+            query: User query string.
+            n_results: Number of results to return.
+            score_threshold: Minimum similarity score for vector search.
+            use_topics: Override use_topic_retrieval setting (None = use instance setting)
+                             
+        Returns:
+            List of dictionaries containing chunk text and metadata.
+        """
+        use_topics = use_topics if use_topics is not None else self.use_topic_retrieval
+        
+        if self.log_level <= LOG_INFO or self.debug_rag:
+            syslog2(LOG_DEBUG, "retrieval query", query=query, use_topics=use_topics, mode=self.search_mode, n_results=n_results)
+        
+        # Step 1: Compute query embedding
+        query_emb = self._compute_query_embedding(query)
+        if not query_emb:
+            return []
+        
+        # Step 2: Select search mode and get vector chunks
+        vector_chunks = self._select_search_mode(query_emb, n_results)
+        
+        # Step 3: Get topic-based chunks if enabled
+        topic_chunks: List[Dict] = []
+        if use_topics:
+            if self.debug_rag:
+                syslog2(LOG_DEBUG, "searching topics")
+            
+            similar_l1 = self._find_similar_topics(
+                query_emb, 
+                topic_type="l1", 
+                n_topics=2,
+                similarity_threshold=0.5
+            )
+            similar_l2 = self._find_similar_topics(
+                query_emb,
+                topic_type="l2",
+                n_topics=1,
+                similarity_threshold=0.5
+            )
+            
+            if similar_l1 or similar_l2:
+                topic_ids_l1 = [tid for tid, _ in similar_l1]
+                topic_ids_l2 = [tid for tid, _ in similar_l2]
+                
+                if self.debug_rag:
+                    syslog2(LOG_DEBUG, "found similar topics", l1_count=len(topic_ids_l1), l2_count=len(topic_ids_l2))
+                
+                topic_chunks = self._retrieve_chunks_from_topics(
+                    topic_ids_l1=topic_ids_l1,
+                    topic_ids_l2=topic_ids_l2,
+                    max_chunks_per_topic=3
+                )
+        
+        # Step 4: Merge results
+        return self._merge_retrieval_results(vector_chunks, topic_chunks, n_results)

@@ -17,7 +17,7 @@ class VectorStore:
     def __init__(
         self,
         persist_directory: str,
-        collection_name: str = "default",
+        collection_name: str = "embed-l1",
         max_batch_size: int = 5000,
         embedding_client: Optional[Union[EmbeddingClient, LocalEmbeddingClient]] = None,
     ):
@@ -42,7 +42,13 @@ class VectorStore:
         
         # Initialize topics_l2 collection
         self.topics_l2_collection = self.client.get_or_create_collection(
-            name="topics_l2",
+            name="embed-l2",
+            embedding_function=None,  # embeddings always provided explicitly
+        )
+        
+        # Initialize topics_l1 collection
+        self.topics_l1_collection = self.client.get_or_create_collection(
+            name="embed-l1-topics",
             embedding_function=None,  # embeddings always provided explicitly
         )
 
@@ -161,6 +167,15 @@ class VectorStore:
             ChromaDB Collection for L2 topics
         """
         return self.topics_l2_collection
+
+    def get_topics_l1_collection(self):
+        """
+        Get the topics_l1 collection.
+        
+        Returns:
+            ChromaDB Collection for L1 topics
+        """
+        return self.topics_l1_collection
 
     def get_embeddings_by_ids(self, ids: List[str], collection_name: Optional[str] = None) -> Dict[str, Any]:
         """

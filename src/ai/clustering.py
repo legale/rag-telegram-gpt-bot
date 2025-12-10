@@ -34,6 +34,65 @@ class TopicClusterer:
         self.db = db
         self.vector_store = vector_store
         self.llm_client = llm_client
+    
+    def _show_progress(self, current: int, total: int, message: str) -> None:
+        """
+        Show progress bar.
+        
+        Args:
+            current: Current progress
+            total: Total items
+            message: Progress message
+        """
+        percentage = int((current / total * 100)) if total > 0 else 0
+        print(f"\r{message}: {current}/{total} ({percentage}%)", flush=True, end="")
+    
+    def _update_topic_metadata(self, topic_id: int, topic_type: str, parent_id: Optional[int] = None) -> None:
+        """
+        Update topic metadata (parent relationship).
+        
+        Args:
+            topic_id: Topic ID to update
+            topic_type: "l1" or "l2"
+            parent_id: Parent topic ID (None to clear)
+        """
+        if topic_type == "l1":
+            self.db.update_topic_l1_parent(topic_id, parent_l2_id=parent_id)
+        # L2 topics don't have parents in current implementation
+    
+    def _update_chunk_metadata_batch(
+        self, 
+        chunk_ids: List[str], 
+        topic_l1_id: Optional[int], 
+        topic_l2_id: Optional[int]
+    ) -> None:
+        """
+        Batch update chunk metadata in SQLite and ChromaDB.
+        
+        Args:
+            chunk_ids: List of chunk IDs to update
+            topic_l1_id: L1 topic ID (None to clear)
+            topic_l2_id: L2 topic ID (None to clear)
+        """
+        for chunk_id in chunk_ids:
+            # Update SQLite
+            self.db.update_chunk_topics(chunk_id, topic_l1_id=topic_l1_id, topic_l2_id=topic_l2_id)
+            
+            # Update ChromaDB metadata
+            try:
+                existing = self.vector_store.get_embeddings_by_ids([chunk_id])
+                existing_meta = existing.get("metadatas", [{}])[0] if existing.get("metadatas") else {}
+                if topic_l1_id is not None:
+                    existing_meta["topic_l1_id"] = topic_l1_id
+                else:
+                    existing_meta.pop("topic_l1_id", None)
+                if topic_l2_id is not None:
+                    existing_meta["topic_l2_id"] = topic_l2_id
+                else:
+                    existing_meta.pop("topic_l2_id", None)
+                self.vector_store.update_chunk_metadata(chunk_id, existing_meta)
+            except Exception as e:
+                syslog2(LOG_DEBUG, "failed to update chunk metadata in chroma", chunk_id=chunk_id, error=str(e))
 
     def perform_l1_clustering(
         self,
@@ -59,11 +118,59 @@ class TopicClusterer:
                 metric=metric,
                 method=cluster_selection_method)
 
-        # 1. Fetch data
-        data = self.vector_store.get_all_embeddings()
-        ids = data['ids']
-        embeddings = data['embeddings']
-        metadatas = data['metadatas']
+        # 1. Fetch data from SQLite (chunks.embedding_json) - source of truth
+        # Fallback to vector_db if SQLite doesn't have embeddings yet
+        session = self.db.get_session()
+        try:
+            from src.storage.db import ChunkModel
+            chunks_with_embeddings = session.query(ChunkModel).filter(
+                ChunkModel.embedding_json.isnot(None)
+            ).all()
+            
+            if not chunks_with_embeddings:
+                # Fallback to vector_db if SQLite doesn't have embeddings
+                syslog2(LOG_DEBUG, "no embeddings in sqlite, trying vector_db")
+                data = self.vector_store.get_all_embeddings()
+                ids = data.get('ids', [])
+                embeddings = data.get('embeddings', [])
+                metadatas = data.get('metadatas', [])
+                
+                if not ids or not embeddings:
+                    syslog2(LOG_WARNING, "no data for clustering")
+                    return
+            else:
+                # Read from SQLite
+                ids = []
+                embeddings = []
+                metadatas = []
+                
+                for chunk in chunks_with_embeddings:
+                    try:
+                        embedding = json.loads(chunk.embedding_json)
+                        ids.append(chunk.id)
+                        embeddings.append(embedding)
+                        
+                        # Prepare metadata
+                        meta_dict = {}
+                        if chunk.metadata_json:
+                            try:
+                                meta_dict = json.loads(chunk.metadata_json)
+                            except:
+                                pass
+                        if chunk.topic_l1_id is not None:
+                            meta_dict["topic_l1_id"] = chunk.topic_l1_id
+                        if chunk.topic_l2_id is not None:
+                            meta_dict["topic_l2_id"] = chunk.topic_l2_id
+                        metadatas.append(meta_dict)
+                    except (json.JSONDecodeError, TypeError) as e:
+                        syslog2(LOG_WARNING, "failed to parse embedding_json for chunk", chunk_id=chunk.id, error=str(e))
+                        continue
+                
+                if not ids:
+                    syslog2(LOG_WARNING, "no valid embeddings found in sqlite")
+                    return
+        finally:
+            session.close()
 
         if not ids or embeddings is None or (isinstance(embeddings, list) and not embeddings) or (hasattr(embeddings, 'size') and embeddings.size == 0):
             syslog2(LOG_WARNING, "no data for clustering")
@@ -158,11 +265,9 @@ class TopicClusterer:
                             self._l1_topic_assignments[None] = []
                         self._l1_topic_assignments[None].append(chunk_id)
                     processed += 1
-                    percentage = int((processed / total_clusters * 100)) if total_clusters > 0 else 0
-                    print(f"\rCreating L1 topics: {processed}/{total_clusters} ({percentage}%)", flush=True, end="")
+                    self._show_progress(processed, total_clusters, "Creating L1 topics")
                     continue
 
-            print() # Newline after progress
             cluster_ids = [ids[i] for i in indices]
             cluster_embeddings = X[indices]
             cluster_metas = [metadatas[i] for i in indices]
@@ -199,6 +304,7 @@ class TopicClusterer:
                 except ValueError:
                     pass
 
+            # Save topic to SQLite with center_vec_json (NOT to vector_db - that's stage5)
             topic_id = self.db.create_topic_l1(
                 title="unknown",
                 descr="Pending description...",
@@ -206,13 +312,13 @@ class TopicClusterer:
                 msg_count=total_msg_count,
                 center_vec=centroid,
                 ts_from=ts_from,
-                ts_to=ts_to
+                ts_to=ts_to,
+                vector_store=None  # Don't save to vector_db on stage4
             )
 
             self._l1_topic_assignments[topic_id] = cluster_ids
             processed += 1
-            percentage = int((processed / total_clusters * 100)) if total_clusters > 0 else 0
-            print(f"\rCreating L1 topics: {processed}/{total_clusters} ({percentage}%)", flush=True, end="")
+            self._show_progress(processed, total_clusters, "Creating L1 topics")
         finally:
             print()  # Newline after progress
 
@@ -238,39 +344,20 @@ class TopicClusterer:
         try:
             for topic_id, chunk_ids in self._l1_topic_assignments.items():
                 if topic_id is None:
-                    for chunk_id in chunk_ids:
-                        self.db.update_chunk_topics(chunk_id, topic_l1_id=None, topic_l2_id=None)
-                        # Update metadata in chroma_db
-                        try:
-                            self.vector_store.update_chunk_metadata(
-                                chunk_id,
-                                {"topic_l1_id": None, "topic_l2_id": None}
-                            )
-                        except Exception as e:
-                            syslog2(LOG_DEBUG, "failed to update chunk metadata in chroma", chunk_id=chunk_id, error=str(e))
-                        noise_count += 1
-                        processed += 1
-                        if show_progress:
-                            percentage = int((processed / total_chunks * 100)) if total_chunks > 0 else 0
-                            print(f"\rAssigning topics to chunks: {processed}/{total_chunks} ({percentage}%) (assigned: {assigned_count}, noise: {noise_count})", flush=True, end="")
+                    self._update_chunk_metadata_batch(chunk_ids, topic_l1_id=None, topic_l2_id=None)
+                    noise_count += len(chunk_ids)
+                    processed += len(chunk_ids)
                 else:
-                    for chunk_id in chunk_ids:
-                        self.db.update_chunk_topics(chunk_id, topic_l1_id=topic_id, topic_l2_id=None)
-                        # Update metadata in chroma_db
-                        try:
-                            # Get existing metadata first
-                            existing = self.vector_store.get_embeddings_by_ids([chunk_id])
-                            existing_meta = existing.get("metadatas", [{}])[0] if existing.get("metadatas") else {}
-                            existing_meta["topic_l1_id"] = topic_id
-                            existing_meta["topic_l2_id"] = None  # Clear L2 if was set
-                            self.vector_store.update_chunk_metadata(chunk_id, existing_meta)
-                        except Exception as e:
-                            syslog2(LOG_DEBUG, "failed to update chunk metadata in chroma", chunk_id=chunk_id, error=str(e))
-                        assigned_count += 1
-                        processed += 1
-                        if show_progress:
-                            percentage = int((processed / total_chunks * 100)) if total_chunks > 0 else 0
-                            print(f"\rAssigning topics to chunks: {processed}/{total_chunks} ({percentage}%) (assigned: {assigned_count}, noise: {noise_count})", flush=True, end="")
+                    self._update_chunk_metadata_batch(chunk_ids, topic_l1_id=topic_id, topic_l2_id=None)
+                    assigned_count += len(chunk_ids)
+                    processed += len(chunk_ids)
+                
+                if show_progress:
+                    self._show_progress(
+                        processed, 
+                        total_chunks, 
+                        f"Assigning topics to chunks (assigned: {assigned_count}, noise: {noise_count})"
+                    )
         finally:
             if show_progress:
                 print()  # Newline after progress
@@ -297,19 +384,61 @@ class TopicClusterer:
             syslog2(LOG_WARNING, "no l1 topics found for l2 clustering")
             return
 
-        ids = []
+        # Get L1 topic centroids from SQLite (topics_l1.center_vec_json) - source of truth
+        # Fallback to ChromaDB if SQLite doesn't have centroids yet
         embeddings = []
-        for t in l1_topics:
-            if t.center_vec:
+        ids = []
+        
+        # Try SQLite first
+        topics_with_centroids = [t for t in l1_topics if t.center_vec_json]
+        
+        if topics_with_centroids:
+            # Read from SQLite
+            for topic in topics_with_centroids:
                 try:
-                    vec = json.loads(t.center_vec)
-                    embeddings.append(vec)
-                    ids.append(t.id)
-                except Exception:
-                    pass
-
+                    center_vec = json.loads(topic.center_vec_json)
+                    embeddings.append(center_vec)
+                    ids.append(topic.id)
+                except (json.JSONDecodeError, TypeError) as e:
+                    syslog2(LOG_WARNING, "failed to parse center_vec_json for l1 topic", topic_id=topic.id, error=str(e))
+                    continue
+        else:
+            # Fallback to ChromaDB
+            syslog2(LOG_DEBUG, "no centroids in sqlite, trying chroma_db")
+            try:
+                l1_data = self.vector_store.topics_l1_collection.get(
+                    include=["embeddings", "metadatas"]
+                )
+                
+                if not l1_data or not l1_data.get("ids") or not l1_data["ids"]:
+                    syslog2(LOG_WARNING, "no l1 topic centroids found in chroma_db")
+                    return
+                
+                chroma_ids = l1_data["ids"]
+                chroma_embeddings = l1_data.get("embeddings", [])
+                
+                # Build mapping and collect embeddings
+                for idx, chroma_id in enumerate(chroma_ids):
+                    try:
+                        # Extract topic ID from "l1-123" format
+                        topic_id = int(chroma_id.replace("l1-", ""))
+                        
+                        # Verify topic exists in database
+                        if topic_id not in [t.id for t in l1_topics]:
+                            continue
+                        
+                        if idx < len(chroma_embeddings):
+                            embeddings.append(chroma_embeddings[idx])
+                            ids.append(topic_id)
+                    except (ValueError, IndexError):
+                        continue
+                        
+            except Exception as e:
+                syslog2(LOG_WARNING, "failed to get l1 topic centroids from chroma_db", error=str(e))
+                return
+        
         if not embeddings:
-            syslog2(LOG_WARNING, "no l1 topic centroids found")
+            syslog2(LOG_WARNING, "no valid l1 topic centroids found")
             return
 
         X = np.array(embeddings)
@@ -378,11 +507,10 @@ class TopicClusterer:
                     # noise
                     for idx in indices:
                         l1_id = ids[idx]
-                        self.db.update_topic_l1_parent(l1_id, parent_l2_id=None)
+                        self._update_topic_metadata(l1_id, "l1", parent_id=None)
                         self.db.update_chunks_parent_l2(l1_id, topic_l2_id=None)
                     processed += 1
-                    percentage = int((processed / len(clusters) * 100)) if len(clusters) > 0 else 0
-                    print(f"\rCreating L2 topics: {processed}/{len(clusters)} ({percentage}%)", flush=True, end="")
+                    self._show_progress(processed, len(clusters), "Creating L2 topics")
                     continue
 
                 cluster_indices = indices
@@ -405,12 +533,13 @@ class TopicClusterer:
                        chunk_count=total_chunk_count,
                        centroid_dim=len(centroid))
                 
+                # Save topic to SQLite with center_vec_json (NOT to vector_db - that's stage7)
                 l2_id = self.db.create_topic_l2(
                     title="unknown",
                     descr="Pending description...",
                     chunk_count=total_chunk_count,
                     center_vec=centroid,
-                    vector_store=self.vector_store
+                    vector_store=None  # Don't save to vector_db on stage6
                 )
                 
                 syslog2(LOG_DEBUG, "l2 topic created and saved to chroma_db", 
@@ -419,30 +548,23 @@ class TopicClusterer:
                        centroid_dim=len(centroid))
 
                 for l1_id in cluster_l1_ids:
-                    self.db.update_topic_l1_parent(l1_id, parent_l2_id=l2_id)
+                    self._update_topic_metadata(l1_id, "l1", parent_id=l2_id)
                     # Update chunks in SQLite
                     updated_count = self.db.update_chunks_parent_l2(l1_id, topic_l2_id=l2_id)
                     # Update metadata in chroma_db for all affected chunks
                     if updated_count > 0:
                         try:
                             chunks = self.db.get_chunks_by_topic_l1(l1_id)
+                            chunk_ids = [chunk.id for chunk in chunks]
+                            # Use batch update helper
                             for chunk in chunks:
-                                try:
-                                    # Get existing metadata
-                                    existing = self.vector_store.get_embeddings_by_ids([chunk.id])
-                                    existing_meta = existing.get("metadatas", [{}])[0] if existing.get("metadatas") else {}
-                                    existing_meta["topic_l2_id"] = l2_id
-                                    if chunk.topic_l1_id:
-                                        existing_meta["topic_l1_id"] = chunk.topic_l1_id
-                                    self.vector_store.update_chunk_metadata(chunk.id, existing_meta)
-                                except Exception as e:
-                                    syslog2(LOG_DEBUG, "failed to update chunk metadata in chroma", chunk_id=chunk.id, error=str(e))
+                                topic_l1_id = chunk.topic_l1_id if chunk.topic_l1_id else None
+                                self._update_chunk_metadata_batch([chunk.id], topic_l1_id=topic_l1_id, topic_l2_id=l2_id)
                         except Exception as e:
                             syslog2(LOG_WARNING, "failed to update chunk metadata in chroma for l2 assignment", l1_id=l1_id, l2_id=l2_id, error=str(e))
 
                 processed += 1
-                percentage = int((processed / len(clusters) * 100)) if len(clusters) > 0 else 0
-                print(f"\rCreating L2 topics: {processed}/{len(clusters)} ({percentage}%)", flush=True, end="")
+                self._show_progress(processed, len(clusters), "Creating L2 topics")
         finally:
             print()  # Newline after progress
 
@@ -613,19 +735,45 @@ class TopicClusterer:
         l1_without_center = 0
         l1_invalid_center = 0
 
-        for t in subtopics:
-            if not t.center_vec:
+        # Get L1 topic centroids from ChromaDB
+        l1_chroma_ids = [f"l1-{t.id}" for t in subtopics]
+        try:
+            l1_data = self.vector_store.topics_l1_collection.get(
+                ids=l1_chroma_ids,
+                include=["embeddings", "metadatas"]
+            )
+            
+            chroma_ids = l1_data.get("ids", [])
+            chroma_embeddings = l1_data.get("embeddings", [])
+            
+            # Build mapping from ChromaDB IDs to topic IDs
+            for idx, chroma_id in enumerate(chroma_ids):
+                try:
+                    topic_id = int(chroma_id.replace("l1-", ""))
+                    if topic_id not in [t.id for t in subtopics]:
+                        continue
+                    
+                    if idx < len(chroma_embeddings):
+                        vec = np.array(chroma_embeddings[idx], dtype=float)
+                        l1_centers[topic_id] = vec
+                        # Find the topic object
+                        topic_obj = next((t for t in subtopics if t.id == topic_id), None)
+                        if topic_obj:
+                            sim = self._cosine_similarity(l2_center_vec, vec)
+                            l1_scored.append((sim, topic_obj))
+                except (ValueError, IndexError, TypeError) as e:
+                    l1_invalid_center += 1
+                    syslog2(LOG_DEBUG, "l1 topic has invalid center_vec from chroma_db", l1_id=chroma_id, l2_id=topic.id, error=str(e))
+            
+            # Count topics without centers
+            for t in subtopics:
+                if t.id not in l1_centers:
+                    l1_without_center += 1
+                    
+        except Exception as e:
+            syslog2(LOG_WARNING, "failed to get l1 topic centroids from chroma_db for l2 naming", l2_id=topic.id, error=str(e))
+            for t in subtopics:
                 l1_without_center += 1
-                continue
-            try:
-                vec = np.array(json.loads(t.center_vec), dtype=float)
-            except Exception as e:
-                l1_invalid_center += 1
-                syslog2(LOG_DEBUG, "l1 topic has invalid center_vec", l1_id=t.id, l2_id=topic.id, error=str(e))
-                continue
-            l1_centers[t.id] = vec
-            sim = self._cosine_similarity(l2_center_vec, vec)
-            l1_scored.append((sim, t))
 
         if not l1_scored:
             syslog2(LOG_WARNING, "no valid l1 centers for l2 naming", 

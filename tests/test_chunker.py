@@ -110,8 +110,8 @@ def test_chunker_message_format():
     chunk_text = chunks[0].text
     
     # Check message format
-    assert "[Дата:" in chunk_text
-    assert "[User: TestUser:TestUser]" in chunk_text
+    assert "[date: " in chunk_text
+    assert "[user: TestUser]" in chunk_text
     assert "Test message" in chunk_text
 
 def test_chunker_overlap():

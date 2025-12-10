@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Dict
 from datetime import datetime
 import tiktoken
 from src.ingestion.parser import ChatMessage
@@ -43,26 +43,47 @@ class MessageChunker:
         except Exception:
             # Fallback if tiktoken fails
             self.encoding = None
+        
+        # Token count cache: message_id -> token_count
+        self._token_cache: Dict[str, int] = {}
     
-    def _count_tokens(self, text: str) -> int:
-        """Count tokens in text using tiktoken."""
+    def _count_tokens(self, text: str, cache_key: Optional[str] = None) -> int:
+        """
+        Count tokens in text using tiktoken.
+        
+        Args:
+            text: Text to count tokens for
+            cache_key: Optional cache key (message ID) to cache the result
+        """
+        # Check cache first if key provided
+        if cache_key and cache_key in self._token_cache:
+            return self._token_cache[cache_key]
+        
+        # Count tokens
         if self.encoding is None:
             # Fallback: approximate token count (1 token ≈ 4 characters)
-            return len(text) // 4
-        return len(self.encoding.encode(text))
+            count = len(text) // 4
+        else:
+            count = len(self.encoding.encode(text))
+        
+        # Cache result if key provided
+        if cache_key:
+            self._token_cache[cache_key] = count
+        
+        return count
     
     def _format_message(self, msg: ChatMessage) -> str:
         """Format a single message with metadata."""
         date_str = msg.timestamp.strftime("%Y-%m-%d %H:%M")
         # Using sender as both user_id and user_name since we don't have numeric IDs
-        return f"[Дата: {date_str}] [User: {msg.sender}:{msg.sender}] {msg.content}"
+        return f"[date: {date_str}] [user: {msg.sender}] {msg.content}"
     
     def _create_prefix(self, start_date: datetime, end_date: datetime, unique_senders: set) -> str:
         """Create prefix for chunk with date range and participants."""
         start_str = start_date.strftime("%Y-%m-%d %H:%M")
         end_str = end_date.strftime("%Y-%m-%d %H:%M")
         participants = ", ".join(sorted(unique_senders))
-        return f"Чат-фрагмент: {start_str}–{end_str}. Участники: {participants}.\n"
+        return f"snippet: {start_str}–{end_str}. participants: {participants}.\n"
     
     def chunk_messages(self, messages: List[ChatMessage]) -> List[EnhancedTextChunk]:
         """
@@ -75,6 +96,13 @@ class MessageChunker:
         # Sort messages by timestamp to ensure chronological order
         sorted_messages = sorted(messages, key=lambda m: m.timestamp)
         
+        # Pre-compute and cache token counts for all messages
+        self._token_cache.clear()  # Clear cache for new batch
+        for msg in sorted_messages:
+            formatted_msg = self._format_message(msg)
+            # Cache token count using message ID as key
+            self._count_tokens(formatted_msg, cache_key=msg.id)
+        
         # Step 1: Create initial chunks based on token limits
         raw_chunks = []
         current_chunk_messages = []
@@ -82,7 +110,7 @@ class MessageChunker:
         
         for msg in sorted_messages:
             formatted_msg = self._format_message(msg)
-            msg_tokens = self._count_tokens(formatted_msg)
+            msg_tokens = self._count_tokens(formatted_msg, cache_key=msg.id)
             
             # Check if adding this message would exceed the limit
             # Account for newline character
@@ -126,7 +154,7 @@ class MessageChunker:
                 # Start from the end and work backwards
                 for msg in reversed(chunk_messages):
                     formatted_msg = self._format_message(msg)
-                    msg_tokens = self._count_tokens(formatted_msg)
+                    msg_tokens = self._count_tokens(formatted_msg, cache_key=msg.id)
                     newline_tokens = self._count_tokens("\n") if overlap_messages else 0
                     
                     if overlap_tokens + newline_tokens + msg_tokens <= overlap_tokens_target:
@@ -190,19 +218,30 @@ class MessageChunker:
             ))
         
         # Step 4: Post-processing - merge small chunks with previous ones
+        # Use structural message storage instead of string manipulation
         final_chunks = []
         for i, chunk in enumerate(enhanced_chunks):
-            chunk_tokens = self._count_tokens(chunk.text)
+            # Calculate token count using cached values
+            chunk_tokens = sum(
+                self._count_tokens(self._format_message(msg), cache_key=msg.id)
+                for msg in chunk.original_messages
+            )
+            # Add prefix and suffix tokens (approximate)
+            prefix_tokens = self._count_tokens(self._create_prefix(
+                chunk.metadata.ts_from, chunk.metadata.ts_to,
+                set(msg.sender for msg in chunk.original_messages)
+            ))
+            suffix_tokens = self._count_tokens("\n[продолжение следует]") if i < len(enhanced_chunks) - 1 else 0
+            chunk_tokens += prefix_tokens + suffix_tokens
             
             if chunk_tokens < self.chunk_token_min and final_chunks:
-                # Merge with previous chunk
+                # Merge with previous chunk using structural approach
                 prev_chunk = final_chunks[-1]
                 
-                # Combine texts
-                combined_text = prev_chunk.text.rstrip() + "\n" + chunk.text
+                # Combine messages structurally
+                combined_messages = prev_chunk.original_messages + chunk.original_messages
                 
                 # Update metadata
-                combined_messages = prev_chunk.original_messages + chunk.original_messages
                 combined_meta = ChunkMetadata(
                     msg_id_start=prev_chunk.metadata.msg_id_start,
                     msg_id_end=chunk.metadata.msg_id_end,
@@ -211,30 +250,17 @@ class MessageChunker:
                     message_count=len(combined_messages)
                 )
                 
-                # Recreate prefix with updated info
+                # Re-render text from messages (no string manipulation needed)
                 unique_senders = set(msg.sender for msg in combined_messages)
                 prefix = self._create_prefix(combined_meta.ts_from, combined_meta.ts_to, unique_senders)
+                formatted_messages = [self._format_message(msg) for msg in combined_messages]
+                messages_text = "\n".join(formatted_messages)
                 
-                # Extract messages text (remove old prefix and suffix)
-                prev_messages_text = prev_chunk.text
-                if prev_messages_text.startswith("Чат-фрагмент:"):
-                    # Remove prefix
-                    prev_messages_text = prev_messages_text.split("\n", 1)[1] if "\n" in prev_messages_text else prev_messages_text
-                if prev_messages_text.endswith("[продолжение следует]"):
-                    prev_messages_text = prev_messages_text.rsplit("\n[продолжение следует]", 1)[0]
-                
-                chunk_messages_text = chunk.text
-                if chunk_messages_text.startswith("Чат-фрагмент:"):
-                    chunk_messages_text = chunk_messages_text.split("\n", 1)[1] if "\n" in chunk_messages_text else chunk_messages_text
-                if chunk_messages_text.endswith("[продолжение следует]"):
-                    chunk_messages_text = chunk_messages_text.rsplit("\n[продолжение следует]", 1)[0]
-                
-                # Combine and add suffix if needed
-                combined_messages_text = prev_messages_text + "\n" + chunk_messages_text
+                # Determine if this is the last chunk
                 is_last = (chunk.metadata.msg_id_end == sorted_messages[-1].id)
                 suffix = "" if is_last else "\n[продолжение следует]"
                 
-                combined_text = prefix + combined_messages_text + suffix
+                combined_text = prefix + messages_text + suffix
                 
                 # Update previous chunk
                 final_chunks[-1] = EnhancedTextChunk(

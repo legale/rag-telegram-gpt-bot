@@ -22,6 +22,15 @@ class MessageModel(Base):
     text = Column(Text, nullable=False)
 
 
+class MessageMetaModel(Base):
+    """Stores additional metadata for messages."""
+    __tablename__ = 'message_meta'
+    
+    msg_id = Column(String, ForeignKey('messages.msg_id', ondelete='CASCADE'), primary_key=True)
+    meta_json = Column(Text, nullable=True)  # JSON with additional metadata
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class ChunkModel(Base):
     """Stores text chunks with message reference and topic assignments."""
     __tablename__ = 'chunks'
@@ -35,12 +44,20 @@ class ChunkModel(Base):
     chat_id = Column(String, nullable=True, index=True)
     msg_id_start = Column(String, ForeignKey('messages.msg_id', ondelete='SET NULL'), nullable=True)
     msg_id_end = Column(String, ForeignKey('messages.msg_id', ondelete='SET NULL'), nullable=True)
+    # Raw msg_id fields (without chat_id prefix) for easier access
+    msg_id_start_raw = Column(String, nullable=True)
+    msg_id_end_raw = Column(String, nullable=True)
     ts_from = Column(DateTime, nullable=True, index=True)
     ts_to = Column(DateTime, nullable=True)
     
     # Topic assignments
     topic_l1_id = Column(Integer, ForeignKey('topics_l1.id', ondelete='SET NULL'), nullable=True, index=True)
     topic_l2_id = Column(Integer, ForeignKey('topics_l2.id', ondelete='SET NULL'), nullable=True, index=True)
+    
+    # Embedding indicator
+    embedding_dim = Column(Integer, nullable=True, index=True)
+    # Embedding storage (JSON array of floats)
+    embedding_json = Column(Text, nullable=True)
 
     # Relationships
     topic_l1 = relationship("TopicL1Model", back_populates="chunks")
@@ -57,10 +74,11 @@ class TopicL1Model(Base):
     parent_l2_id = Column(Integer, ForeignKey('topics_l2.id', ondelete='SET NULL'), nullable=True, index=True)
     chunk_count = Column(Integer, nullable=False, default=0)
     msg_count = Column(Integer, nullable=False, default=0)
-    center_vec = Column(Text, nullable=True)  # JSON-serialized vector
     ts_from = Column(DateTime, nullable=True)
     ts_to = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    # Center vector storage (JSON array of floats)
+    center_vec_json = Column(Text, nullable=True)
 
     # Relationships
     chunks = relationship("ChunkModel", back_populates="topic_l1")
@@ -75,8 +93,9 @@ class TopicL2Model(Base):
     title = Column(Text, nullable=False)
     descr = Column(Text, nullable=False)
     chunk_count = Column(Integer, nullable=False, default=0)
-    center_vec = Column(Text, nullable=True)  # JSON-serialized vector
     created_at = Column(DateTime, default=datetime.utcnow)
+    # Center vector storage (JSON array of floats)
+    center_vec_json = Column(Text, nullable=True)
 
     # Relationships
     chunks = relationship("ChunkModel", back_populates="topic_l2")
@@ -88,11 +107,6 @@ class TopicL2Model(Base):
 # ============================================================================
 
 class Database:
-    def __init__(self, db_url: str):
-        if not db_url:
-            raise ValueError("db_url must be provided")
-        self.db_url = db_url
-        self.engine = create_engine(db_url)
     def __init__(self, db_url: str):
         if not db_url:
             raise ValueError("db_url must be provided")
@@ -145,6 +159,74 @@ class Database:
                     conn.commit()
                 except Exception as e:
                      syslog2(LOG_WARNING, "schema update warning (topics_l1)", error=str(e))
+            
+            # Check chunks table for msg_id_start_raw/msg_id_end_raw (refactoring)
+            try:
+                conn.execute(text("SELECT msg_id_start_raw FROM chunks LIMIT 1"))
+            except Exception:
+                try:
+                    conn.execute(text("ALTER TABLE chunks ADD COLUMN msg_id_start_raw VARCHAR"))
+                    conn.execute(text("ALTER TABLE chunks ADD COLUMN msg_id_end_raw VARCHAR"))
+                    conn.commit()
+                except Exception as e:
+                    syslog2(LOG_WARNING, "schema update warning (chunks raw msg_id)", error=str(e))
+            
+            # Check chunks table for embedding_dim (refactoring)
+            try:
+                conn.execute(text("SELECT embedding_dim FROM chunks LIMIT 1"))
+            except Exception:
+                try:
+                    conn.execute(text("ALTER TABLE chunks ADD COLUMN embedding_dim INTEGER"))
+                    conn.commit()
+                except Exception as e:
+                    syslog2(LOG_WARNING, "schema update warning (chunks embedding_dim)", error=str(e))
+            
+            # Check chunks table for embedding_json (refactoring - stage2)
+            try:
+                conn.execute(text("SELECT embedding_json FROM chunks LIMIT 1"))
+            except Exception:
+                try:
+                    conn.execute(text("ALTER TABLE chunks ADD COLUMN embedding_json TEXT"))
+                    conn.commit()
+                except Exception as e:
+                    syslog2(LOG_WARNING, "schema update warning (chunks embedding_json)", error=str(e))
+            
+            # Check topics_l1 table for center_vec_json (refactoring - stage4)
+            try:
+                conn.execute(text("SELECT center_vec_json FROM topics_l1 LIMIT 1"))
+            except Exception:
+                try:
+                    conn.execute(text("ALTER TABLE topics_l1 ADD COLUMN center_vec_json TEXT"))
+                    conn.commit()
+                except Exception as e:
+                    syslog2(LOG_WARNING, "schema update warning (topics_l1 center_vec_json)", error=str(e))
+            
+            # Check topics_l2 table for center_vec_json (refactoring - stage6)
+            try:
+                conn.execute(text("SELECT center_vec_json FROM topics_l2 LIMIT 1"))
+            except Exception:
+                try:
+                    conn.execute(text("ALTER TABLE topics_l2 ADD COLUMN center_vec_json TEXT"))
+                    conn.commit()
+                except Exception as e:
+                    syslog2(LOG_WARNING, "schema update warning (topics_l2 center_vec_json)", error=str(e))
+            
+            # Create message_meta table if it doesn't exist (refactoring - stage0)
+            try:
+                conn.execute(text("SELECT msg_id FROM message_meta LIMIT 1"))
+            except Exception:
+                try:
+                    conn.execute(text("""
+                        CREATE TABLE IF NOT EXISTS message_meta (
+                            msg_id VARCHAR PRIMARY KEY,
+                            meta_json TEXT,
+                            created_at DATETIME,
+                            FOREIGN KEY(msg_id) REFERENCES messages(msg_id) ON DELETE CASCADE
+                        )
+                    """))
+                    conn.commit()
+                except Exception as e:
+                    syslog2(LOG_WARNING, "schema update warning (message_meta)", error=str(e))
         
     def get_session(self):
         return self.Session()
@@ -511,25 +593,81 @@ class Database:
         center_vec: Optional[List[float]] = None,
         ts_from: Optional[datetime] = None,
         ts_to: Optional[datetime] = None,
-        parent_l2_id: Optional[int] = None
+        parent_l2_id: Optional[int] = None,
+        vector_store: Optional[Any] = None
     ) -> int:
-        """Create a new L1 topic and return its ID."""
+        """
+        Create a new L1 topic and return its ID.
+        
+        Args:
+            title: Topic title
+            descr: Topic description
+            chunk_count: Number of chunks in this topic
+            msg_count: Number of messages in this topic
+            center_vec: Center vector for the topic (stored in SQLite as JSON, optionally synced to chroma_db)
+            ts_from: Start timestamp
+            ts_to: End timestamp
+            parent_l2_id: Parent L2 topic ID
+            vector_store: VectorStore instance for saving center_vec to chroma_db (optional, for stage5)
+            
+        Returns:
+            Topic ID
+        """
         session = self.get_session()
         try:
-            center_vec_json = json.dumps(center_vec) if center_vec else None
+            # Convert center_vec to JSON string for storage in SQLite
+            center_vec_json = None
+            if center_vec is not None:
+                center_vec_list = center_vec if isinstance(center_vec, list) else center_vec.tolist() if hasattr(center_vec, 'tolist') else list(center_vec)
+                center_vec_json = json.dumps(center_vec_list)
+            
+            # Store center_vec_json in SQLite
             topic = TopicL1Model(
                 title=title,
                 descr=descr,
                 chunk_count=chunk_count,
                 msg_count=msg_count,
-                center_vec=center_vec_json,
                 ts_from=ts_from,
                 ts_to=ts_to,
-                parent_l2_id=parent_l2_id
+                parent_l2_id=parent_l2_id,
+                center_vec_json=center_vec_json
             )
             session.add(topic)
             session.commit()
-            return topic.id
+            topic_id = topic.id
+            
+            # Optionally save center_vec to chroma_db if vector_store is provided (for stage5 sync)
+            if center_vec is not None and vector_store is not None:
+                try:
+                    l1_topic_id = f"l1-{topic_id}"
+                    center_vec_list = center_vec if isinstance(center_vec, list) else center_vec.tolist() if hasattr(center_vec, 'tolist') else list(center_vec)
+                    syslog2(LOG_DEBUG, "saving l1 topic to chroma_db", 
+                           topic_id=topic_id, 
+                           l1_topic_id=l1_topic_id,
+                           center_vec_type=type(center_vec).__name__,
+                           center_vec_dim=len(center_vec_list))
+                    
+                    vector_store.topics_l1_collection.add(
+                        ids=[l1_topic_id],
+                        embeddings=[center_vec_list],
+                        metadatas=[{
+                            "topic_l1_id": topic_id,
+                            "title": title,
+                            "chunk_count": chunk_count,
+                            "msg_count": msg_count
+                        }]
+                    )
+                    syslog2(LOG_DEBUG, "l1 topic saved to chroma_db successfully", 
+                           topic_id=topic_id, l1_topic_id=l1_topic_id)
+                except Exception as e:
+                    # Log error but don't fail the transaction
+                    syslog2(LOG_WARNING, "failed to save l1 topic to chroma_db", 
+                           topic_id=topic_id, 
+                           l1_topic_id=f"l1-{topic_id}",
+                           error=str(e),
+                           center_vec_type=type(center_vec).__name__ if center_vec is not None else None)
+            
+            return topic_id
         except Exception as e:
             session.rollback()
             raise e
@@ -622,26 +760,32 @@ class Database:
             title: Topic title
             descr: Topic description
             chunk_count: Number of chunks in this topic
-            center_vec: Center vector for the topic (stored in chroma_db, not SQLite)
-            vector_store: VectorStore instance for saving center_vec to chroma_db
+            center_vec: Center vector for the topic (stored in SQLite as JSON, optionally synced to chroma_db)
+            vector_store: VectorStore instance for saving center_vec to chroma_db (optional, for stage7)
             
         Returns:
             Topic ID
         """
         session = self.get_session()
         try:
-            # Store center_vec as None in SQLite (now stored only in chroma_db)
+            # Convert center_vec to JSON string for storage in SQLite
+            center_vec_json = None
+            if center_vec is not None:
+                center_vec_list = center_vec if isinstance(center_vec, list) else center_vec.tolist() if hasattr(center_vec, 'tolist') else list(center_vec)
+                center_vec_json = json.dumps(center_vec_list)
+            
+            # Store center_vec_json in SQLite
             topic = TopicL2Model(
                 title=title,
                 descr=descr,
                 chunk_count=chunk_count,
-                center_vec=None  # No longer stored in SQLite
+                center_vec_json=center_vec_json
             )
             session.add(topic)
             session.commit()
             topic_id = topic.id
             
-            # Save center_vec to chroma_db if provided
+            # Optionally save center_vec to chroma_db if vector_store is provided (for stage7 sync)
             if center_vec is not None and vector_store is not None:
                 try:
                     l2_topic_id = f"l2-{topic_id}"

@@ -267,55 +267,18 @@ def cmd_ingest(args, profile_manager: ProfileManager):
     # Route to appropriate subcommand
     ingest_command = getattr(args, 'ingest_command', None)
     
-    # For 'info' command, we don't need the full pipeline - just DB and vector store count
-    if ingest_command == 'info':
-        from src.storage.db import Database
-        
-        db = Database(paths['db_url'])
-        
-        # Get database info
-        db_info = db.get_database_info()
-        
-        # Get vector store count directly from ChromaDB without creating embedding client
-        # Import chromadb only when needed to avoid initializing OpenAI SDK components
-        try:
-            import chromadb
-            from chromadb.config import Settings
-            
-            chroma_client = chromadb.PersistentClient(
-                path=str(paths['vector_db_path']),
-                settings=Settings(anonymized_telemetry=False)
-            )
-            # Try to get collection, if it doesn't exist, count is 0
-            try:
-                collection = chroma_client.get_collection(name="default")
-                vector_count = collection.count()
-            except Exception:
-                # Collection doesn't exist yet
-                vector_count = 0
-        except Exception:
-            # Vector store directory doesn't exist or is inaccessible
-            vector_count = 0
-        
-        # Format output: бд - таблица - кол-во записей
-        db_name = paths['db_path'].name
-        syslog2(LOG_NOTICE, "database statistics")
-        
-        # SQLite database tables
-        for table_name, count in sorted(db_info.items()):
-            syslog2(LOG_NOTICE, "table statistics", database=db_name, table=table_name, records=count)
-        
-        # Vector store
-        vec_db_name = paths['vector_db_path'].name if paths['vector_db_path'].is_dir() else str(paths['vector_db_path'])
-        syslog2(LOG_NOTICE, "vector store statistics", database=vec_db_name, collection="embeddings", records=vector_count)
-        return
-    
-    # Create pipeline with profile-specific paths (for all other commands)
+    # Create pipeline with profile-specific paths
     pipeline = IngestionPipeline(
         db_url=paths['db_url'],
         vector_db_path=str(paths['vector_db_path']),
         profile_dir=str(paths['profile_dir'])
     )
+    
+    # For 'info' command, use the new get_ingest_info() method
+    if ingest_command == 'info':
+        info_output = pipeline.get_ingest_info()
+        print(info_output)
+        return
     
     if ingest_command == 'all':
         if not args.file:
@@ -353,7 +316,6 @@ def cmd_ingest(args, profile_manager: ProfileManager):
             syslog2(LOG_ERR, "no messages found in database, run ingest stage0 first")
             sys.exit(1)
         
-        chunk_size = getattr(args, 'chunk_size', None)
         syslog2(LOG_NOTICE, "running stage1: create and store chunks")
         pipeline.run_stage1()
         syslog2(LOG_NOTICE, "stage1 complete")
@@ -771,9 +733,8 @@ def parse_ingest_all(stream: ArgStream) -> dict:
     file = stream.expect("file path")
     model = parse_option(stream, "model")
     batch_size = parse_int_option(stream, "batch-size", 128)
-    chunk_size = parse_int_option(stream, "chunk-size", 10)
     profile = parse_option(stream, "profile")
-    return {"file": file, "model": model, "batch_size": batch_size, "chunk_size": chunk_size, "profile": profile, "ingest_command": "all"}
+    return {"file": file, "model": model, "batch_size": batch_size, "profile": profile, "ingest_command": "all"}
 
 
 def parse_ingest_stage0(stream: ArgStream) -> dict:
@@ -787,9 +748,8 @@ def parse_ingest_stage1(stream: ArgStream) -> dict:
     """Parse ingest stage1 command."""
     model = parse_option(stream, "model")
     batch_size = parse_int_option(stream, "batch-size", 128)
-    chunk_size = parse_int_option(stream, "chunk-size", 10)
     profile = parse_option(stream, "profile")
-    return {"model": model, "batch_size": batch_size, "chunk_size": chunk_size, "profile": profile, "ingest_command": "stage1"}
+    return {"model": model, "batch_size": batch_size, "profile": profile, "ingest_command": "stage1"}
 
 
 def parse_ingest_stage2(stream: ArgStream) -> dict:

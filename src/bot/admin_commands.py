@@ -85,6 +85,93 @@ class BaseAdminCommand:
 class ProfileCommands(BaseAdminCommand):
     """Handlers for profile management commands."""
     
+    def _get_profile_stats(self, profile_name: str) -> Dict:
+        """
+        Get statistics for a profile.
+        
+        Args:
+            profile_name: Profile name
+            
+        Returns:
+            Dictionary with profile statistics
+        """
+        paths = self.profile_manager.get_profile_paths(profile_name)
+        profile_dir = self.profile_manager.get_profile_dir(profile_name)
+        current = self.profile_manager.get_current_profile()
+        is_active = profile_name == current
+        
+        db_path = paths['db_path']
+        vector_path = paths['vector_db_path']
+        
+        db_stats = self.db_stats.get_database_stats(db_path)
+        vector_stats = self.db_stats.get_vector_store_stats(vector_path)
+        
+        return {
+            'profile_name': profile_name,
+            'profile_dir': profile_dir,
+            'paths': paths,
+            'is_active': is_active,
+            'db_stats': db_stats,
+            'vector_stats': vector_stats,
+        }
+    
+    def _format_profile_info(self, profile_name: str, stats: Dict, is_active: bool) -> str:
+        """
+        Format profile information in Markdown.
+        
+        Args:
+            profile_name: Profile name
+            stats: Statistics dictionary from _get_profile_stats
+            is_active: Whether profile is active
+            
+        Returns:
+            Formatted Markdown string
+        """
+        paths = stats['paths']
+        db_stats = stats['db_stats']
+        vector_stats = stats['vector_stats']
+        
+        response = f"**Информация о профиле `{profile_name}`**\n\n"
+        response += "**Статус:** Активный\n\n" if is_active else "**Статус:** Неактивный\n\n"
+        response += f"**Директория:** `{paths['profile_dir']}`\n\n"
+        
+        # Database info
+        if db_stats['exists']:
+            response += f"**База данных:**\n"
+            response += f"   Путь: `{paths['db_path']}`\n"
+            response += f"   Размер: {db_stats['size_mb']:.2f} MB\n"
+            response += f"   Чанков: {self.formatter.format_number(db_stats['chunk_count'])}\n"
+        else:
+            response += f"**База данных:** Не создана\n"
+        
+        response += "\n"
+        
+        # Vector store info
+        if vector_stats['exists']:
+            response += f"**Векторное хранилище:**\n"
+            response += f"   Путь: `{paths['vector_db_path']}`\n"
+            response += f"   Размер: {vector_stats['size_mb']:.2f} MB\n"
+        else:
+            response += f"**Векторное хранилище:** Не создано\n"
+        
+        response += "\n"
+        
+        # Session file
+        session_path = paths['session_file']
+        if session_path.exists():
+            response += f"**Telegram сессия:** Создана\n"
+        else:
+            response += f"**Telegram сессия:** Не создана\n"
+        
+        # Admin file
+        admin_file = stats['profile_dir'] / "admin.json"
+        if admin_file.exists():
+            response += f"**Администратор:** Назначен\n"
+        else:
+            response += f"**Администратор:** Не назначен\n"
+        
+        return response
+    
     async def list_profiles(self, update: Update, context: ContextTypes.DEFAULT_TYPE, 
                            admin_manager, args: List[str]) -> str:
         """Handle /admin profile list command."""
@@ -102,7 +189,8 @@ class ProfileCommands(BaseAdminCommand):
         
         for profile_dir in sorted(profiles, key=lambda p: p.name):
             profile_name = profile_dir.name
-            is_active = profile_name == current
+            stats = self._get_profile_stats(profile_name)
+            is_active = stats['is_active']
             
             # Get database info using utility
             db_path = profile_dir / "legale_bot.db"
@@ -283,53 +371,8 @@ class ProfileCommands(BaseAdminCommand):
             return error
         
         try:
-            paths = self.profile_manager.get_profile_paths(profile_name)
-            profile_dir = self.profile_manager.get_profile_dir(profile_name)
-            current = self.profile_manager.get_current_profile()
-            is_active = profile_name == current
-            
-            response = f"**Информация о профиле `{profile_name}`**\n\n"
-            response += "**Статус:** Активный\n\n" if is_active else "**Статус:** Неактивный\n\n"
-            response += f"**Директория:** `{paths['profile_dir']}`\n\n"
-            
-            # Database info using utility
-            db_stats = self.db_stats.get_database_stats(paths['db_path'])
-            if db_stats['exists']:
-                response += f"**База данных:**\n"
-                response += f"   Путь: `{paths['db_path']}`\n"
-                response += f"   Размер: {db_stats['size_mb']:.2f} MB\n"
-                response += f"   Чанков: {self.formatter.format_number(db_stats['chunk_count'])}\n"
-            else:
-                response += f"**База данных:** Не создана\n"
-            
-            response += "\n"
-            
-            # Vector store info using utility
-            vector_stats = self.db_stats.get_vector_store_stats(paths['vector_db_path'])
-            if vector_stats['exists']:
-                response += f"**Векторное хранилище:**\n"
-                response += f"   Путь: `{paths['vector_db_path']}`\n"
-                response += f"   Размер: {vector_stats['size_mb']:.2f} MB\n"
-            else:
-                response += f"**Векторное хранилище:** Не создано\n"
-            
-            response += "\n"
-            
-            # Session file
-            session_path = paths['session_file']
-            if session_path.exists():
-                response += f"**Telegram сессия:** Создана\n"
-            else:
-                response += f"**Telegram сессия:** Не создана\n"
-            
-            # Admin file
-            admin_file = profile_dir / "admin.json"
-            if admin_file.exists():
-                response += f"**Администратор:** Назначен\n"
-            else:
-                response += f"**Администратор:** Не назначен\n"
-            
-            return response
+            stats = self._get_profile_stats(profile_name)
+            return self._format_profile_info(profile_name, stats, stats['is_active'])
             
         except Exception as e:
             return await self.handle_error(e, f"получении информации о профиле '{profile_name}'")

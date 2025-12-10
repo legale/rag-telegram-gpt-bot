@@ -7,7 +7,7 @@ import asyncio
 import logging
 from pathlib import Path
 from src.core.syslog2 import *
-from typing import Optional, Callable
+from typing import Optional, Callable, Tuple, List, Dict
 from telegram import Bot
 
 logger = logging.getLogger("legale_admin_tasks")
@@ -34,6 +34,119 @@ class IngestionTask:
         self.error = None
         self.result = None
     
+    async def _update_progress(self, bot: Bot, chat_id: int, message_id: int, text: str) -> None:
+        """Update progress indicator."""
+        await bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=text
+        )
+    
+    async def _parse_file(self, pipeline, bot: Bot, chat_id: int, message_id: int) -> Tuple[List, int]:
+        """Parse file and return messages."""
+        await self._update_progress(bot, chat_id, message_id, "Начинаю загрузку данных...\n\nЧтение файла...")
+        
+        syslog2(LOG_NOTICE, "parsing file", path=str(self.file_path))
+        messages = pipeline.parser.parse_file(str(self.file_path))
+        self.total = len(messages)
+        
+        await self._update_progress(
+            bot, chat_id, message_id,
+            f"Загрузка данных...\n\nНайдено сообщений: {self.total:,}\nСоздание чанков..."
+        )
+        
+        return messages, self.total
+    
+    async def _chunk_messages(self, pipeline, messages: List, bot: Bot, chat_id: int, message_id: int) -> Tuple[List, int]:
+        """Chunk messages and return chunks."""
+        chunks = pipeline.chunker.chunk_messages(messages)
+        chunk_count = len(chunks)
+        
+        await self._update_progress(
+            bot, chat_id, message_id,
+            f"Загрузка данных...\n\nСообщений: {self.total:,}\nЧанков: {chunk_count:,}\n\nСохранение в базу данных..."
+        )
+        
+        return chunks, chunk_count
+    
+    async def _persist_sql(
+        self, 
+        pipeline, 
+        chunks: List, 
+        bot: Bot, 
+        chat_id: int, 
+        message_id: int
+    ) -> Tuple[List[str], List[str], List[Dict]]:
+        """Persist chunks to SQLite database."""
+        import uuid
+        import json
+        from src.storage.db import ChunkModel
+        
+        session = pipeline.db.get_session()
+        try:
+            chunk_models = []
+            ids = []
+            documents = []
+            metadatas = []
+            
+            chunk_count = len(chunks)
+            for i, chunk in enumerate(chunks):
+                chunk_id = str(uuid.uuid4())
+                
+                # SQL Model
+                model = ChunkModel(
+                    id=chunk_id,
+                    text=chunk.text,
+                    metadata_json=json.dumps(chunk.metadata)
+                )
+                chunk_models.append(model)
+                
+                # Vector Store Data
+                ids.append(chunk_id)
+                documents.append(chunk.text)
+                metadatas.append(chunk.metadata)
+                
+                # Update progress every 100 chunks
+                if (i + 1) % 100 == 0:
+                    self.progress = i + 1
+                    progress_pct = (self.progress / chunk_count) * 100
+                    await self._update_progress(
+                        bot, chat_id, message_id,
+                        f"Загрузка данных...\n\nПрогресс: {self.progress:,}/{chunk_count:,} ({progress_pct:.1f}%)\n\n{'▓' * int(progress_pct / 5)}{'░' * (20 - int(progress_pct / 5))}"
+                    )
+            
+            session.add_all(chunk_models)
+            session.commit()
+            syslog2(LOG_NOTICE, "saved chunks to database", count=len(chunk_models))
+            
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
+        
+        await self._update_progress(
+            bot, chat_id, message_id,
+            f"Загрузка данных...\n\nДанные сохранены в БД\n\nСоздание векторных эмбеддингов..."
+        )
+        
+        return ids, documents, metadatas
+    
+    async def _persist_vectors(
+        self, 
+        pipeline, 
+        ids: List[str], 
+        documents: List[str], 
+        metadatas: List[Dict],
+        bot: Bot,
+        chat_id: int,
+        message_id: int
+    ) -> None:
+        """Persist embeddings to vector store."""
+        if ids:
+            pipeline.vector_store.add_documents(ids=ids, documents=documents, metadatas=metadatas)
+            syslog2(LOG_NOTICE, "saved embeddings to vector store", count=len(ids))
+    
     async def run(self, bot: Bot, chat_id: int, message_id: int):
         """
         Run ingestion task with progress updates.
@@ -58,101 +171,25 @@ class IngestionTask:
                 vector_db_path=str(paths['vector_db_path'])
             )
             
-            # Send initial status
-            await bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=message_id,
-                text="Начинаю загрузку данных...\n\nЧтение файла..."
-            )
+            # Step 1: Parse file
+            messages, _ = await self._parse_file(pipeline, bot, chat_id, message_id)
             
-            # Parse file
-            syslog2(LOG_NOTICE, "parsing file", path=str(self.file_path))
-            messages = pipeline.parser.parse_file(str(self.file_path))
-            self.total = len(messages)
+            # Step 2: Chunk messages
+            chunks, chunk_count = await self._chunk_messages(pipeline, messages, bot, chat_id, message_id)
             
-            await bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=message_id,
-                text=f"Загрузка данных...\n\nНайдено сообщений: {self.total:,}\nСоздание чанков..."
-            )
-            
-            # Chunk messages
-            chunks = pipeline.chunker.chunk_messages(messages)
-            chunk_count = len(chunks)
-            
-            await bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=message_id,
-                text=f"Загрузка данных...\n\nСообщений: {self.total:,}\nЧанков: {chunk_count:,}\n\nСохранение в базу данных..."
-            )
-            
-            # Clear if requested
+            # Step 3: Clear if requested
             if self.clear_existing:
                 pipeline._clear_data()
-                await bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=message_id,
-                    text=f"Загрузка данных...\n\nСтарые данные очищены\n\nСохранение новых данных..."
+                await self._update_progress(
+                    bot, chat_id, message_id,
+                    f"Загрузка данных...\n\nСтарые данные очищены\n\nСохранение новых данных..."
                 )
             
-            # Store in database
-            import uuid
-            import json
-            from src.storage.db import ChunkModel
+            # Step 4: Persist to SQLite
+            ids, documents, metadatas = await self._persist_sql(pipeline, chunks, bot, chat_id, message_id)
             
-            session = pipeline.db.get_session()
-            try:
-                chunk_models = []
-                ids = []
-                documents = []
-                metadatas = []
-                
-                for i, chunk in enumerate(chunks):
-                    chunk_id = str(uuid.uuid4())
-                    
-                    # SQL Model
-                    model = ChunkModel(
-                        id=chunk_id,
-                        text=chunk.text,
-                        metadata_json=json.dumps(chunk.metadata)
-                    )
-                    chunk_models.append(model)
-                    
-                    # Vector Store Data
-                    ids.append(chunk_id)
-                    documents.append(chunk.text)
-                    metadatas.append(chunk.metadata)
-                    
-                    # Update progress every 100 chunks
-                    if (i + 1) % 100 == 0:
-                        self.progress = i + 1
-                        progress_pct = (self.progress / chunk_count) * 100
-                        await bot.edit_message_text(
-                            chat_id=chat_id,
-                            message_id=message_id,
-                            text=f"Загрузка данных...\n\nПрогресс: {self.progress:,}/{chunk_count:,} ({progress_pct:.1f}%)\n\n{'▓' * int(progress_pct / 5)}{'░' * (20 - int(progress_pct / 5))}"
-                        )
-                
-                session.add_all(chunk_models)
-                session.commit()
-                syslog2(LOG_NOTICE, "saved chunks to database", count=len(chunk_models))
-                
-            except Exception as e:
-                session.rollback()
-                raise e
-            finally:
-                session.close()
-            
-            await bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=message_id,
-                text=f"Загрузка данных...\n\nДанные сохранены в БД\n\nСоздание векторных эмбеддингов..."
-            )
-            
-            # Store in vector DB
-            if ids:
-                pipeline.vector_store.add_documents(ids=ids, documents=documents, metadatas=metadatas)
-                syslog2(LOG_NOTICE, "saved embeddings to vector store", count=len(ids))
+            # Step 5: Persist to vector store
+            await self._persist_vectors(pipeline, ids, documents, metadatas, bot, chat_id, message_id)
             
             self.status = "completed"
             self.result = {

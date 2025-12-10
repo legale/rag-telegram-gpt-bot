@@ -32,7 +32,7 @@ except ImportError:
 
 
 class IngestionPipeline:
-    def __init__(self, db_url: str, vector_db_path: str, collection_name: str = "default", profile_dir: Optional[str] = None):
+    def __init__(self, db_url: str, vector_db_path: str, collection_name: str = "embed-l1", profile_dir: Optional[str] = None):
         self.parser = ChatParser()
         self.db = Database(db_url)
         self.profile_dir = Path(profile_dir) if profile_dir else None
@@ -111,38 +111,118 @@ class IngestionPipeline:
         return deleted
 
     def clear_stage2(self) -> int:
-        """Clear stage2: embeddings for chunks."""
-        syslog2(LOG_NOTICE, "clearing stage2: embeddings")
-        before = self.vector_store.count()
-        removed = self.vector_store.clear()
-        syslog2(LOG_NOTICE, "stage2 cleared", before=before, removed=removed)
-        return removed
+        """Clear stage2: embeddings for chunks (embedding_json in SQLite)."""
+        syslog2(LOG_NOTICE, "clearing stage2: chunk embeddings")
+        session = self.db.get_session()
+        try:
+            updated = session.query(ChunkModel).update({
+                ChunkModel.embedding_json: None,
+                ChunkModel.embedding_dim: None
+            }, synchronize_session=False)
+            session.commit()
+            syslog2(LOG_NOTICE, "stage2 cleared", updated=updated)
+            return updated
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
 
     def clear_stage3(self) -> int:
-        """Clear stage3: L1 clustering results (topics_l1)."""
-        syslog2(LOG_NOTICE, "clearing stage3: topics_l1")
-        deleted = self.db.clear_topics_l1()
-        syslog2(LOG_NOTICE, "stage3 cleared", deleted=deleted)
-        return deleted
+        """Clear stage3: chunks from vector_db collection."""
+        syslog2(LOG_NOTICE, "clearing stage3: vector_db chunks")
+        before = self.vector_store.count()
+        removed = self.vector_store.clear()
+        syslog2(LOG_NOTICE, "stage3 cleared", before=before, removed=removed)
+        return removed
 
     def clear_stage4(self) -> int:
-        """Clear stage4: topic_l1_id assignments in chunks."""
-        syslog2(LOG_NOTICE, "clearing stage4: topic_l1_id assignments")
+        """Clear stage4: L1 clustering results (topics_l1) and topic_l1_id assignments."""
+        syslog2(LOG_NOTICE, "clearing stage4: topics_l1 and assignments")
         updated = self.db.clear_chunk_topic_l1_assignments()
-        syslog2(LOG_NOTICE, "stage4 cleared", updated=updated)
-        return updated
+        deleted = self.db.clear_topics_l1()
+        syslog2(LOG_NOTICE, "stage4 cleared", updated=updated, deleted=deleted)
+        return updated + deleted
 
     def clear_stage5(self) -> int:
-        """Clear stage5: topic_l2_id assignments and topics_l2."""
-        syslog2(LOG_NOTICE, "clearing stage5: topic_l2_id assignments and topics_l2")
+        """Clear stage5: L1 topics from vector_db collection."""
+        syslog2(LOG_NOTICE, "clearing stage5: vector_db topics_l1")
+        before = self.vector_store.topics_l1_collection.count()
+        if before > 0:
+            all_data = self.vector_store.topics_l1_collection.get()
+            if all_data and all_data.get("ids"):
+                self.vector_store.topics_l1_collection.delete(ids=all_data["ids"])
+        after = self.vector_store.topics_l1_collection.count()
+        removed = before - after
+        syslog2(LOG_NOTICE, "stage5 cleared", before=before, removed=removed)
+        return removed
+
+    def clear_stage6(self) -> int:
+        """Clear stage6: L2 clustering results (topics_l2) and topic_l2_id assignments."""
+        syslog2(LOG_NOTICE, "clearing stage6: topics_l2 and assignments")
         updated = self.db.clear_chunk_topic_l2_assignments()
         deleted = self.db.clear_topics_l2()
-        syslog2(LOG_NOTICE, "stage5 cleared", updated=updated, deleted=deleted)
+        syslog2(LOG_NOTICE, "stage6 cleared", updated=updated, deleted=deleted)
         return updated + deleted
+
+    def clear_stage7(self) -> int:
+        """Clear stage7: L2 topics from vector_db collection."""
+        syslog2(LOG_NOTICE, "clearing stage7: vector_db topics_l2")
+        before = self.vector_store.topics_l2_collection.count()
+        if before > 0:
+            all_data = self.vector_store.topics_l2_collection.get()
+            if all_data and all_data.get("ids"):
+                self.vector_store.topics_l2_collection.delete(ids=all_data["ids"])
+        after = self.vector_store.topics_l2_collection.count()
+        removed = before - after
+        syslog2(LOG_NOTICE, "stage7 cleared", before=before, removed=removed)
+        return removed
+
+    def clear_stage8(self) -> int:
+        """Clear stage8: L1 topic names (reset to 'unknown')."""
+        syslog2(LOG_NOTICE, "clearing stage8: l1 topic names")
+        session = self.db.get_session()
+        try:
+            from src.storage.db import TopicL1Model
+            updated = session.query(TopicL1Model).update({
+                TopicL1Model.title: "unknown",
+                TopicL1Model.descr: "Pending description..."
+            }, synchronize_session=False)
+            session.commit()
+            syslog2(LOG_NOTICE, "stage8 cleared", updated=updated)
+            return updated
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
+
+    def clear_stage9(self) -> int:
+        """Clear stage9: L2 topic names (reset to 'unknown')."""
+        syslog2(LOG_NOTICE, "clearing stage9: l2 topic names")
+        session = self.db.get_session()
+        try:
+            from src.storage.db import TopicL2Model
+            updated = session.query(TopicL2Model).update({
+                TopicL2Model.title: "unknown",
+                TopicL2Model.descr: "Pending description..."
+            }, synchronize_session=False)
+            session.commit()
+            syslog2(LOG_NOTICE, "stage9 cleared", updated=updated)
+            return updated
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
 
     def clear_all(self):
         """Clear all stages."""
         # Clear in reverse order to maintain referential integrity
+        self.clear_stage9()
+        self.clear_stage8()
+        self.clear_stage7()
+        self.clear_stage6()
         self.clear_stage5()
         self.clear_stage4()
         self.clear_stage3()
@@ -159,8 +239,6 @@ class IngestionPipeline:
 
     def run_stage1(self):
         """Run stage1: create and store chunks."""
-        # chunk_size parameter is kept for backward compatibility but not used
-        # New token-based chunking uses config parameters
         if not self.profile_dir or not self.profile_dir.exists():
             import sys
             syslog2(LOG_ERR, "profile directory not found")
@@ -169,8 +247,101 @@ class IngestionPipeline:
         self.parse_and_store_chunks()
 
     def run_stage2(self, model: Optional[str] = None, batch_size: int = 128):
-        """Run stage2: generate embeddings for chunks."""
+        """Run stage2: generate embeddings for chunks and save to SQLite (chunks.embedding_json)."""
         self.generate_embeddings(model=model, batch_size=batch_size)
+
+    def run_stage3(self):
+        """Run stage3: sync chunks from SQLite (embedding_json) to vector_db."""
+        syslog2(LOG_NOTICE, "starting stage3: syncing chunks to vector database")
+        
+        # Get all chunks with embeddings from SQLite
+        session = self.db.get_session()
+        try:
+            chunks_with_embeddings = session.query(ChunkModel).filter(
+                ChunkModel.embedding_json.isnot(None)
+            ).all()
+            
+            if not chunks_with_embeddings:
+                syslog2(LOG_NOTICE, "no chunks with embeddings found in sqlite")
+                return
+            
+            total_chunks = len(chunks_with_embeddings)
+            syslog2(LOG_NOTICE, "syncing chunks to vector database", total=total_chunks)
+            
+            # Prepare data for vector store
+            ids = []
+            documents = []
+            embeddings = []
+            metadatas = []
+            
+            for chunk in chunks_with_embeddings:
+                # Parse embedding from JSON
+                try:
+                    embedding = json.loads(chunk.embedding_json)
+                except (json.JSONDecodeError, TypeError) as e:
+                    syslog2(LOG_WARNING, "failed to parse embedding_json for chunk", chunk_id=chunk.id, error=str(e))
+                    continue
+                
+                ids.append(chunk.id)
+                documents.append(chunk.text)
+                embeddings.append(embedding)
+                
+                # Prepare metadata
+                meta_dict = {}
+                if chunk.metadata_json:
+                    try:
+                        meta_dict = json.loads(chunk.metadata_json)
+                    except:
+                        pass
+                # Add topic assignments to metadata for chroma_db filtering
+                if chunk.topic_l1_id is not None:
+                    meta_dict["topic_l1_id"] = chunk.topic_l1_id
+                if chunk.topic_l2_id is not None:
+                    meta_dict["topic_l2_id"] = chunk.topic_l2_id
+                metadatas.append(meta_dict)
+            
+            if not ids:
+                syslog2(LOG_WARNING, "no valid embeddings found to sync")
+                return
+            
+            # Check collection dimension before syncing
+            new_dimension = len(embeddings[0]) if embeddings else 0
+            try:
+                collection_count = self.vector_store.collection.count()
+                if collection_count > 0:
+                    # Collection has data - check its dimension
+                    sample = self.vector_store.collection.get(limit=1, include=["embeddings"])
+                    if sample and sample.get("embeddings") and len(sample["embeddings"]) > 0:
+                        existing_dim = len(sample["embeddings"][0])
+                        if existing_dim != new_dimension:
+                            # Dimension mismatch - MUST recreate collection
+                            syslog2(LOG_WARNING, 
+                                f"Collection dimension mismatch: existing={existing_dim}, new={new_dimension}. "
+                                f"Recreating collection...")
+                            self.vector_store.collection = self.vector_store._recreate_collection_with_dimension(new_dimension)
+                            self.vector_store.expected_dimension = new_dimension
+                            syslog2(LOG_NOTICE, f"Collection recreated with dimension {new_dimension}")
+            except Exception as e:
+                syslog2(LOG_DEBUG, f"Could not check collection dimension: {e}")
+            
+            # Update expected dimension
+            self.vector_store.expected_dimension = new_dimension
+            
+            # Sync to vector store (add or update)
+            # ChromaDB will update existing IDs automatically
+            self.vector_store.add_documents_with_embeddings(
+                ids=ids,
+                documents=documents,
+                embeddings=embeddings,
+                metadatas=metadatas,
+                show_progress=True,
+            )
+            syslog2(LOG_NOTICE, "chunks synced to vector database", count=len(ids))
+            
+        finally:
+            session.close()
+        
+        syslog2(LOG_NOTICE, "stage3 complete")
 
     def _get_llm_client(self):
         """Get LLM client using model from profile config. Model must be explicitly set."""
@@ -198,11 +369,12 @@ class IngestionPipeline:
             syslog2(LOG_ERR, "failed to load model from profile config", error=str(e))
             sys.exit(1)
 
-    def run_stage3(self, **clustering_params):
-        """Run stage3: cluster chunk embeddings into topics_l1 (HDBSCAN clustering)."""
+    def run_stage4(self, **clustering_params):
+        """Run stage4: L1 clustering - cluster chunk embeddings into topics_l1 (HDBSCAN clustering).
+        Reads embeddings from SQLite, saves center_vec_json to SQLite, does NOT write to vector_db."""
         from src.ai.clustering import TopicClusterer
         
-        # LLM client not needed for clustering - only for naming (stage4)
+        # LLM client not needed for clustering - only for naming (stage8)
         clusterer = TopicClusterer(
             db=self.db,
             vector_store=self.vector_store,
@@ -220,14 +392,77 @@ class IngestionPipeline:
         
         # Perform clustering and get assignments
         assignments = clusterer.perform_l1_clustering(**params)
-        # Store assignments for stage4
-        self._stage3_assignments = assignments
+        # Assign topics to chunks
+        clusterer.assign_l1_topics_to_chunks(show_progress=True)
+        # Store assignments for potential future use (though they're already assigned)
+        self._stage4_assignments = assignments
 
-    def run_stage4(self, only_unnamed: bool = True, rebuild: bool = False):
-        """Run stage4: create embeddings for clusters (centroids), assign topic_l1_id to chunks, and name L1 topics."""
+    def run_stage5(self):
+        """Run stage5: sync L1 topics from SQLite (center_vec_json) to vector_db."""
+        syslog2(LOG_NOTICE, "starting stage5: syncing l1 topics to vector database")
+        
+        # Get all L1 topics with center_vec_json from SQLite
+        l1_topics = self.db.get_all_topics_l1()
+        
+        if not l1_topics:
+            syslog2(LOG_NOTICE, "no l1 topics found in sqlite")
+            return
+        
+        # Prepare data for vector store
+        ids = []
+        embeddings = []
+        metadatas = []
+        
+        for topic in l1_topics:
+            if not topic.center_vec_json:
+                syslog2(LOG_WARNING, "l1 topic missing center_vec_json", topic_id=topic.id)
+                continue
+            
+            # Parse center_vec from JSON
+            try:
+                center_vec = json.loads(topic.center_vec_json)
+            except (json.JSONDecodeError, TypeError) as e:
+                syslog2(LOG_WARNING, "failed to parse center_vec_json for l1 topic", topic_id=topic.id, error=str(e))
+                continue
+            
+            l1_topic_id = f"l1-{topic.id}"
+            ids.append(l1_topic_id)
+            embeddings.append(center_vec)
+            metadatas.append({
+                "topic_l1_id": topic.id,
+                "title": topic.title or "unknown",
+                "chunk_count": topic.chunk_count,
+                "msg_count": topic.msg_count
+            })
+        
+        if not ids:
+            syslog2(LOG_WARNING, "no valid l1 topic centroids found to sync")
+            return
+        
+        # Sync to vector store (add or update)
+        # ChromaDB will update existing IDs automatically
+        batch_size = 100
+        for i in range(0, len(ids), batch_size):
+            batch_ids = ids[i:i + batch_size]
+            batch_embeddings = embeddings[i:i + batch_size]
+            batch_metadatas = metadatas[i:i + batch_size]
+            
+            self.vector_store.topics_l1_collection.add(
+                ids=batch_ids,
+                embeddings=batch_embeddings,
+                metadatas=batch_metadatas
+            )
+            
+            if i % (batch_size * 10) == 0:
+                print(f"\rSyncing L1 topics: {min(i + batch_size, len(ids))}/{len(ids)}", flush=True, end="")
+        
+        print()  # Newline after progress
+        syslog2(LOG_NOTICE, "l1 topics synced to vector database", count=len(ids))
+        syslog2(LOG_NOTICE, "stage5 complete")
+
+    def run_stage8(self, only_unnamed: bool = True, rebuild: bool = False):
+        """Run stage8: name L1 topics using LLM."""
         from src.ai.clustering import TopicClusterer
-        import numpy as np
-        import json
         
         # LLM client needed for naming
         llm_client = self._get_llm_client()
@@ -237,95 +472,6 @@ class IngestionPipeline:
             llm_client=llm_client
         )
         
-        # Check if assignments are in memory (from stage3)
-        if hasattr(self, '_stage3_assignments'):
-            # Use assignments from stage3
-            clusterer._l1_topic_assignments = self._stage3_assignments
-            clusterer.assign_l1_topics_to_chunks()
-            # Clear assignments after use
-            delattr(self, '_stage3_assignments')
-        else:
-            # Restore assignments from database: topics_l1 exist but chunks don't have topic_l1_id yet
-            l1_topics = self.db.get_all_topics_l1()
-            if not l1_topics:
-                raise ValueError("stage4 requires stage3 to be run first (no topics_l1 found)")
-            
-            # Check if chunks already have topic_l1_id assigned
-            session = self.db.get_session()
-            chunks_already_assigned = False
-            try:
-                from src.storage.db import ChunkModel
-                chunks_with_topics = session.query(ChunkModel).filter(ChunkModel.topic_l1_id.isnot(None)).count()
-                if chunks_with_topics > 0:
-                    chunks_already_assigned = True
-                    syslog2(LOG_NOTICE, "chunks already have topic_l1_id assigned, skipping assignment step")
-            finally:
-                session.close()
-            
-            # Only restore assignments if chunks are not already assigned
-            if not chunks_already_assigned:
-                # Restore assignments by finding nearest topic for each chunk based on centroids
-                syslog2(LOG_NOTICE, "restoring l1 topic assignments from database centroids")
-                
-                # Get all topics with centroids
-                topic_centroids = {}
-                for topic in l1_topics:
-                    if topic.center_vec:
-                        try:
-                            centroid = json.loads(topic.center_vec)
-                            topic_centroids[topic.id] = np.array(centroid)
-                        except:
-                            pass
-                
-                if not topic_centroids:
-                    raise ValueError("no topic centroids found in topics_l1")
-                
-                # Get all chunks with embeddings
-                all_chunks = self.vector_store.get_all_embeddings()
-                if not all_chunks or not all_chunks.get('ids'):
-                    raise ValueError("no chunks with embeddings found")
-                
-                # Build assignments: topic_id -> [chunk_ids]
-                assignments = {}
-                for topic_id in topic_centroids.keys():
-                    assignments[topic_id] = []
-                
-                # For each chunk, find nearest topic by cosine similarity
-                chunk_ids = all_chunks['ids']
-                embeddings = all_chunks['embeddings']
-                metadatas = all_chunks.get('metadatas', [None] * len(chunk_ids))
-                
-                total_chunks = len(chunk_ids)
-                syslog2(LOG_NOTICE, "finding nearest topics for chunks", total_chunks=total_chunks)
-                
-                try:
-                    for idx, (chunk_id, embedding, metadata) in enumerate(zip(chunk_ids, embeddings, metadatas), 1):
-                        chunk_emb = np.array(embedding)
-                        
-                        # Calculate cosine similarity to each topic centroid
-                        best_topic_id = None
-                        best_similarity = -1.0
-                        
-                        for topic_id, centroid in topic_centroids.items():
-                            # Cosine similarity
-                            similarity = np.dot(chunk_emb, centroid) / (np.linalg.norm(chunk_emb) * np.linalg.norm(centroid))
-                            if similarity > best_similarity:
-                                best_similarity = similarity
-                                best_topic_id = topic_id
-                        
-                        if best_topic_id:
-                            assignments[best_topic_id].append(chunk_id)
-                        
-                        topics_count = len([a for a in assignments.values() if a])
-                        print(f"\rMatching chunks to topics: {idx}/{total_chunks} (topics: {topics_count})", flush=True, end="")
-                finally:
-                    print()  # Newline after progress
-                
-                # Assign topics to chunks
-                clusterer._l1_topic_assignments = assignments
-                clusterer.assign_l1_topics_to_chunks(show_progress=True)
-        
-        # Name L1 topics (after assignments are done)
         # Create progress callback for topic naming
         def progress_callback(current, total, stage, total_all=None):
             percentage = int((current / total * 100)) if total > 0 else 0
@@ -346,28 +492,17 @@ class IngestionPipeline:
             target='l1'
         )
 
-    def run_stage5(self, **clustering_params):
-        """Run stage5: cluster L1 topics into L2 and generate names."""
+    def run_stage9(self, only_unnamed: bool = True, rebuild: bool = False):
+        """Run stage9: name L2 topics using LLM."""
         from src.ai.clustering import TopicClusterer
         
+        # LLM client needed for naming
         llm_client = self._get_llm_client()
         clusterer = TopicClusterer(
             db=self.db,
             vector_store=self.vector_store,
             llm_client=llm_client
         )
-        
-        # Default parameters if not provided
-        l2_params = {
-            'min_cluster_size': clustering_params.get('min_cluster_size', 2),
-            'min_samples': clustering_params.get('min_samples', 1),
-            'metric': clustering_params.get('metric', 'cosine'),
-            'cluster_selection_method': clustering_params.get('cluster_selection_method', 'eom'),
-            'cluster_selection_epsilon': clustering_params.get('cluster_selection_epsilon', 0.0)
-        }
-        
-        syslog2(LOG_NOTICE, "clustering l1 topics into l2 topics")
-        clusterer.perform_l2_clustering(**l2_params)
         
         # Create progress callback for topic naming
         def progress_callback(current, total, stage, total_all=None):
@@ -381,7 +516,99 @@ class IngestionPipeline:
             if current == total:
                 print()  # Newline after progress
         
-        clusterer.name_topics(progress_callback=progress_callback, only_unnamed=True, target='l2')
+        syslog2(LOG_NOTICE, "naming l2 topics")
+        clusterer.name_topics(
+            progress_callback=progress_callback,
+            only_unnamed=only_unnamed,
+            rebuild=rebuild,
+            target='l2'
+        )
+
+    def run_stage6(self, **clustering_params):
+        """Run stage6: L2 clustering - cluster L1 topics into L2 topics.
+        Reads L1 centroids from SQLite, saves center_vec_json to SQLite, does NOT write to vector_db."""
+        from src.ai.clustering import TopicClusterer
+        
+        # LLM client not needed for clustering - only for naming (stage9)
+        clusterer = TopicClusterer(
+            db=self.db,
+            vector_store=self.vector_store,
+            llm_client=None
+        )
+        
+        # Default parameters if not provided
+        l2_params = {
+            'min_cluster_size': clustering_params.get('min_cluster_size', 2),
+            'min_samples': clustering_params.get('min_samples', 1),
+            'metric': clustering_params.get('metric', 'cosine'),
+            'cluster_selection_method': clustering_params.get('cluster_selection_method', 'eom'),
+            'cluster_selection_epsilon': clustering_params.get('cluster_selection_epsilon', 0.0)
+        }
+        
+        syslog2(LOG_NOTICE, "clustering l1 topics into l2 topics")
+        clusterer.perform_l2_clustering(**l2_params)
+
+    def run_stage7(self):
+        """Run stage7: sync L2 topics from SQLite (center_vec_json) to vector_db."""
+        syslog2(LOG_NOTICE, "starting stage7: syncing l2 topics to vector database")
+        
+        # Get all L2 topics with center_vec_json from SQLite
+        l2_topics = self.db.get_all_topics_l2()
+        
+        if not l2_topics:
+            syslog2(LOG_NOTICE, "no l2 topics found in sqlite")
+            return
+        
+        # Prepare data for vector store
+        ids = []
+        embeddings = []
+        metadatas = []
+        
+        for topic in l2_topics:
+            if not topic.center_vec_json:
+                syslog2(LOG_WARNING, "l2 topic missing center_vec_json", topic_id=topic.id)
+                continue
+            
+            # Parse center_vec from JSON
+            try:
+                center_vec = json.loads(topic.center_vec_json)
+            except (json.JSONDecodeError, TypeError) as e:
+                syslog2(LOG_WARNING, "failed to parse center_vec_json for l2 topic", topic_id=topic.id, error=str(e))
+                continue
+            
+            l2_topic_id = f"l2-{topic.id}"
+            ids.append(l2_topic_id)
+            embeddings.append(center_vec)
+            metadatas.append({
+                "topic_l2_id": topic.id,
+                "title": topic.title or "unknown",
+                "chunk_count": topic.chunk_count
+            })
+        
+        if not ids:
+            syslog2(LOG_WARNING, "no valid l2 topic centroids found to sync")
+            return
+        
+        # Sync to vector store (add or update)
+        # ChromaDB will update existing IDs automatically
+        batch_size = 100
+        for i in range(0, len(ids), batch_size):
+            batch_ids = ids[i:i + batch_size]
+            batch_embeddings = embeddings[i:i + batch_size]
+            batch_metadatas = metadatas[i:i + batch_size]
+            
+            self.vector_store.topics_l2_collection.add(
+                ids=batch_ids,
+                embeddings=batch_embeddings,
+                metadatas=batch_metadatas
+            )
+            
+            if i % (batch_size * 10) == 0:
+                print(f"\rSyncing L2 topics: {min(i + batch_size, len(ids))}/{len(ids)}", flush=True, end="")
+        
+        print()  # Newline after progress
+        syslog2(LOG_NOTICE, "l2 topics synced to vector database", count=len(ids))
+        syslog2(LOG_NOTICE, "stage7 complete")
 
     def run_all(self, file_path: str, model: Optional[str] = None, batch_size: int = 128, **clustering_params):
         """Run all stages in sequence."""
@@ -391,17 +618,29 @@ class IngestionPipeline:
         syslog2(LOG_NOTICE, "running stage1: create and store chunks")
         self.run_stage1()
         
-        syslog2(LOG_NOTICE, "running stage2: generate embeddings")
+        syslog2(LOG_NOTICE, "running stage2: generate embeddings for chunks (save to SQLite)")
         self.run_stage2(model=model, batch_size=batch_size)
         
-        syslog2(LOG_NOTICE, "running stage3: cluster l1 topics")
-        self.run_stage3(**clustering_params)
+        syslog2(LOG_NOTICE, "running stage3: sync chunks to vector database")
+        self.run_stage3()
         
-        syslog2(LOG_NOTICE, "running stage4: create embeddings for clusters, assign topics, and name l1 topics")
-        self.run_stage4()
+        syslog2(LOG_NOTICE, "running stage4: L1 clustering (save to SQLite)")
+        self.run_stage4(**clustering_params)
         
-        syslog2(LOG_NOTICE, "running stage5: cluster l2 topics and name")
-        self.run_stage5(**clustering_params)
+        syslog2(LOG_NOTICE, "running stage5: sync L1 topics to vector database")
+        self.run_stage5()
+        
+        syslog2(LOG_NOTICE, "running stage6: L2 clustering (save to SQLite)")
+        self.run_stage6(**clustering_params)
+        
+        syslog2(LOG_NOTICE, "running stage7: sync L2 topics to vector database")
+        self.run_stage7()
+        
+        syslog2(LOG_NOTICE, "running stage8: name L1 topics")
+        self.run_stage8()
+        
+        syslog2(LOG_NOTICE, "running stage9: name L2 topics")
+        self.run_stage9()
         
         syslog2(LOG_NOTICE, "all stages complete")
 
@@ -421,7 +660,6 @@ class IngestionPipeline:
         syslog2(LOG_NOTICE, "parsing file", file_path=file_path)
         messages = self.parser.parse_file(file_path)
         syslog2(LOG_NOTICE, "file parsed", messages_count=len(messages))
-        syslog2(LOG_NOTICE, "files parsed", messages_count=len(messages))
 
         # Determine chat_id from filename or default
         filename = os.path.basename(file_path)
@@ -452,42 +690,23 @@ class IngestionPipeline:
             inserted_count = self.db.add_messages_batch(db_messages)
             skipped_count = len(db_messages) - inserted_count
             if skipped_count > 0:
-                syslog2(LOG_NOTICE, "messages saved", inserted=inserted_count, skipped=skipped_count)
+                syslog2(LOG_NOTICE, "messages saved to sql database", inserted=inserted_count, skipped=skipped_count, total=len(db_messages))
             else:
-                syslog2(LOG_NOTICE, "messages saved", inserted=inserted_count)
-            syslog2(LOG_NOTICE, "messages saved to sql database", inserted=inserted_count, skipped=skipped_count, total=len(db_messages))
+                syslog2(LOG_NOTICE, "messages saved to sql database", inserted=inserted_count, total=len(db_messages))
         except Exception as e:
             syslog2(LOG_ERR, "error saving messages", error=str(e))
-            syslog2(LOG_ERR, "messages save failed", error=str(e))
             raise
 
         syslog2(LOG_NOTICE, "stage0 complete", messages_saved=inserted_count)
-        syslog2(LOG_NOTICE, "stage0 complete", messages_count=inserted_count)
 
-    def parse_and_store_chunks(self, chunk_size: Optional[int] = None):
+    def parse_and_store_chunks(self):
         """
         Create chunks from messages and store in SQLite database.
         Uses token-based chunking with parameters from profile config.
         
         Args:
-            chunk_size: Deprecated parameter, kept for backward compatibility
         """
-        # Get chunking parameters from profile config
-        if not self.profile_dir or not self.profile_dir.exists():
-            import sys
-            syslog2(LOG_ERR, "profile directory not found")
-            sys.exit(1)
-        
-        from src.bot.config import BotConfig
-        config = BotConfig(self.profile_dir)
-        chunk_token_min = config.chunk_token_min
-        chunk_token_max = config.chunk_token_max
-        chunk_overlap_ratio = config.chunk_overlap_ratio
-        
-        syslog2(LOG_NOTICE, "starting parse and store chunks", 
-                chunk_token_min=chunk_token_min, 
-                chunk_token_max=chunk_token_max, 
-                chunk_overlap_ratio=chunk_overlap_ratio)
+        syslog2(LOG_NOTICE, "starting parse and store chunks")
 
         # Get all messages from database
         session = self.db.get_session()
@@ -520,21 +739,14 @@ class IngestionPipeline:
 
         syslog2(LOG_NOTICE, "found messages in database", count=len(messages))
 
-        # Initialize chunker with token-based parameters
-        self.chunker = MessageChunker(
-            chunk_token_min=chunk_token_min,
-            chunk_token_max=chunk_token_max,
-            chunk_overlap_ratio=chunk_overlap_ratio
-        )
-
+        # Use existing chunker from __init__ (already initialized with config parameters)
         # Create chunks
         syslog2(LOG_NOTICE, "creating chunks", 
-                chunk_token_min=chunk_token_min, 
-                chunk_token_max=chunk_token_max, 
-                chunk_overlap_ratio=chunk_overlap_ratio)
+                chunk_token_min=self.chunker.chunk_token_min, 
+                chunk_token_max=self.chunker.chunk_token_max, 
+                chunk_overlap_ratio=self.chunker.chunk_overlap_ratio)
         chunks = self.chunker.chunk_messages(messages)
         syslog2(LOG_NOTICE, "chunks created", count=len(chunks))
-        syslog2(LOG_NOTICE, "chunks created", chunks_count=len(chunks))
 
         # Store chunks in sql db
         chunk_models = []
@@ -557,9 +769,13 @@ class IngestionPipeline:
                     "end_date": chunk.metadata.ts_to.isoformat()
                 }
 
-                # Construct composite FKs
+                # Construct composite FKs for backward compatibility
                 msg_id_start = f"{chat_id}_{chunk.metadata.msg_id_start}"
                 msg_id_end = f"{chat_id}_{chunk.metadata.msg_id_end}"
+                
+                # Store raw msg_id (without chat_id prefix) for easier access
+                msg_id_start_raw = chunk.metadata.msg_id_start
+                msg_id_end_raw = chunk.metadata.msg_id_end
 
                 model = ChunkModel(
                     id=chunk_id,
@@ -568,6 +784,8 @@ class IngestionPipeline:
                     chat_id=chat_id,
                     msg_id_start=msg_id_start,
                     msg_id_end=msg_id_end,
+                    msg_id_start_raw=msg_id_start_raw,
+                    msg_id_end_raw=msg_id_end_raw,
                     ts_from=chunk.metadata.ts_from,
                     ts_to=chunk.metadata.ts_to
                 )
@@ -582,18 +800,15 @@ class IngestionPipeline:
             syslog2(LOG_NOTICE, "saving chunks to database")
             session.add_all(chunk_models)
             session.commit()
-            syslog2(LOG_NOTICE, "chunks saved", count=len(chunk_models))
             syslog2(LOG_NOTICE, "chunks saved to sql database", count=len(chunk_models))
         except Exception as e:
             session.rollback()
             syslog2(LOG_ERR, "error saving chunks", error=str(e))
-            syslog2(LOG_ERR, "sql save failed", error=str(e))
             raise
         finally:
             session.close()
 
         syslog2(LOG_NOTICE, "stage1 complete", chunks_saved=len(chunk_models))
-        syslog2(LOG_NOTICE, "stage1 complete", chunks_count=len(chunk_models))
 
     def parse_and_store(self, file_path: str, clear_existing: bool = False):
         """
@@ -612,7 +827,8 @@ class IngestionPipeline:
 
     def generate_embeddings(self, model: Optional[str] = None, batch_size: int = 128):
         """
-        Generate embeddings for chunks without embeddings and save to vector database.
+        Generate embeddings for chunks without embeddings and save to SQLite (chunks.embedding_json).
+        Does NOT write to vector database (that's stage3).
         
         Args:
             model: Embedding model to use (overrides profile config)
@@ -634,64 +850,27 @@ class IngestionPipeline:
         # Get expected dimension from embedding client
         new_dimension = emb_client.get_dimension()
         
-        # CRITICAL: Check and fix collection dimension BEFORE generating embeddings
-        # This prevents ChromaDB errors when trying to add embeddings with wrong dimension
-        try:
-            collection_count = self.vector_store.collection.count()
-            if collection_count > 0:
-                # Collection has data - check its dimension
-                sample = self.vector_store.collection.get(limit=1, include=["embeddings"])
-                if sample and sample.get("embeddings") and len(sample["embeddings"]) > 0:
-                    existing_dim = len(sample["embeddings"][0])
-                    if existing_dim != new_dimension:
-                        # Dimension mismatch - MUST recreate collection before proceeding
-                        syslog2(LOG_WARNING, 
-                            f"Collection dimension mismatch detected: existing={existing_dim}, new={new_dimension}. "
-                            f"Recreating collection before generating embeddings...")
-                        self.vector_store.collection = self.vector_store._recreate_collection_with_dimension(new_dimension)
-                        self.vector_store.expected_dimension = new_dimension
-                        syslog2(LOG_NOTICE, f"Collection recreated with dimension {new_dimension}")
-        except Exception as e:
-            syslog2(LOG_DEBUG, f"Could not check collection dimension: {e}")
-        
-        # Update expected dimension
-        self.vector_store.expected_dimension = new_dimension
-        
-        # Get all chunks from database that don't have embeddings in vector store
+        # Get all chunks from database that don't have embeddings
+        # Check embedding_json field (source of truth)
         session = self.db.get_session()
         try:
-            all_chunks = session.query(ChunkModel).all()
-            # Get existing IDs from vector store
-            vector_data = self.vector_store.get_all_embeddings()
-            existing_ids = set(vector_data.get("ids", []))
-            
-            # Filter chunks without embeddings
-            chunks_to_embed = [chunk for chunk in all_chunks if chunk.id not in existing_ids]
+            # Filter chunks without embeddings using SQL (embedding_json is NULL or embedding_dim doesn't match)
+            chunks_to_embed = session.query(ChunkModel).filter(
+                (ChunkModel.embedding_json.is_(None)) | 
+                (ChunkModel.embedding_dim.is_(None)) | 
+                (ChunkModel.embedding_dim != new_dimension)
+            ).all()
             
             if not chunks_to_embed:
                 syslog2(LOG_NOTICE, "all chunks already have embeddings")
                 return
             
-            syslog2(LOG_NOTICE, "chunks to embed", total=len(all_chunks), missing=len(chunks_to_embed))
+            total_chunks = session.query(ChunkModel).count()
+            syslog2(LOG_NOTICE, "chunks to embed", total=total_chunks, missing=len(chunks_to_embed))
             
             # Prepare data
             ids = [chunk.id for chunk in chunks_to_embed]
             documents = [chunk.text for chunk in chunks_to_embed]
-            metadatas = []
-            
-            for chunk in chunks_to_embed:
-                meta_dict = {}
-                if chunk.metadata_json:
-                    try:
-                        meta_dict = json.loads(chunk.metadata_json)
-                    except:
-                        pass
-                # Add topic assignments to metadata for chroma_db filtering
-                if chunk.topic_l1_id is not None:
-                    meta_dict["topic_l1_id"] = chunk.topic_l1_id
-                if chunk.topic_l2_id is not None:
-                    meta_dict["topic_l2_id"] = chunk.topic_l2_id
-                metadatas.append(meta_dict)
             
             # Generate embeddings
             embeddings = emb_client.get_embeddings_batched(
@@ -700,15 +879,31 @@ class IngestionPipeline:
                 show_progress=True
             )
             
-            # Save to vector store
-            self.vector_store.add_documents_with_embeddings(
-                ids=ids,
-                documents=documents,
-                embeddings=embeddings,
-                metadatas=metadatas,
-                show_progress=True,
-            )
-            syslog2(LOG_NOTICE, "embeddings saved to vector database", count=len(ids))
+            # Save embeddings to SQLite (chunks.embedding_json)
+            # Update in batches for better performance
+            batch_update_size = 100
+            for i in range(0, len(ids), batch_update_size):
+                batch_ids = ids[i:i + batch_update_size]
+                batch_embeddings = embeddings[i:i + batch_update_size]
+                
+                for chunk_id, embedding in zip(batch_ids, batch_embeddings):
+                    # Convert embedding to JSON string
+                    embedding_json = json.dumps(embedding)
+                    
+                    # Update chunk with embedding_json and embedding_dim
+                    session.query(ChunkModel).filter(
+                        ChunkModel.id == chunk_id
+                    ).update({
+                        ChunkModel.embedding_json: embedding_json,
+                        ChunkModel.embedding_dim: new_dimension
+                    }, synchronize_session=False)
+                
+                session.commit()
+                if i % (batch_update_size * 10) == 0:
+                    print(f"\rSaving embeddings to database: {min(i + batch_update_size, len(ids))}/{len(ids)}", flush=True, end="")
+            
+            print()  # Newline after progress
+            syslog2(LOG_NOTICE, "embeddings saved to sqlite database", count=len(ids))
             
         finally:
             session.close()
@@ -857,6 +1052,326 @@ class IngestionPipeline:
             print(f"Error showing topic: {e}")
             syslog2(LOG_ERR, "error showing topic", error=str(e))
 
+    def _count_tokens(self, text: str) -> int:
+        """Count tokens in text using tiktoken (helper for ingest info)."""
+        try:
+            import tiktoken
+            encoding = tiktoken.get_encoding("cl100k_base")
+            return len(encoding.encode(text))
+        except Exception:
+            # Fallback: approximate token count (1 token ≈ 4 characters)
+            return len(text) // 4
+
+    def get_ingest_info(self) -> str:
+        """
+        Get comprehensive ingestion information in compact format.
+        Shows all stages, discrepancies, and profile/model info.
+        
+        Returns:
+            Formatted string with ingest information
+        """
+        lines = []
+        
+        # Profile & Configuration Info
+        profile_dir_str = str(self.profile_dir) if self.profile_dir else "unknown"
+        lines.append("ingest info:")
+        lines.append(f"profile_dir={profile_dir_str}")
+        lines.append(f"db_url={self.db_url}")
+        lines.append(f"vec_path={self.vector_store.persist_directory}")
+        lines.append(f"collection={self.vector_store.collection_name}")
+        lines.append("")
+        
+        # Get embedding model info from config
+        embedding_model = "unknown"
+        embedding_generator = "unknown"
+        if self.profile_dir and self.profile_dir.exists():
+            try:
+                from src.bot.config import BotConfig
+                config = BotConfig(self.profile_dir)
+                embedding_model = config.data.get("embedding_model", "unknown")
+                embedding_generator = config.embedding_generator
+            except Exception:
+                pass
+        
+        # Stage 0: Messages
+        session = self.db.get_session()
+        try:
+            from src.storage.db import MessageModel
+            all_messages = session.query(MessageModel).order_by(MessageModel.ts).all()
+            
+            total_messages = len(all_messages)
+            
+            # Group by chat_id
+            chats = {}
+            for msg in all_messages:
+                chat_id = msg.chat_id or "unknown_chat"
+                if chat_id not in chats:
+                    chats[chat_id] = []
+                chats[chat_id].append(msg)
+            
+            lines.append("stage0 messages:")
+            lines.append(f"total={total_messages}")
+            lines.append(f"chats={len(chats)}")
+            lines.append("per_chat:")
+            
+            for chat_id, msgs in sorted(chats.items()):
+                first_ts = msgs[0].ts.strftime("%Y-%m-%d %H:%M") if msgs else "unknown"
+                last_ts = msgs[-1].ts.strftime("%Y-%m-%d %H:%M") if msgs else "unknown"
+                lines.append(f"{chat_id}: messages={len(msgs)} first={first_ts} last={last_ts}")
+            
+            if not chats:
+                lines.append("(no messages)")
+        except Exception as e:
+            lines.append("stage0 messages:")
+            lines.append(f"error: {str(e)}")
+        finally:
+            session.close()
+        
+        lines.append("")
+        
+        # Stage 1: Chunks
+        session = self.db.get_session()
+        try:
+            all_chunks = session.query(ChunkModel).all()
+            total_chunks = len(all_chunks)
+            
+            # Group by chat_id
+            chunks_by_chat = {}
+            total_tokens = 0
+            small_chunks = 0
+            chunks_without_messages = 0
+            
+            # Get chunk_token_min from config for small chunk detection
+            chunk_token_min = 50  # default
+            if self.profile_dir and self.profile_dir.exists():
+                try:
+                    from src.bot.config import BotConfig
+                    config = BotConfig(self.profile_dir)
+                    chunk_token_min = config.chunk_token_min
+                except Exception:
+                    pass
+            
+            for chunk in all_chunks:
+                chat_id = chunk.chat_id or "unknown_chat"
+                if chat_id not in chunks_by_chat:
+                    chunks_by_chat[chat_id] = 0
+                chunks_by_chat[chat_id] += 1
+                
+                # Count tokens
+                tokens = self._count_tokens(chunk.text)
+                total_tokens += tokens
+                
+                if tokens < chunk_token_min:
+                    small_chunks += 1
+                
+                # Check if chunk has messages
+                if not chunk.msg_id_start:
+                    chunks_without_messages += 1
+            
+            avg_tokens = total_tokens // total_chunks if total_chunks > 0 else 0
+            
+            lines.append("stage1 chunks:")
+            lines.append(f"total={total_chunks}")
+            lines.append("per_chat:")
+            
+            for chat_id, count in sorted(chunks_by_chat.items()):
+                lines.append(f"{chat_id}: chunks={count}")
+            
+            if not chunks_by_chat:
+                lines.append("(no chunks)")
+            
+            lines.append(f"avg_tokens_per_chunk={avg_tokens}")
+            lines.append(f"small_chunks_below_min={small_chunks}")
+            lines.append(f"chunks_without_messages={chunks_without_messages}")
+        except Exception as e:
+            lines.append("stage1 chunks:")
+            lines.append(f"error: {str(e)}")
+        finally:
+            session.close()
+        
+        lines.append("")
+        
+        # Stage 2: Embeddings (SQLite)
+        session = self.db.get_session()
+        try:
+            total_chunks = session.query(ChunkModel).count()
+            chunks_with_embeddings_sql = session.query(ChunkModel).filter(
+                ChunkModel.embedding_json.isnot(None)
+            ).count()
+            chunks_without_embeddings_sql = total_chunks - chunks_with_embeddings_sql
+            
+            lines.append("stage2 embeddings (sqlite):")
+            lines.append(f"chunks_with_embeddings={chunks_with_embeddings_sql}")
+            lines.append(f"chunks_without_embeddings={chunks_without_embeddings_sql}")
+            lines.append(f"embedding_model={embedding_model}")
+            lines.append(f"embedding_generator={embedding_generator}")
+        except Exception as e:
+            lines.append("stage2 embeddings (sqlite):")
+            lines.append(f"error: {str(e)}")
+        finally:
+            session.close()
+        
+        lines.append("")
+        
+        # Stage 3: Vector DB Chunks
+        try:
+            vector_data = self.vector_store.get_all_embeddings()
+            vector_ids = list(vector_data.get("ids", [])) if vector_data.get("ids") is not None else []
+            vectors_total = len(vector_ids)
+            
+            # Get vector dimension
+            vector_dim = 0
+            embeddings = vector_data.get("embeddings", [])
+            if embeddings is not None and len(embeddings) > 0:
+                first_emb = embeddings[0]
+                if hasattr(first_emb, '__len__'):
+                    vector_dim = len(first_emb)
+            
+            session = self.db.get_session()
+            try:
+                total_chunks = session.query(ChunkModel).count()
+                if vectors_total > 0:
+                    vector_ids_set = set(vector_ids)
+                    sql_chunk_ids = set(chunk.id for chunk in session.query(ChunkModel).all())
+                    extra_vectors_without_chunks = len(vector_ids_set - sql_chunk_ids)
+                else:
+                    extra_vectors_without_chunks = 0
+            finally:
+                session.close()
+            
+            lines.append("stage3 vector_db chunks:")
+            lines.append(f"vectors_total={vectors_total}")
+            lines.append(f"vector_dim={vector_dim}")
+            lines.append(f"extra_vectors_without_chunks={extra_vectors_without_chunks}")
+        except Exception as e:
+            lines.append("stage3 vector_db chunks:")
+            lines.append(f"error: {str(e)}")
+        
+        lines.append("")
+        
+        # Stage 4: Topics L1 (SQLite)
+        session = self.db.get_session()
+        try:
+            from src.storage.db import TopicL1Model
+            l1_topics = session.query(TopicL1Model).all()
+            topics_l1_count = len(l1_topics)
+            
+            # Count chunks with topic_l1_id
+            chunks_with_topic_l1 = session.query(ChunkModel).filter(ChunkModel.topic_l1_id.isnot(None)).count()
+            total_chunks = session.query(ChunkModel).count()
+            chunks_without_topic_l1 = total_chunks - chunks_with_topic_l1
+            
+            # Count topics with center_vec_json
+            topics_with_centroids = session.query(TopicL1Model).filter(
+                TopicL1Model.center_vec_json.isnot(None)
+            ).count()
+            
+            lines.append("stage4 topics_l1 (sqlite):")
+            lines.append(f"topics={topics_l1_count}")
+            lines.append(f"topics_with_centroids={topics_with_centroids}")
+            lines.append(f"chunks_with_topic_l1={chunks_with_topic_l1}")
+            lines.append(f"chunks_without_topic_l1={chunks_without_topic_l1}")
+        except Exception as e:
+            lines.append("stage4 topics_l1 (sqlite):")
+            lines.append(f"error: {str(e)}")
+        finally:
+            session.close()
+        
+        lines.append("")
+        
+        # Stage 5: Vector DB Topics L1
+        try:
+            l1_vector_data = self.vector_store.topics_l1_collection.get()
+            l1_vectors_total = len(l1_vector_data.get("ids", [])) if l1_vector_data.get("ids") else 0
+            
+            lines.append("stage5 vector_db topics_l1:")
+            lines.append(f"vectors_total={l1_vectors_total}")
+        except Exception as e:
+            lines.append("stage5 vector_db topics_l1:")
+            lines.append(f"error: {str(e)}")
+        
+        lines.append("")
+        
+        # Stage 6: Topics L2 (SQLite)
+        session = self.db.get_session()
+        try:
+            from src.storage.db import TopicL2Model, TopicL1Model
+            l2_topics = session.query(TopicL2Model).all()
+            topics_l2_count = len(l2_topics)
+            
+            # Count L1 topics with parent_l2_id
+            l1_with_parent = session.query(TopicL1Model).filter(TopicL1Model.parent_l2_id.isnot(None)).count()
+            l1_without_parent = session.query(TopicL1Model).filter(TopicL1Model.parent_l2_id.is_(None)).count()
+            
+            # Count topics with center_vec_json
+            topics_with_centroids = session.query(TopicL2Model).filter(
+                TopicL2Model.center_vec_json.isnot(None)
+            ).count()
+            
+            lines.append("stage6 topics_l2 (sqlite):")
+            lines.append(f"topics={topics_l2_count}")
+            lines.append(f"topics_with_centroids={topics_with_centroids}")
+            lines.append(f"l1_with_parent_l2={l1_with_parent}")
+            lines.append(f"l1_without_parent_l2={l1_without_parent}")
+        except Exception as e:
+            lines.append("stage6 topics_l2 (sqlite):")
+            lines.append(f"error: {str(e)}")
+        finally:
+            session.close()
+        
+        lines.append("")
+        
+        # Stage 7: Vector DB Topics L2
+        try:
+            l2_vector_data = self.vector_store.topics_l2_collection.get()
+            l2_vectors_total = len(l2_vector_data.get("ids", [])) if l2_vector_data.get("ids") else 0
+            
+            lines.append("stage7 vector_db topics_l2:")
+            lines.append(f"vectors_total={l2_vectors_total}")
+        except Exception as e:
+            lines.append("stage7 vector_db topics_l2:")
+            lines.append(f"error: {str(e)}")
+        
+        lines.append("")
+        
+        # Stage 8: L1 Topic Names
+        session = self.db.get_session()
+        try:
+            from src.storage.db import TopicL1Model
+            l1_topics = session.query(TopicL1Model).all()
+            named_l1 = sum(1 for t in l1_topics if t.title and t.title.lower() not in ("unknown", "") and not t.title.startswith("Topic L1-"))
+            unnamed_l1 = len(l1_topics) - named_l1
+            
+            lines.append("stage8 l1 topic names:")
+            lines.append(f"named={named_l1}")
+            lines.append(f"unnamed={unnamed_l1}")
+        except Exception as e:
+            lines.append("stage8 l1 topic names:")
+            lines.append(f"error: {str(e)}")
+        finally:
+            session.close()
+        
+        lines.append("")
+        
+        # Stage 9: L2 Topic Names
+        session = self.db.get_session()
+        try:
+            from src.storage.db import TopicL2Model
+            l2_topics = session.query(TopicL2Model).all()
+            named_l2 = sum(1 for t in l2_topics if t.title and t.title.lower() not in ("unknown", "") and not t.title.startswith("Topic L2-"))
+            unnamed_l2 = len(l2_topics) - named_l2
+            
+            lines.append("stage9 l2 topic names:")
+            lines.append(f"named={named_l2}")
+            lines.append(f"unnamed={unnamed_l2}")
+        except Exception as e:
+            lines.append("stage9 l2 topic names:")
+            lines.append(f"error: {str(e)}")
+        finally:
+            session.close()
+        
+        return "\n".join(lines)
+
 
 if __name__ == "__main__":
     from src.core.cli_parser import (
@@ -872,7 +1387,7 @@ if __name__ == "__main__":
         clear = parse_flag(stream, "clear")
         db_url = parse_option(stream, "db-url")
         vec_path = parse_option(stream, "vec-path")
-        collection = parse_option(stream, "collection") or "default"
+        collection = parse_option(stream, "collection") or "embed-l1"
         return {
             "file": file,
             "clear": clear,
@@ -914,5 +1429,4 @@ if __name__ == "__main__":
         vector_db_path=args.vec_path,
         collection_name=args.collection,
     )
-    pipeline.run(args.file, clear_existing=args.clear)
     pipeline.run(args.file, clear_existing=args.clear)

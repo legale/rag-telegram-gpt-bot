@@ -35,8 +35,8 @@ class BotConfig:
             "only_unnamed": True,
             "rebuild": False,
             "chunk_token_min": 50,
-            "chunk_token_max": 500,
-            "chunk_overlap_ratio": 0.15
+            "chunk_token_max": 1024,
+            "chunk_overlap_ratio": 0.30
         }
         
         if not self.config_file.exists():
@@ -162,17 +162,6 @@ class BotConfig:
         self.data["embedding_generator"] = value.lower()
         self.save()
     
-    @property
-    def chunk_size(self) -> int:
-        return self.data.get("chunk_size", 6)
-    
-    @chunk_size.setter
-    def chunk_size(self, value: int):
-        if not isinstance(value, int) or value < 1:
-            raise ValueError("chunk_size must be a positive integer")
-        self.data["chunk_size"] = value
-        self.save()
-
     @property
     def chunk_token_min(self) -> int:
         return self.data.get("chunk_token_min", 50)
