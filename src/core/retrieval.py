@@ -202,22 +202,23 @@ class RetrievalService:
             if not embeddings or len(embeddings) != len(ids):
                 return []
             
-            query_vec = np.array(query_embedding)
+            # Ensure 1D float vectors
+            query_vec = np.asarray(query_embedding, dtype=float).ravel()
             similarities = []
             
             for idx, topic_id_str in enumerate(ids):
                 try:
                     # Extract numeric topic ID from "l1-123" or "l2-123" format
                     topic_id = int(topic_id_str.replace(topic_prefix, ""))
-                    center_vec = np.array(embeddings[idx])
+                    center_vec = np.asarray(embeddings[idx], dtype=float).ravel()
                     
                     # Compute cosine similarity
-                    dot_product = np.dot(query_vec, center_vec)
-                    norm_query = np.linalg.norm(query_vec)
-                    norm_center = np.linalg.norm(center_vec)
+                    dot_product = float(np.dot(query_vec, center_vec))
+                    norm_query = float(np.linalg.norm(query_vec))
+                    norm_center = float(np.linalg.norm(center_vec))
                     
                     if norm_query > 0 and norm_center > 0:
-                        similarity = dot_product / (norm_query * norm_center)
+                        similarity = float(dot_product / (norm_query * norm_center))
                         if similarity >= similarity_threshold:
                             similarities.append((topic_id, float(similarity)))
                 except (ValueError, TypeError, IndexError) as e:
