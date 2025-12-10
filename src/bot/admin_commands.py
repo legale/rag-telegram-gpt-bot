@@ -3,7 +3,7 @@ Admin command handlers for Legale Bot.
 Implements handlers for /admin commands.
 """
 
-from typing import List
+from typing import List, Dict
 from telegram import Update
 from telegram.ext import ContextTypes
 from pathlib import Path
