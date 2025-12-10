@@ -30,6 +30,7 @@ class LegaleBot:
         self.debug_rag = debug_rag
         # Load profile config if available
         embedding_client = None
+        config = None
         if profile_dir:
             profile_path = Path(profile_dir)
             if profile_path.exists():
@@ -57,12 +58,16 @@ class LegaleBot:
 
         
         # Initialize services
+        rag_strategy_use_ntop = config.rag_strategy_use_ntop if config else False
+        rag_ntop = config.rag_ntop if config else 5
         self.retrieval_service = RetrievalService(
             vector_store=self.vector_store,
             db=self.db,
             embedding_client=self.embedding_client,
             log_level=log_level,
-            debug_rag=self.debug_rag
+            debug_rag=self.debug_rag,
+            rag_strategy_use_ntop=rag_strategy_use_ntop,
+            rag_ntop=rag_ntop
         )
         # Alias for compatibility
         self.retrieval = self.retrieval_service
@@ -244,10 +249,12 @@ class LegaleBot:
             self.chat_history.append({"role": "user", "content": user_input})
             return ""
 
-        syslog2(LOG_NOTICE, "retrieving context", chunks=n_results)
+        syslog2(LOG_NOTICE, "retrieving context", rag_ntop=self.retrieval_service.rag_ntop)
         context_chunks = self.retrieval_service.retrieve(
             user_input, n_results=n_results
         )
+        
+        syslog2(LOG_NOTICE, "rag returned chunks", count=len(context_chunks))
 
         history_for_prompt = []
         for msg in self.chat_history[-5:]:

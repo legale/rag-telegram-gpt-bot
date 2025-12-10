@@ -93,6 +93,10 @@ class LLMClient:
             # Log full messages only at LOG_DEBUG to avoid spam, or truncating
             if self.log_level <= LOG_DEBUG:
                  syslog2(LOG_DEBUG, "LLM messages", messages=messages)
+        
+        # Log input messages at LOG_INFO level
+        if self.log_level <= LOG_INFO:
+            syslog2(LOG_INFO, "LLM input", messages=messages)
 
         try:
             response = self.client.chat.completions.create(
@@ -106,6 +110,10 @@ class LLMClient:
             
             if self.log_level <= LOG_INFO:
                 syslog2(LOG_DEBUG, "LLM response", response=response)
+            
+            # Log output response at LOG_INFO level
+            if self.log_level <= LOG_INFO:
+                syslog2(LOG_INFO, "LLM output", response=content)
             
             if not content:
                 finish_reason = response.choices[0].finish_reason
