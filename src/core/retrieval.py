@@ -281,27 +281,13 @@ class RetrievalService:
                         continue
                     seen_chunk_ids.add(chunk.id)
                     
-                    meta = {}
-                    if chunk.metadata_json:
-                        try:
-                            meta = json.loads(chunk.metadata_json)
-                        except json.JSONDecodeError:
-                            pass
-                    
-                    if chunk.topic_l1:
-                        meta["topic_l1_id"] = chunk.topic_l1.id
-                        meta["topic_l1_title"] = chunk.topic_l1.title
-                    if chunk.topic_l2:
-                        meta["topic_l2_id"] = chunk.topic_l2.id
-                        meta["topic_l2_title"] = chunk.topic_l2.title
-                    
-                    retrieved_chunks.append({
-                        "id": chunk.id,
-                        "text": chunk.text,
-                        "metadata": meta,
-                        "score": 0.8,  # Topic-based chunks get high score
-                        "source": "topic_l1"
-                    })
+                    # Use _build_chunk_dict to avoid duplicating metadata parsing logic
+                    chunk_dict = self._build_chunk_dict(
+                        chunk,
+                        similarity=0.8,  # Topic-based chunks get high score
+                        source="topic_l1"
+                    )
+                    retrieved_chunks.append(chunk_dict)
             
             # Retrieve chunks from L2 topics
             for topic_id in topic_ids_l2:
@@ -316,49 +302,29 @@ class RetrievalService:
                         continue
                     seen_chunk_ids.add(chunk.id)
                     
-                    meta = {}
-                    if chunk.metadata_json:
-                        try:
-                            meta = json.loads(chunk.metadata_json)
-                        except json.JSONDecodeError:
-                            pass
-                    
-                    if chunk.topic_l1:
-                        meta["topic_l1_id"] = chunk.topic_l1.id
-                        meta["topic_l1_title"] = chunk.topic_l1.title
-                    if chunk.topic_l2:
-                        meta["topic_l2_id"] = chunk.topic_l2.id
-                        meta["topic_l2_title"] = chunk.topic_l2.title
-                    
-                    retrieved_chunks.append({
-                        "id": chunk.id,
-                        "text": chunk.text,
-                        "metadata": meta,
-                        "score": 0.75,  # L2 topics slightly lower than L1
-                        "source": "topic_l2"
-                    })
+                    # Use _build_chunk_dict to avoid duplicating metadata parsing logic
+                    chunk_dict = self._build_chunk_dict(
+                        chunk,
+                        similarity=0.75,  # L2 topics slightly lower than L1
+                        source="topic_l2"
+                    )
+                    retrieved_chunks.append(chunk_dict)
         finally:
             session.close()
         
         return retrieved_chunks
 
-    def _two_stage_search(
-        self,
-        query_embedding: List[float],
-        n_results: int = 50
-    ) -> List[Dict]:
+    def _query_l2_topics(self, query_embedding: List[float]) -> List[int]:
         """
-        Two-stage search: L2 topics → chunks within selected L2 topics.
+        Query L2 topics and extract topic IDs.
         
         Args:
             query_embedding: Query embedding vector
-            n_results: Number of chunks to return
             
         Returns:
-            List of chunk dictionaries with text and metadata
+            List of L2 topic IDs, empty list if no topics found
         """
-        # Step 1: Search for relevant L2 topics
-        if  self.debug_rag:
+        if self.debug_rag:
             syslog2(LOG_DEBUG, "two_stage_search: searching l2 topics", l2_top_k=self.l2_top_k)
         
         try:
@@ -373,7 +339,7 @@ class RetrievalService:
             return []
         
         if not l2_results or not l2_results.get("ids") or not l2_results["ids"][0]:
-            if  self.debug_rag:
+            if self.debug_rag:
                 syslog2(LOG_DEBUG, "no l2 topics found, falling back to direct search")
             return []
         
@@ -405,15 +371,32 @@ class RetrievalService:
                     )
         
         if not l2_ids:
-            if  self.debug_rag:
+            if self.debug_rag:
                 syslog2(LOG_DEBUG, "no valid l2 topic ids found, falling back to direct search")
             return []
         
-        if  self.debug_rag:
+        if self.debug_rag:
             syslog2(LOG_DEBUG, "two_stage_search: found l2 topics", l2_ids=l2_ids, count=len(l2_ids))
         
-        # Step 2: Search chunks within selected L2 topics
-        # Try Option A: Filter by topic_l2_id in chroma metadata
+        return l2_ids
+    
+    def _filter_chunks_by_topics(
+        self,
+        query_embedding: List[float],
+        l2_ids: List[int],
+        n_results: int
+    ) -> Optional[List[Dict]]:
+        """
+        Filter chunks by L2 topics using ChromaDB metadata filter.
+        
+        Args:
+            query_embedding: Query embedding vector
+            l2_ids: List of L2 topic IDs to filter by
+            n_results: Number of chunks to return
+            
+        Returns:
+            List of chunk dictionaries if successful, None if filter not available
+        """
         try:
             chunk_results = self.vector_store.collection.query(
                 query_embeddings=[query_embedding],
@@ -454,11 +437,29 @@ class RetrievalService:
 
                 return res
         except Exception as e:
-            if  self.debug_rag:
+            if self.debug_rag:
                 syslog2(LOG_DEBUG, "chroma filter not available, using sqlite fallback", error=str(e))
         
-        # Option B: Get chunks via SQLite, then compute similarity
-        if  self.debug_rag:
+        return None
+    
+    def _fallback_sqlite_search(
+        self,
+        query_embedding: List[float],
+        l2_ids: List[int],
+        n_results: int
+    ) -> List[Dict]:
+        """
+        Fallback search using SQLite: get chunks by topic, then compute similarity.
+        
+        Args:
+            query_embedding: Query embedding vector
+            l2_ids: List of L2 topic IDs
+            n_results: Number of chunks to return
+            
+        Returns:
+            List of chunk dictionaries sorted by similarity
+        """
+        if self.debug_rag:
             syslog2(LOG_DEBUG, "two_stage_search: using sqlite fallback")
         
         all_chunk_ids = []
@@ -467,13 +468,13 @@ class RetrievalService:
             all_chunk_ids.extend([chunk.id for chunk in chunks])
         
         if not all_chunk_ids:
-            if  self.debug_rag:
+            if self.debug_rag:
                 syslog2(LOG_DEBUG, "no chunks found for l2 topics")
             return []
         
         all_chunk_ids = list(set(all_chunk_ids))
         
-        if  self.debug_rag:
+        if self.debug_rag:
             syslog2(LOG_DEBUG, "two_stage_search: found chunks via sqlite", count=len(all_chunk_ids))
         
         try:
@@ -536,6 +537,34 @@ class RetrievalService:
             if self.log_level <= LOG_INFO or self.debug_rag:
                 syslog2(LOG_WARNING, "failed to get chunk embeddings for two_stage_search", error=str(e))
             return []
+    
+    def _two_stage_search(
+        self,
+        query_embedding: List[float],
+        n_results: int = 50
+    ) -> List[Dict]:
+        """
+        Two-stage search: L2 topics → chunks within selected L2 topics.
+        
+        Args:
+            query_embedding: Query embedding vector
+            n_results: Number of chunks to return
+            
+        Returns:
+            List of chunk dictionaries with text and metadata
+        """
+        # Step 1: Query L2 topics
+        l2_ids = self._query_l2_topics(query_embedding)
+        if not l2_ids:
+            return []
+        
+        # Step 2: Try filtering chunks by topics in ChromaDB
+        chroma_results = self._filter_chunks_by_topics(query_embedding, l2_ids, n_results)
+        if chroma_results is not None:
+            return chroma_results
+        
+        # Step 3: Fallback to SQLite search
+        return self._fallback_sqlite_search(query_embedding, l2_ids, n_results)
 
     def _process_chunk_results(self, chunk_results: Dict, query_embedding: List[float]) -> List[Dict]:
         """Process chunk results from chroma query."""
@@ -593,25 +622,26 @@ class RetrievalService:
             
             result = []
             for chunk in chunks:
-                meta = {}
-                if chunk.metadata_json:
-                    try:
-                        meta = json.loads(chunk.metadata_json)
-                    except json.JSONDecodeError:
-                        pass
-                
                 similarity = sim_map.get(chunk.id, 0.0)
                 original_distance = distance_map.get(chunk.id)
 
                 if self.debug_rag:
+                    # Build chunk dict first to get metadata with topics
+                    temp_dict = self._build_chunk_dict(
+                        chunk,
+                        similarity,
+                        distance=original_distance,
+                        source="two_stage"
+                    )
+                    meta = temp_dict.get("metadata", {})
                     syslog2(
                         LOG_DEBUG,
                         "rag chunk result",
                         chunk_id=chunk.id,
                         score=similarity,
                         original_distance=original_distance,
-                        topic_l1_id=meta.get("topic_l1_id") if chunk.topic_l1 else None,
-                        topic_l2_id=meta.get("topic_l2_id") if chunk.topic_l2 else None,
+                        topic_l1_id=meta.get("topic_l1_id"),
+                        topic_l2_id=meta.get("topic_l2_id"),
                         source="two_stage",
                     )
                     self._debug_log_chunk_messages(session, chunk)

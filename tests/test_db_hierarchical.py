@@ -137,7 +137,7 @@ class TestTopicL1:
         assert topic.title == 'Test Topic'
         assert topic.chunk_count == 10
         assert topic.msg_count == 100
-        assert topic.center_vec == '[0.1, 0.2, 0.3]'
+        assert topic.center_vec_json == '[0.1, 0.2, 0.3]'
     
     def test_get_all_topics_l1(self, temp_db):
         """Test retrieving all L1 topics."""

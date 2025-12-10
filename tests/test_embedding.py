@@ -209,7 +209,7 @@ def test_local_embed_and_save_jsonl_batch_processing(local_client, tmp_path, moc
     texts = [f"text{i}" for i in range(5)]
     
     # Mock encode to return different embeddings for each batch
-    def encode_side_effect(texts_list):
+    def encode_side_effect(texts_list, show_progress_bar=False):
         # Return embeddings based on batch
         return [[float(i), float(i+1), float(i+2)] for i in range(len(texts_list))]
     
@@ -274,11 +274,11 @@ def test_local_embed_and_save_jsonl_ensure_ascii(local_client, tmp_path, mock_se
         show_progress=False
     )
     
-    # Verify Unicode is preserved
+    # Verify Unicode is preserved in the saved JSON
     content = out_file.read_text(encoding="utf-8")
-    assert "русский" in content
-    assert "🚀" in content
+    assert "русский" in content  # Unicode in id is preserved
     
     # Verify it's valid JSON
     record = json.loads(content.strip())
     assert record["id"] == "id_русский"
+    # Note: emoji was in the input text but is not saved (only id and embedding are saved)

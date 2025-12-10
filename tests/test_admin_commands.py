@@ -502,15 +502,14 @@ class TestProfileCommands:
         """Test profile_info for non-existent profile."""
         update, context, admin_manager, pm = mock_context
         
-        validator = MagicMock()
-        validator.validate_profile_exists.return_value = (False, "Profile not found")
+        # Mock profile_dir to not exist
+        pm.get_profile_dir.return_value.exists.return_value = False
         
         profile_cmd = ProfileCommands(pm)
-        profile_cmd.validator = validator
         
         result = await profile_cmd.profile_info(update, context, admin_manager, ["nonexistent"])
         
-        assert "Profile not found" in result
+        assert "не существует" in result.lower()
 
 
 class TestStatsCommands:

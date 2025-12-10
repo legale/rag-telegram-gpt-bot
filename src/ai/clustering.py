@@ -133,7 +133,7 @@ class TopicClusterer:
                 embeddings = data.get('embeddings', [])
                 metadatas = data.get('metadatas', [])
                 
-                if not ids or not embeddings:
+                if not ids or len(embeddings) == 0:
                     syslog2(LOG_WARNING, "no data for clustering")
                     return
             else:

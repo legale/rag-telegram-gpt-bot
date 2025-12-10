@@ -563,10 +563,10 @@ def test_call_llm_json_success(MockLLM, test_db, mock_vector_store):
 def test_call_llm_json_retry_on_error(MockLLM, test_db, mock_vector_store):
     """Test _call_llm_json retries on errors."""
     mock_llm = MockLLM.return_value
-    # First call fails, second succeeds
+    # First call fails, second succeeds with complete JSON
     mock_llm.complete.side_effect = [
         Exception("Network error"),
-        '{"title": "Retry Success"}'
+        '{"title": "Retry Success", "description": "Retry description"}'
     ]
     
     clusterer = TopicClusterer(test_db, mock_vector_store, mock_llm)
@@ -574,6 +574,7 @@ def test_call_llm_json_retry_on_error(MockLLM, test_db, mock_vector_store):
     
     assert result is not None
     assert result["title"] == "Retry Success"
+    assert result["description"] == "Retry description"
     assert mock_llm.complete.call_count == 2
 
 
@@ -641,11 +642,6 @@ def test_name_l2_topic_success(test_db, mock_vector_store):
     chunk2.id = "chunk2"
     chunk2.text = "Sample chunk text 2" * 10
     
-    # Setup mocks
-    test_db.get_l1_topics_by_l2.return_value = [l1_topic1, l1_topic2]
-    test_db.get_chunks_by_topic_l1.return_value = [chunk1, chunk2]
-    test_db.update_topic_l2_info = MagicMock()
-    
     # Mock embeddings
     mock_embeddings = {
         "chunk1": np.array([0.1, 0.2, 0.3]),
@@ -660,22 +656,44 @@ def test_name_l2_topic_success(test_db, mock_vector_store):
     
     clusterer = TopicClusterer(test_db, mock_vector_store, mock_llm)
     
-    # Mock _get_chunk_embeddings
-    with patch.object(clusterer, '_get_chunk_embeddings', return_value=mock_embeddings):
-        with patch.object(clusterer, '_call_llm_json', return_value={"title": "Test L2 Topic", "description": "Test description"}):
-            clusterer._name_l2_topic(l2_topic)
+    # Mock vector_store.topics_l2_collection.get to return proper dict
+    mock_topics_l2_collection = MagicMock()
+    mock_topics_l2_collection.get.return_value = {
+        "ids": ["l2-1"],
+        "embeddings": [[0.1, 0.2, 0.3]],
+        "metadatas": [None]
+    }
+    mock_vector_store.topics_l2_collection = mock_topics_l2_collection
     
-    # Verify update was called
-    test_db.update_topic_l2_info.assert_called_once()
-    call_args = test_db.update_topic_l2_info.call_args
-    assert call_args[0][0] == 1  # topic.id
-    assert call_args[0][1] == "Test L2 Topic"
-    assert call_args[0][2] == "Test description"
+    # Mock vector_store.topics_l1_collection.get to return L1 topic embeddings
+    mock_topics_l1_collection = MagicMock()
+    mock_topics_l1_collection.get.return_value = {
+        "ids": ["l1-10", "l1-11"],
+        "embeddings": [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]],
+        "metadatas": [None, None]
+    }
+    mock_vector_store.topics_l1_collection = mock_topics_l1_collection
+    
+    # Patch database methods
+    with patch.object(test_db, 'get_l1_topics_by_l2', return_value=[l1_topic1, l1_topic2]), \
+         patch.object(test_db, 'get_chunks_by_topic_l1', return_value=[chunk1, chunk2]), \
+         patch.object(test_db, 'update_topic_l2_info') as mock_update:
+        # Mock _get_chunk_embeddings
+        with patch.object(clusterer, '_get_chunk_embeddings', return_value=mock_embeddings):
+            with patch.object(clusterer, '_call_llm_json', return_value={"title": "Test L2 Topic", "description": "Test description"}):
+                clusterer._name_l2_topic(l2_topic)
+        
+        # Verify update was called
+        mock_update.assert_called_once()
+        call_args = mock_update.call_args
+        assert call_args[0][0] == 1  # topic.id
+        assert call_args[0][1] == "Test L2 Topic"
+        assert call_args[0][2] == "Test description"
 
 
 def test_name_l2_topic_no_center_vec(test_db, mock_vector_store):
     """Test _name_l2_topic with topic without center_vec."""
-    from unittest.mock import MagicMock
+    from unittest.mock import MagicMock, patch
     
     l2_topic = MagicMock()
     l2_topic.id = 1
@@ -684,10 +702,11 @@ def test_name_l2_topic_no_center_vec(test_db, mock_vector_store):
     mock_llm = MagicMock()
     clusterer = TopicClusterer(test_db, mock_vector_store, mock_llm)
     
-    clusterer._name_l2_topic(l2_topic)
-    
-    # Should return early, no DB update
-    test_db.update_topic_l2_info.assert_not_called()
+    with patch.object(test_db, 'update_topic_l2_info') as mock_update:
+        clusterer._name_l2_topic(l2_topic)
+        
+        # Should return early, no DB update
+        mock_update.assert_not_called()
 
 
 def test_name_l2_topic_invalid_center_vec(test_db, mock_vector_store):
@@ -701,31 +720,32 @@ def test_name_l2_topic_invalid_center_vec(test_db, mock_vector_store):
     mock_llm = MagicMock()
     clusterer = TopicClusterer(test_db, mock_vector_store, mock_llm)
     
-    with patch('src.ai.clustering.syslog2'):
+    with patch('src.ai.clustering.syslog2'), \
+         patch.object(test_db, 'update_topic_l2_info') as mock_update:
         clusterer._name_l2_topic(l2_topic)
-    
-    # Should return early, no DB update
-    test_db.update_topic_l2_info.assert_not_called()
+        
+        # Should return early, no DB update
+        mock_update.assert_not_called()
 
 
 def test_name_l2_topic_no_subtopics(test_db, mock_vector_store):
     """Test _name_l2_topic with no L1 subtopics."""
     import json
-    from unittest.mock import MagicMock
+    from unittest.mock import MagicMock, patch
     
     l2_topic = MagicMock()
     l2_topic.id = 1
     l2_topic.center_vec = json.dumps([0.1, 0.2, 0.3])
     
-    test_db.get_l1_topics_by_l2.return_value = []
-    
     mock_llm = MagicMock()
     clusterer = TopicClusterer(test_db, mock_vector_store, mock_llm)
     
-    clusterer._name_l2_topic(l2_topic)
-    
-    # Should return early, no DB update
-    test_db.update_topic_l2_info.assert_not_called()
+    with patch.object(test_db, 'get_l1_topics_by_l2', return_value=[]), \
+         patch.object(test_db, 'update_topic_l2_info') as mock_update:
+        clusterer._name_l2_topic(l2_topic)
+        
+        # Should return early, no DB update
+        mock_update.assert_not_called()
 
 
 def test_name_l2_topic_no_valid_l1_centers(test_db, mock_vector_store):
@@ -742,16 +762,16 @@ def test_name_l2_topic_no_valid_l1_centers(test_db, mock_vector_store):
     l1_topic.id = 10
     l1_topic.center_vec = None
     
-    test_db.get_l1_topics_by_l2.return_value = [l1_topic]
-    
     mock_llm = MagicMock()
     clusterer = TopicClusterer(test_db, mock_vector_store, mock_llm)
     
-    with patch('src.ai.clustering.syslog2'):
+    with patch('src.ai.clustering.syslog2'), \
+         patch.object(test_db, 'get_l1_topics_by_l2', return_value=[l1_topic]), \
+         patch.object(test_db, 'update_topic_l2_info') as mock_update:
         clusterer._name_l2_topic(l2_topic)
-    
-    # Should return early, no DB update
-    test_db.update_topic_l2_info.assert_not_called()
+        
+        # Should return early, no DB update
+        mock_update.assert_not_called()
 
 
 def test_name_l2_topic_no_chunks_selected(test_db, mock_vector_store):
@@ -768,17 +788,17 @@ def test_name_l2_topic_no_chunks_selected(test_db, mock_vector_store):
     l1_topic.id = 10
     l1_topic.center_vec = json.dumps([0.1, 0.2, 0.3])
     
-    test_db.get_l1_topics_by_l2.return_value = [l1_topic]
-    test_db.get_chunks_by_topic_l1.return_value = []  # No chunks
-    
     mock_llm = MagicMock()
     clusterer = TopicClusterer(test_db, mock_vector_store, mock_llm)
     
-    with patch('src.ai.clustering.syslog2'):
+    with patch('src.ai.clustering.syslog2'), \
+         patch.object(test_db, 'get_l1_topics_by_l2', return_value=[l1_topic]), \
+         patch.object(test_db, 'get_chunks_by_topic_l1', return_value=[]), \
+         patch.object(test_db, 'update_topic_l2_info') as mock_update:
         clusterer._name_l2_topic(l2_topic)
-    
-    # Should return early, no DB update
-    test_db.update_topic_l2_info.assert_not_called()
+        
+        # Should return early, no DB update
+        mock_update.assert_not_called()
 
 
 def test_name_l2_topic_llm_failure(test_db, mock_vector_store):
@@ -797,26 +817,52 @@ def test_name_l2_topic_llm_failure(test_db, mock_vector_store):
     
     chunk = MagicMock()
     chunk.id = "chunk1"
-    chunk.text = "Sample text"
-    
-    test_db.get_l1_topics_by_l2.return_value = [l1_topic]
-    test_db.get_chunks_by_topic_l1.return_value = [chunk]
-    test_db.update_topic_l2_info = MagicMock()
+    chunk.text = "Sample chunk text that is long enough to pass the minimum length check" * 5  # Long text
     
     mock_embeddings = {"chunk1": np.array([0.1, 0.2, 0.3])}
     
     mock_llm = MagicMock()
     clusterer = TopicClusterer(test_db, mock_vector_store, mock_llm)
     
-    with patch.object(clusterer, '_get_chunk_embeddings', return_value=mock_embeddings):
-        with patch.object(clusterer, '_call_llm_json', return_value=None):  # LLM fails
-            with patch('src.ai.clustering.syslog2'):
-                clusterer._name_l2_topic(l2_topic)
+    # Mock vector_store.topics_l2_collection.get to return proper dict
+    mock_topics_l2_collection = MagicMock()
+    mock_topics_l2_collection.get.return_value = {
+        "ids": ["l2-1"],
+        "embeddings": [[0.1, 0.2, 0.3]],
+        "metadatas": [None]
+    }
+    mock_vector_store.topics_l2_collection = mock_topics_l2_collection
     
-    # Should update with "unknown"
-    test_db.update_topic_l2_info.assert_called_once()
-    call_args = test_db.update_topic_l2_info.call_args
-    assert call_args[0][1] == "unknown"
+    # Mock vector_store.topics_l1_collection.get to return L1 topic embeddings
+    mock_topics_l1_collection = MagicMock()
+    mock_topics_l1_collection.get.return_value = {
+        "ids": ["l1-10"],
+        "embeddings": [[0.1, 0.2, 0.3]],
+        "metadatas": [None]
+    }
+    mock_vector_store.topics_l1_collection = mock_topics_l1_collection
+    
+    # Mock vector_store collection.get to return chunk embeddings
+    mock_collection = MagicMock()
+    mock_collection.get.return_value = {
+        "ids": ["chunk1"],
+        "embeddings": [[0.1, 0.2, 0.3]],
+        "metadatas": [None]
+    }
+    mock_vector_store.collection = mock_collection
+    
+    with patch.object(test_db, 'get_l1_topics_by_l2', return_value=[l1_topic]), \
+         patch.object(test_db, 'get_chunks_by_topic_l1', return_value=[chunk]), \
+         patch.object(test_db, 'update_topic_l2_info') as mock_update:
+        with patch.object(clusterer, '_get_chunk_embeddings', return_value=mock_embeddings):
+            with patch.object(clusterer, '_call_llm_json', return_value=None):  # LLM fails
+                with patch('src.ai.clustering.syslog2'):
+                    clusterer._name_l2_topic(l2_topic)
+        
+        # Should update with "unknown"
+        mock_update.assert_called_once()
+        call_args = mock_update.call_args
+        assert call_args[0][1] == "unknown"
 
 
 def test_name_l2_topic_llm_exception(test_db, mock_vector_store):
@@ -835,24 +881,50 @@ def test_name_l2_topic_llm_exception(test_db, mock_vector_store):
     
     chunk = MagicMock()
     chunk.id = "chunk1"
-    chunk.text = "Sample text"
-    
-    test_db.get_l1_topics_by_l2.return_value = [l1_topic]
-    test_db.get_chunks_by_topic_l1.return_value = [chunk]
-    test_db.update_topic_l2_info = MagicMock()
+    chunk.text = "Sample chunk text that is long enough to pass the minimum length check" * 5  # Long text
     
     mock_embeddings = {"chunk1": np.array([0.1, 0.2, 0.3])}
     
     mock_llm = MagicMock()
     clusterer = TopicClusterer(test_db, mock_vector_store, mock_llm)
     
-    with patch.object(clusterer, '_get_chunk_embeddings', return_value=mock_embeddings):
-        with patch.object(clusterer, '_call_llm_json', side_effect=Exception("LLM Error")):
-            with patch('src.ai.clustering.syslog2'):
-                clusterer._name_l2_topic(l2_topic)
+    # Mock vector_store.topics_l2_collection.get to return proper dict
+    mock_topics_l2_collection = MagicMock()
+    mock_topics_l2_collection.get.return_value = {
+        "ids": ["l2-1"],
+        "embeddings": [[0.1, 0.2, 0.3]],
+        "metadatas": [None]
+    }
+    mock_vector_store.topics_l2_collection = mock_topics_l2_collection
     
-    # Should update with "unknown" and error message
-    test_db.update_topic_l2_info.assert_called_once()
-    call_args = test_db.update_topic_l2_info.call_args
+    # Mock vector_store.topics_l1_collection.get to return L1 topic embeddings
+    mock_topics_l1_collection = MagicMock()
+    mock_topics_l1_collection.get.return_value = {
+        "ids": ["l1-10"],
+        "embeddings": [[0.1, 0.2, 0.3]],
+        "metadatas": [None]
+    }
+    mock_vector_store.topics_l1_collection = mock_topics_l1_collection
+    
+    # Mock vector_store collection.get to return chunk embeddings
+    mock_collection = MagicMock()
+    mock_collection.get.return_value = {
+        "ids": ["chunk1"],
+        "embeddings": [[0.1, 0.2, 0.3]],
+        "metadatas": [None]
+    }
+    mock_vector_store.collection = mock_collection
+    
+    with patch.object(test_db, 'get_l1_topics_by_l2', return_value=[l1_topic]), \
+         patch.object(test_db, 'get_chunks_by_topic_l1', return_value=[chunk]), \
+         patch.object(test_db, 'update_topic_l2_info') as mock_update:
+        with patch.object(clusterer, '_get_chunk_embeddings', return_value=mock_embeddings):
+            with patch.object(clusterer, '_call_llm_json', side_effect=Exception("LLM Error")):
+                with patch('src.ai.clustering.syslog2'):
+                    clusterer._name_l2_topic(l2_topic)
+        
+        # Should update with "unknown" and error message
+        mock_update.assert_called_once()
+    call_args = mock_update.call_args
     assert call_args[0][1] == "unknown"
     assert "Error:" in call_args[0][2]

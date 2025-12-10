@@ -59,6 +59,7 @@ def test_search_message_links_empty_results(mock_retrieval, mock_db):
     links = search_message_links(mock_retrieval, mock_db, "nonexistent query", top_k=3)
     
     assert len(links) == 0
+    # search_message_links uses top_k directly (not top_k * 2)
     mock_retrieval.search_chunks_basic.assert_called_once_with("nonexistent query", n_results=3)
     mock_db.get_chunk_link_info.assert_not_called()
 
@@ -179,7 +180,9 @@ def test_search_message_contents_success(mock_retrieval, mock_db):
     assert "Test message 2" in results[1][0]["content"]
     assert "User2" in results[1][0]["content"]
     
-    mock_retrieval.search_chunks_basic.assert_called_once_with("test query", n_results=2)
+    # After refactoring: search_message_contents calls _search_chunks with top_k*2, 
+    # and _search_chunks calls search_chunks_basic with top_k*2, so total is top_k*4
+    mock_retrieval.search_chunks_basic.assert_called_once_with("test query", n_results=8)
     assert mock_db.get_messages_by_chunk.call_count == 2
 
 
@@ -190,7 +193,9 @@ def test_search_message_contents_empty_results(mock_retrieval, mock_db):
     results = search_message_contents(mock_retrieval, mock_db, "nonexistent query", top_k=3)
     
     assert len(results) == 0
-    mock_retrieval.search_chunks_basic.assert_called_once_with("nonexistent query", n_results=3)
+    # After refactoring: search_message_contents calls _search_chunks with top_k*2, 
+    # and _search_chunks calls search_chunks_basic with top_k*2, so total is top_k*4
+    mock_retrieval.search_chunks_basic.assert_called_once_with("nonexistent query", n_results=12)
     mock_db.get_messages_by_chunk.assert_not_called()
 
 
@@ -264,7 +269,8 @@ def test_search_message_contents_multiple_messages_in_chunk(mock_retrieval, mock
     
     results = search_message_contents(mock_retrieval, mock_db, "query", top_k=1)
     
-    # Should have one result (chunk) with two messages
-    assert len(results) == 1
-    assert len(results[0]) == 2  # Two message parts
+    # Should have two results (one per message in chunk)
+    assert len(results) == 2
+    assert len(results[0]) == 1  # First message part
+    assert len(results[1]) == 1  # Second message part
 

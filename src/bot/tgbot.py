@@ -35,6 +35,7 @@ from src.bot.admin_router import AdminCommandRouter
 from src.bot.admin_commands import ProfileCommands, HelpCommands, IngestCommands, StatsCommands, ControlCommands, SettingsCommands, ModelCommands, SystemPromptCommands
 from src.bot.admin_tasks import TaskManager
 from src.bot.utils import AccessControlService, FrequencyController
+from src.bot.command_parser import parse_find_command_args as parse_find_args_common
 from src.core.syslog2 import *
 
 # Load environment variables
@@ -232,50 +233,7 @@ class MessageHandler:
             Tuple of (threshold, query) or (None, error_message)
             threshold uses config default if not specified
         """
-        # Format: /find [thr] <query_string>
-        parts = text.split(maxsplit=2)
-        
-        # Get default threshold from config
-        default_threshold = self.admin_manager.config.cosine_distance_thr if self.admin_manager else 1.5
-        
-        if len(parts) < 2 or not parts[1].strip():
-            return None, (
-                f"Использование: /find [thr] <запрос>\n\n"
-                f"Примеры:\n"
-                f"  /find vpn туннель          - поиск с threshold={default_threshold} (по умолчанию)\n"
-                f"  /find 2.0 vpn туннель       - поиск с threshold=2.0\n"
-                f"  /find 0.5 test              - поиск с threshold=0.5"
-            )
-        
-        # Try to parse first argument as threshold (float)
-        threshold = default_threshold  # default threshold from config
-        search_query = ""
-        
-        try:
-            # Check if first argument is a number
-            potential_threshold = float(parts[1].strip())
-            threshold = potential_threshold
-            # If threshold parsed successfully, query is the rest
-            if len(parts) >= 3:
-                search_query = parts[2].strip()
-            else:
-                return None, (
-                    "Использование: /find [thr] <запрос>\n\n"
-                    "Если указан threshold, необходимо также указать запрос.\n"
-                    "Пример: /find 2.0 vpn туннель"
-                )
-        except ValueError:
-            # First argument is not a number, treat entire rest as query
-            search_query = parts[1].strip()
-        
-        if not search_query:
-            return None, (
-                "Использование: /find [thr] <запрос>\n\n"
-                "Необходимо указать запрос для поиска.\n"
-                "Пример: /find vpn туннель"
-            )
-        
-        return threshold, search_query
+        return parse_find_args_common(text, admin_manager=self.admin_manager)
     
     async def _send_find_results(self, update: Update, search_query: str, threshold: float) -> Optional[str]:
         """
@@ -361,41 +319,65 @@ class MessageHandler:
         return await self._send_find_results(update, result, threshold)
 
     
+    def _prepare_system_prompt(self) -> str:
+        """
+        Get system prompt from config.
+        
+        Returns:
+            System prompt template string
+        """
+        return self.admin_manager.config.system_prompt
+    
+    def _print_rag_debug_info(self, text: str, n_results: int = 3) -> None:
+        """
+        Print RAG debug information (chunks, prompts, token count).
+        
+        Args:
+            text: User query text
+            n_results: Number of chunks to show
+        """
+        global debug_rag_mode
+        if not debug_rag_mode:
+            return
+        
+        debug_info = self.bot.get_rag_debug_info(text, n_results=n_results)
+        print("\n" + "=" * 70)
+        print("RAG DEBUG INFO")
+        print("=" * 70)
+        print(f"\nRetrieved Chunks: {len(debug_info['chunks'])}")
+        for i, chunk in enumerate(debug_info['chunks'], 1):
+            print(f"\n--- Chunk {i} (score: {chunk.get('score', 'N/A'):.3f}, source: {chunk.get('source', 'unknown')}) ---")
+            meta = chunk.get('metadata', {})
+            if meta.get('topic_l2_title'):
+                print(f"Category: {meta['topic_l2_title']}")
+            if meta.get('topic_l1_title'):
+                print(f"Topic: {meta['topic_l1_title']}")
+            print(f"Text preview: {chunk['text'][:200]}...")
+            if len(chunk['text']) > 200:
+                print(f"  (full length: {len(chunk['text'])} chars)")
+        print("\n" + "-" * 70)
+        print(f"System Prompt ({len(debug_info['prompt'])} chars):")
+        print("-" * 70)
+        print(debug_info['prompt'])
+        print("-" * 70)
+        print(f"\nUser Prompt ({len(text)} chars):")
+        print("-" * 70)
+        print(text)
+        print("-" * 70)
+        print(f"\nToken count: {debug_info.get('token_count', 'N/A')}")
+        print("=" * 70 + "\n")
+    
     async def handle_user_query(self, text: str, respond: bool) -> str:
         """Handle regular user query to bot."""
         syslog2(LOG_ALERT, "handle_user_query", text=text)
         try:
-            # Get system prompt from config
-            system_prompt_template = self.admin_manager.config.system_prompt
+            # Prepare system prompt
+            system_prompt_template = self._prepare_system_prompt()
             
             # Debug RAG mode - show retrieved chunks and prompts
+            global debug_rag_mode
             if debug_rag_mode and respond:
-                debug_info = self.bot.get_rag_debug_info(text, n_results=3)
-                print("\n" + "=" * 70)
-                print("RAG DEBUG INFO")
-                print("=" * 70)
-                print(f"\nRetrieved Chunks: {len(debug_info['chunks'])}")
-                for i, chunk in enumerate(debug_info['chunks'], 1):
-                    print(f"\n--- Chunk {i} (score: {chunk.get('score', 'N/A'):.3f}, source: {chunk.get('source', 'unknown')}) ---")
-                    meta = chunk.get('metadata', {})
-                    if meta.get('topic_l2_title'):
-                        print(f"Category: {meta['topic_l2_title']}")
-                    if meta.get('topic_l1_title'):
-                        print(f"Topic: {meta['topic_l1_title']}")
-                    print(f"Text preview: {chunk['text'][:200]}...")
-                    if len(chunk['text']) > 200:
-                        print(f"  (full length: {len(chunk['text'])} chars)")
-                print("\n" + "-" * 70)
-                print(f"System Prompt ({len(debug_info['prompt'])} chars):")
-                print("-" * 70)
-                print(debug_info['prompt'])
-                print("-" * 70)
-                print(f"\nUser Prompt ({len(text)} chars):")
-                print("-" * 70)
-                print(text)
-                print("-" * 70)
-                print(f"\nToken count: {debug_info.get('token_count', 'N/A')}")
-                print("=" * 70 + "\n")
+                self._print_rag_debug_info(text, n_results=3)
             
             return self.bot.chat(text, respond=respond, system_prompt_template=system_prompt_template)
         except Exception as e:
@@ -427,6 +409,31 @@ class MessageHandler:
                     return await handler()
         
         return None  # Not a recognized command
+
+
+def _register_command_group(
+    router: AdminCommandRouter,
+    group_name: str,
+    command_instance: object,
+    methods: Dict[str, str]
+) -> None:
+    """
+    Register a group of commands for an admin router.
+    
+    Args:
+        router: AdminCommandRouter instance
+        group_name: Command group name (e.g., "profile", "ingest")
+        command_instance: Instance of command class (e.g., ProfileCommands)
+        methods: Dictionary mapping method names to subcommand names.
+                 If value is None or empty string, register as main command.
+                 Example: {"list_profiles": "list", "create_profile": "create", "show_stats": None}
+    """
+    for method_name, subcommand in methods.items():
+        method = getattr(command_instance, method_name)
+        if subcommand:
+            router.register(group_name, method, subcommand)
+        else:
+            router.register(group_name, method)
 
 
 # инициализация рантайма под текущий профиль
@@ -491,18 +498,32 @@ async def init_runtime_for_current_profile(args: Optional[SimpleNamespace] = Non
 
     # profile commands
     profile_commands = ProfileCommands(profile_manager)
-    admin_router_local.register("profile", profile_commands.list_profiles, "list")
-    admin_router_local.register("profile", profile_commands.create_profile, "create")
-    admin_router_local.register("profile", profile_commands.get_profile, "get")
-    admin_router_local.register("profile", profile_commands.set_profile, "set")
-    admin_router_local.register("profile", profile_commands.delete_profile, "delete")
-    admin_router_local.register("profile", profile_commands.profile_info, "info")
+    _register_command_group(
+        admin_router_local,
+        "profile",
+        profile_commands,
+        {
+            "list_profiles": "list",
+            "create_profile": "create",
+            "get_profile": "get",
+            "set_profile": "set",
+            "delete_profile": "delete",
+            "profile_info": "info",
+        }
+    )
 
     # ingest commands
     ingest_commands_local = IngestCommands(profile_manager, task_manager_local)
-    admin_router_local.register("ingest", ingest_commands_local.start_ingest)
-    admin_router_local.register("ingest", ingest_commands_local.clear_data, "clear")
-    admin_router_local.register("ingest", ingest_commands_local.ingest_status, "status")
+    _register_command_group(
+        admin_router_local,
+        "ingest",
+        ingest_commands_local,
+        {
+            "start_ingest": None,
+            "clear_data": "clear",
+            "ingest_status": "status",
+        }
+    )
 
     # stats commands
     stats_commands = StatsCommands(profile_manager)
@@ -516,7 +537,14 @@ async def init_runtime_for_current_profile(args: Optional[SimpleNamespace] = Non
 
     # settings commands
     settings_commands = SettingsCommands(profile_manager)
-    admin_router_local.register("allowed", settings_commands.manage_chats, "list")
+    _register_command_group(
+        admin_router_local,
+        "allowed",
+        settings_commands,
+        {
+            "manage_chats": "list",  # First registration with "list"
+        }
+    )
     admin_router_local.register("allowed", settings_commands.manage_chats, "add")
     admin_router_local.register("allowed", settings_commands.manage_chats, "remove")
     admin_router_local.register("chat", settings_commands.manage_chats)
@@ -524,15 +552,29 @@ async def init_runtime_for_current_profile(args: Optional[SimpleNamespace] = Non
 
     # model commands
     model_commands = ModelCommands(profile_manager, bot_instance)
-    admin_router_local.register("model", model_commands.list_models, "list")
-    admin_router_local.register("model", model_commands.get_model, "get")
-    admin_router_local.register("model", model_commands.set_model, "set")
+    _register_command_group(
+        admin_router_local,
+        "model",
+        model_commands,
+        {
+            "list_models": "list",
+            "get_model": "get",
+            "set_model": "set",
+        }
+    )
 
     # system prompt commands
     system_prompt_commands = SystemPromptCommands(profile_manager)
-    admin_router_local.register("system_prompt", system_prompt_commands.get_prompt, "get")
-    admin_router_local.register("system_prompt", system_prompt_commands.set_prompt, "set")
-    admin_router_local.register("system_prompt", system_prompt_commands.reset_prompt, "reset")
+    _register_command_group(
+        admin_router_local,
+        "system_prompt",
+        system_prompt_commands,
+        {
+            "get_prompt": "get",
+            "set_prompt": "set",
+            "reset_prompt": "reset",
+        }
+    )
 
     # help command
     help_commands = HelpCommands()
@@ -739,10 +781,6 @@ def create_app(args: Optional[SimpleNamespace] = None):
             return Response(status_code=500)
     
     return app
-
-
-# Chat message counters for frequency control
-chat_counters: Dict[int, int] = {}
 
 
 def is_bot_mentioned(message, bot_username: str, bot_id: int) -> bool:

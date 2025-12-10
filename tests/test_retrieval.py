@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import MagicMock
 from src.core.retrieval import RetrievalService
 from src.storage.db import ChunkModel
+from src.core.syslog2 import LOG_DEBUG
 
 def test_retrieval_service():
     # Mocks
@@ -99,16 +100,21 @@ def test_retrieval_service_with_topics():
     mock_session = MagicMock()
     mock_db.get_session.return_value = mock_session
     
-    # Mock topic with center vector
-    topic_l1 = TopicL1Model(id=1, title="Test Topic", descr="Test", center_vec='[0.1, 0.2, 0.3]')
+    # Mock ChromaDB topics_l1 collection (after refactoring, _find_similar_topics reads from ChromaDB)
+    mock_topics_l1_collection = MagicMock()
+    mock_topics_l1_collection.get.return_value = {
+        "ids": ["l1-1"],
+        "embeddings": [[0.1, 0.2, 0.3]],
+        "metadatas": [{"topic_l1_id": 1}]
+    }
+    mock_vector_store.get_topics_l1_collection.return_value = mock_topics_l1_collection
+    
+    # Mock topic with center vector JSON
+    import json
+    topic_l1 = TopicL1Model(id=1, title="Test Topic", descr="Test", center_vec_json=json.dumps([0.1, 0.2, 0.3]))
     chunk1 = ChunkModel(id='1', text='Text 1', metadata_json=None, topic_l1_id=1)
     chunk1.topic_l1 = topic_l1
     chunk1.topic_l2 = None
-    
-    # Mock topic query
-    mock_topic_query = MagicMock()
-    mock_topic_query.filter.return_value = mock_topic_query
-    mock_topic_query.all.return_value = [topic_l1]
     
     # Mock chunk query for topics
     mock_chunk_query = MagicMock()
@@ -117,15 +123,7 @@ def test_retrieval_service_with_topics():
     mock_chunk_query.limit.return_value = mock_chunk_query
     mock_chunk_query.all.return_value = [chunk1]
     
-    # Setup query routing
-    def query_side_effect(model):
-        if model == TopicL1Model:
-            return mock_topic_query
-        elif model == ChunkModel:
-            return mock_chunk_query
-        return MagicMock()
-    
-    mock_session.query.side_effect = query_side_effect
+    mock_session.query.return_value = mock_chunk_query
     
     # Enable topic retrieval
     service = RetrievalService(
@@ -140,7 +138,9 @@ def test_retrieval_service_with_topics():
     # Should have at least one result from topic retrieval
     assert len(results) >= 0  # May be empty if similarity threshold not met
     
-    # Verify topic query was attempted
+    # Verify ChromaDB collection was queried for topics
+    mock_topics_l1_collection.get.assert_called()
+    # Verify chunk query was attempted for retrieving chunks from topics
     mock_session.query.assert_called()
 
 
@@ -150,16 +150,14 @@ def test_find_similar_topics_l1():
     mock_db = MagicMock()
     mock_embedding_client = MagicMock()
     
-    from src.storage.db import TopicL1Model
-    
-    # Mock topic with center vector
-    topic = TopicL1Model(id=1, title="Topic", center_vec='[0.1, 0.2, 0.3]')
-    
-    mock_session = MagicMock()
-    mock_query = MagicMock()
-    mock_query.filter.return_value.all.return_value = [topic]
-    mock_session.query.return_value = mock_query
-    mock_db.get_session.return_value = mock_session
+    # Mock ChromaDB topics_l1 collection (reads from ChromaDB, not SQLite)
+    mock_topics_collection = MagicMock()
+    mock_topics_collection.get.return_value = {
+        "ids": ["l1-1"],
+        "embeddings": [[0.1, 0.2, 0.3]],
+        "metadatas": [{"topic_l1_id": 1}]
+    }
+    mock_vector_store.get_topics_l1_collection.return_value = mock_topics_collection
     
     service = RetrievalService(mock_vector_store, mock_db, mock_embedding_client)
     
@@ -176,15 +174,14 @@ def test_find_similar_topics_l2():
     mock_db = MagicMock()
     mock_embedding_client = MagicMock()
     
-    from src.storage.db import TopicL2Model
-    
-    topic = TopicL2Model(id=2, title="L2 Topic", center_vec='[0.2, 0.3, 0.4]')
-    
-    mock_session = MagicMock()
-    mock_query = MagicMock()
-    mock_query.filter.return_value.all.return_value = [topic]
-    mock_session.query.return_value = mock_query
-    mock_db.get_session.return_value = mock_session
+    # Mock ChromaDB topics_l2 collection (reads from ChromaDB, not SQLite)
+    mock_topics_collection = MagicMock()
+    mock_topics_collection.get.return_value = {
+        "ids": ["l2-2"],
+        "embeddings": [[0.2, 0.3, 0.4]],
+        "metadatas": [{"topic_l2_id": 2}]
+    }
+    mock_vector_store.get_topics_l2_collection.return_value = mock_topics_collection
     
     service = RetrievalService(mock_vector_store, mock_db, mock_embedding_client)
     
@@ -200,11 +197,14 @@ def test_find_similar_topics_empty():
     mock_db = MagicMock()
     mock_embedding_client = MagicMock()
     
-    mock_session = MagicMock()
-    mock_query = MagicMock()
-    mock_query.filter.return_value.all.return_value = []
-    mock_session.query.return_value = mock_query
-    mock_db.get_session.return_value = mock_session
+    # Mock empty ChromaDB collection
+    mock_topics_collection = MagicMock()
+    mock_topics_collection.get.return_value = {
+        "ids": [],
+        "embeddings": [],
+        "metadatas": []
+    }
+    mock_vector_store.get_topics_l1_collection.return_value = mock_topics_collection
     
     service = RetrievalService(mock_vector_store, mock_db, mock_embedding_client)
     
@@ -220,21 +220,19 @@ def test_find_similar_topics_threshold():
     mock_db = MagicMock()
     mock_embedding_client = MagicMock()
     
-    from src.storage.db import TopicL1Model
-    
-    # Topic with center_vec as JSON string - use orthogonal vectors for low similarity
-    topic = TopicL1Model(id=1, title="Topic", center_vec='[1.0, 0.0, 0.0]')
-    
-    mock_session = MagicMock()
-    mock_query = MagicMock()
-    mock_query.filter.return_value.all.return_value = [topic]
-    mock_session.query.return_value = mock_query
-    mock_db.get_session.return_value = mock_session
+    # Mock ChromaDB topics_l1 collection with orthogonal vector (low similarity)
+    mock_topics_collection = MagicMock()
+    mock_topics_collection.get.return_value = {
+        "ids": ["l1-1"],
+        "embeddings": [[1.0, 0.0, 0.0]],  # Orthogonal to query
+        "metadatas": [{"topic_l1_id": 1}]
+    }
+    mock_vector_store.get_topics_l1_collection.return_value = mock_topics_collection
     
     service = RetrievalService(mock_vector_store, mock_db, mock_embedding_client)
     
     query_emb = [0.0, 1.0, 0.0]  # Orthogonal vector (similarity ~0)
-    results = service._find_similar_topics(query_emb, similarity_threshold=0.9)
+    results = service._find_similar_topics(query_emb, topic_type="l1", similarity_threshold=0.9)
     
     # Should filter out low similarity topic
     assert len(results) == 0

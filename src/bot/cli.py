@@ -36,6 +36,7 @@ except ImportError as e:
 from dotenv import load_dotenv
 from src.core.syslog2 import *
 from src.core.cli_parser import ArgStream, parse_int_option, parse_flag, parse_option, CLIError
+from src.bot.command_parser import parse_find_command_args as parse_find_args_common
 from typing import Optional, Tuple
 from pathlib import Path
 
@@ -134,47 +135,7 @@ def parse_find_command_args(text: str, admin_manager) -> Tuple[Optional[float], 
     Returns:
         Tuple of (threshold, query) or (None, error_message)
     """
-    # Get default threshold from config
-    default_threshold = admin_manager.config.cosine_distance_thr if admin_manager else 1.5
-    
-    if not text or not text.strip():
-        return None, (
-            f"Использование: /find [thr] <запрос>\n\n"
-            f"Примеры:\n"
-            f"  /find vpn туннель          - поиск с threshold={default_threshold} (по умолчанию)\n"
-            f"  /find 2.0 vpn туннель       - поиск с threshold=2.0\n"
-            f"  /find 0.5 test              - поиск с threshold=0.5"
-        )
-    
-    parts = text.split(maxsplit=1)
-    threshold = default_threshold
-    search_query = ""
-    
-    try:
-        # Check if first argument is a number
-        potential_threshold = float(parts[0].strip())
-        threshold = potential_threshold
-        # If threshold parsed successfully, query is the rest
-        if len(parts) >= 2:
-            search_query = parts[1].strip()
-        else:
-            return None, (
-                "Использование: /find [thr] <запрос>\n\n"
-                "Если указан threshold, необходимо также указать запрос.\n"
-                "Пример: /find 2.0 vpn туннель"
-            )
-    except ValueError:
-        # First argument is not a number, treat entire text as query
-        search_query = text.strip()
-    
-    if not search_query:
-        return None, (
-            "Использование: /find [thr] <запрос>\n\n"
-            "Необходимо указать запрос для поиска.\n"
-            "Пример: /find vpn туннель"
-        )
-    
-    return threshold, search_query
+    return parse_find_args_common(text, admin_manager=admin_manager)
 
 
 def handle_find_command_cli(args_text: str, bot, admin_manager, debug_rag: bool) -> str:

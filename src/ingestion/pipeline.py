@@ -3,7 +3,7 @@
 import sys
 import os
 import re
-from typing import Optional
+from typing import Optional, List, Dict, Tuple
 
 # add project root to sys.path to allow imports from src
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -250,82 +250,107 @@ class IngestionPipeline:
         """Run stage2: generate embeddings for chunks and save to SQLite (chunks.embedding_json)."""
         self.generate_embeddings(model=model, batch_size=batch_size)
 
+    def _prepare_chunk_data_for_vector_store(self, session) -> Tuple[List[str], List[str], List[List[float]], List[Dict], int]:
+        """
+        Prepare chunk data for vector store synchronization.
+        
+        Args:
+            session: Database session
+            
+        Returns:
+            Tuple of (ids, documents, embeddings, metadatas, dimension)
+            Returns empty lists and dimension 0 if no valid chunks found
+        """
+        chunks_with_embeddings = session.query(ChunkModel).filter(
+            ChunkModel.embedding_json.isnot(None)
+        ).all()
+        
+        if not chunks_with_embeddings:
+            return [], [], [], [], 0
+        
+        ids = []
+        documents = []
+        embeddings = []
+        metadatas = []
+        
+        for chunk in chunks_with_embeddings:
+            # Parse embedding from JSON
+            try:
+                embedding = json.loads(chunk.embedding_json)
+            except (json.JSONDecodeError, TypeError) as e:
+                syslog2(LOG_WARNING, "failed to parse embedding_json for chunk", chunk_id=chunk.id, error=str(e))
+                continue
+            
+            ids.append(chunk.id)
+            documents.append(chunk.text)
+            embeddings.append(embedding)
+            
+            # Prepare metadata
+            meta_dict = {}
+            if chunk.metadata_json:
+                try:
+                    meta_dict = json.loads(chunk.metadata_json)
+                except:
+                    pass
+            # Add topic assignments to metadata for chroma_db filtering
+            if chunk.topic_l1_id is not None:
+                meta_dict["topic_l1_id"] = chunk.topic_l1_id
+            if chunk.topic_l2_id is not None:
+                meta_dict["topic_l2_id"] = chunk.topic_l2_id
+            metadatas.append(meta_dict)
+        
+        dimension = len(embeddings[0]) if embeddings else 0
+        return ids, documents, embeddings, metadatas, dimension
+    
+    def _check_and_fix_collection_dimension(self, new_dimension: int) -> None:
+        """
+        Check collection dimension and recreate if mismatch.
+        
+        Args:
+            new_dimension: Expected dimension for new embeddings
+        """
+        if new_dimension == 0:
+            return
+        
+        try:
+            collection_count = self.vector_store.collection.count()
+            if collection_count > 0:
+                # Collection has data - check its dimension
+                sample = self.vector_store.collection.get(limit=1, include=["embeddings"])
+                if sample and sample.get("embeddings") and len(sample["embeddings"]) > 0:
+                    existing_dim = len(sample["embeddings"][0])
+                    if existing_dim != new_dimension:
+                        # Dimension mismatch - MUST recreate collection
+                        syslog2(LOG_WARNING, 
+                            f"Collection dimension mismatch: existing={existing_dim}, new={new_dimension}. "
+                            f"Recreating collection...")
+                        self.vector_store.collection = self.vector_store._recreate_collection_with_dimension(new_dimension)
+                        self.vector_store.expected_dimension = new_dimension
+                        syslog2(LOG_NOTICE, f"Collection recreated with dimension {new_dimension}")
+        except Exception as e:
+            syslog2(LOG_DEBUG, f"Could not check collection dimension: {e}")
+        
+        # Update expected dimension
+        self.vector_store.expected_dimension = new_dimension
+    
     def run_stage3(self):
         """Run stage3: sync chunks from SQLite (embedding_json) to vector_db."""
         syslog2(LOG_NOTICE, "starting stage3: syncing chunks to vector database")
         
-        # Get all chunks with embeddings from SQLite
         session = self.db.get_session()
         try:
-            chunks_with_embeddings = session.query(ChunkModel).filter(
-                ChunkModel.embedding_json.isnot(None)
-            ).all()
+            # Prepare data for vector store
+            ids, documents, embeddings, metadatas, dimension = self._prepare_chunk_data_for_vector_store(session)
             
-            if not chunks_with_embeddings:
+            if not ids:
                 syslog2(LOG_NOTICE, "no chunks with embeddings found in sqlite")
                 return
             
-            total_chunks = len(chunks_with_embeddings)
+            total_chunks = len(ids)
             syslog2(LOG_NOTICE, "syncing chunks to vector database", total=total_chunks)
             
-            # Prepare data for vector store
-            ids = []
-            documents = []
-            embeddings = []
-            metadatas = []
-            
-            for chunk in chunks_with_embeddings:
-                # Parse embedding from JSON
-                try:
-                    embedding = json.loads(chunk.embedding_json)
-                except (json.JSONDecodeError, TypeError) as e:
-                    syslog2(LOG_WARNING, "failed to parse embedding_json for chunk", chunk_id=chunk.id, error=str(e))
-                    continue
-                
-                ids.append(chunk.id)
-                documents.append(chunk.text)
-                embeddings.append(embedding)
-                
-                # Prepare metadata
-                meta_dict = {}
-                if chunk.metadata_json:
-                    try:
-                        meta_dict = json.loads(chunk.metadata_json)
-                    except:
-                        pass
-                # Add topic assignments to metadata for chroma_db filtering
-                if chunk.topic_l1_id is not None:
-                    meta_dict["topic_l1_id"] = chunk.topic_l1_id
-                if chunk.topic_l2_id is not None:
-                    meta_dict["topic_l2_id"] = chunk.topic_l2_id
-                metadatas.append(meta_dict)
-            
-            if not ids:
-                syslog2(LOG_WARNING, "no valid embeddings found to sync")
-                return
-            
-            # Check collection dimension before syncing
-            new_dimension = len(embeddings[0]) if embeddings else 0
-            try:
-                collection_count = self.vector_store.collection.count()
-                if collection_count > 0:
-                    # Collection has data - check its dimension
-                    sample = self.vector_store.collection.get(limit=1, include=["embeddings"])
-                    if sample and sample.get("embeddings") and len(sample["embeddings"]) > 0:
-                        existing_dim = len(sample["embeddings"][0])
-                        if existing_dim != new_dimension:
-                            # Dimension mismatch - MUST recreate collection
-                            syslog2(LOG_WARNING, 
-                                f"Collection dimension mismatch: existing={existing_dim}, new={new_dimension}. "
-                                f"Recreating collection...")
-                            self.vector_store.collection = self.vector_store._recreate_collection_with_dimension(new_dimension)
-                            self.vector_store.expected_dimension = new_dimension
-                            syslog2(LOG_NOTICE, f"Collection recreated with dimension {new_dimension}")
-            except Exception as e:
-                syslog2(LOG_DEBUG, f"Could not check collection dimension: {e}")
-            
-            # Update expected dimension
-            self.vector_store.expected_dimension = new_dimension
+            # Check and fix collection dimension
+            self._check_and_fix_collection_dimension(dimension)
             
             # Sync to vector store (add or update)
             # ChromaDB will update existing IDs automatically

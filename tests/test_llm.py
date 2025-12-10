@@ -5,6 +5,7 @@ Tests for LLM Client functionality.
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 from src.core.llm import LLMClient
+from src.core.syslog2 import LOG_WARNING, LOG_INFO, LOG_DEBUG
 
 
 class TestLLMInit:

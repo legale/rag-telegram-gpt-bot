@@ -5,6 +5,7 @@ Tests for LegaleBot chat flow functionality.
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 from src.bot.core import LegaleBot
+from src.core.syslog2 import LOG_WARNING, LOG_INFO
 
 
 @pytest.fixture

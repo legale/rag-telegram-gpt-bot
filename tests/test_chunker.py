@@ -78,8 +78,8 @@ def test_chunker_prefix_and_suffix():
     
     # Check prefix format
     first_chunk = chunks[0]
-    assert first_chunk.text.startswith("Чат-фрагмент:")
-    assert "Участники:" in first_chunk.text
+    assert first_chunk.text.startswith("snippet:")
+    assert "participants:" in first_chunk.text
     
     # Check suffix for non-last chunks
     if len(chunks) > 1:
@@ -218,7 +218,7 @@ def test_chunker_multiple_senders():
     
     # Check that prefix includes all unique senders
     first_chunk = chunks[0]
-    assert "Участники:" in first_chunk.text
+    assert "participants:" in first_chunk.text
     # Should mention at least some of the senders
     assert any(f"User{i}" in first_chunk.text for i in range(3))
 

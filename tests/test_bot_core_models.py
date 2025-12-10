@@ -7,6 +7,7 @@ import os
 import tempfile
 from unittest.mock import Mock, patch, MagicMock
 from src.bot.core import LegaleBot
+from src.core.syslog2 import LOG_WARNING
 
 
 @pytest.fixture

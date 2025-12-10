@@ -42,6 +42,31 @@ class IngestionTask:
             text=text
         )
     
+    async def _update_progress_with_percentage(
+        self,
+        bot: Bot,
+        chat_id: int,
+        message_id: int,
+        current: int,
+        total: int,
+        prefix: str = "Загрузка данных..."
+    ) -> None:
+        """
+        Update progress with percentage and progress bar.
+        
+        Args:
+            bot: Telegram bot instance
+            chat_id: Chat ID for updates
+            message_id: Message ID to edit
+            current: Current progress value
+            total: Total value
+            prefix: Prefix text for progress message
+        """
+        progress_pct = (current / total * 100) if total > 0 else 0
+        progress_bar = '▓' * int(progress_pct / 5) + '░' * (20 - int(progress_pct / 5))
+        text = f"{prefix}\n\nПрогресс: {current:,}/{total:,} ({progress_pct:.1f}%)\n\n{progress_bar}"
+        await self._update_progress(bot, chat_id, message_id, text)
+    
     async def _parse_file(self, pipeline, bot: Bot, chat_id: int, message_id: int) -> Tuple[List, int]:
         """Parse file and return messages."""
         await self._update_progress(bot, chat_id, message_id, "Начинаю загрузку данных...\n\nЧтение файла...")
@@ -109,10 +134,8 @@ class IngestionTask:
                 # Update progress every 100 chunks
                 if (i + 1) % 100 == 0:
                     self.progress = i + 1
-                    progress_pct = (self.progress / chunk_count) * 100
-                    await self._update_progress(
-                        bot, chat_id, message_id,
-                        f"Загрузка данных...\n\nПрогресс: {self.progress:,}/{chunk_count:,} ({progress_pct:.1f}%)\n\n{'▓' * int(progress_pct / 5)}{'░' * (20 - int(progress_pct / 5))}"
+                    await self._update_progress_with_percentage(
+                        bot, chat_id, message_id, self.progress, chunk_count
                     )
             
             session.add_all(chunk_models)

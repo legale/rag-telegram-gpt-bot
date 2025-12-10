@@ -24,6 +24,68 @@ def _convert_similarity_to_distance(score: float) -> float:
     return 1.0 - float(score)
 
 
+def _log_retrieval_distances(
+    results: List[Dict],
+    query: str,
+    context: str,
+    log_level: int = LOG_ALERT,
+    debug_rag: bool = False,
+    threshold: Optional[float] = None
+) -> None:
+    """
+    Log distances for retrieval results.
+    
+    Args:
+        results: List of chunk dictionaries with id and distance
+        query: Search query string
+        context: Context string for logging (e.g., "links", "contents", "two-stage", "basic")
+        log_level: Log level for distance logging (default: LOG_ALERT)
+        debug_rag: Enable detailed debug logging
+        threshold: Optional threshold value to include in logs
+    """
+    if not results:
+        return
+    
+    syslog2(
+        log_level,
+        f"msg_search {context} results",
+        query=query,
+        result_count=len(results),
+    )
+    
+    for idx, item in enumerate(results):
+        chunk_id = item.get("id", "unknown")
+        distance = item.get("distance")
+        source = item.get("source")
+        
+        log_data = {
+            "idx": idx,
+            "chunk_id": chunk_id,
+        }
+        if distance is not None:
+            log_data["distance"] = distance
+        if source:
+            log_data["source"] = source
+        if threshold is not None:
+            log_data["thr"] = threshold
+        
+        syslog2(
+            log_level,
+            f"msg_search {context} result distance",
+            **log_data
+        )
+        
+        if debug_rag:
+            metadata = item.get("metadata") or {}
+            syslog2(
+                LOG_DEBUG,
+                f"msg_search {context} result details",
+                idx=idx,
+                chunk_id=chunk_id,
+                metadata=metadata,
+            )
+
+
 def search_message_links(
     retrieval: RetrievalService,
     db: Database,
@@ -50,19 +112,8 @@ def search_message_links(
     # Search for chunks
     results = retrieval.search_chunks_basic(query, n_results=top_k)
 
-    if debug_rag:
-        syslog2(LOG_DEBUG, "msg_search links basic results",
-                query=query,
-                result_count=len(results))
-        for idx, item in enumerate(results):
-            syslog2(
-                LOG_ALERT,
-                "msg_search links result",
-                idx=idx,
-                chunk_id=item.get("id"),
-                distance=item.get("distance"),
-                metadata=item.get("metadata") or {},
-            )
+    # Log distances using helper
+    _log_retrieval_distances(results, query, "links", LOG_ALERT, debug_rag)
 
     links = []
     for idx, item in enumerate(results):
@@ -163,61 +214,16 @@ def _search_chunks(
                 "source": item.get("source", "unknown")
             })
         
-        # Log distance for all two-stage results (always visible)
-        syslog2(
-            LOG_ALERT,
-            "msg_search contents two-stage results",
-            query=query,
-            result_count=len(results),
-        )
-        for idx, item in enumerate(results):
-            syslog2(
-                LOG_ALERT,
-                "msg_search two-stage result distance",
-                idx=idx,
-                chunk_id=item.get("id"),
-                distance=item.get("distance"),
-                source=item.get("source"),
-            )
-        if debug_rag:
-            for idx, item in enumerate(results):
-                syslog2(
-                    LOG_DEBUG,
-                    "msg_search contents two-stage result details",
-                    idx=idx,
-                    chunk_id=item.get("id"),
-                    metadata=item.get("metadata") or {},
-                )
+        # Log distances using helper
+        _log_retrieval_distances(results, query, "two-stage", LOG_ALERT, debug_rag)
     else:
         if debug_rag:
             syslog2(LOG_DEBUG, "msg_search using direct search")
         # Direct search using search_chunks_basic
         results = retrieval.search_chunks_basic(query, n_results=top_k * 2)  # Get more results for filtering
         
-        # Log distance for all direct search results (always visible)
-        syslog2(
-            LOG_ALERT,
-            "msg_search contents basic results",
-            query=query,
-            result_count=len(results),
-        )
-        for idx, item in enumerate(results):
-            syslog2(
-                LOG_ALERT,
-                "msg_search basic result distance",
-                idx=idx,
-                chunk_id=item.get("id"),
-                distance=item.get("distance"),
-            )
-        if debug_rag:
-            for idx, item in enumerate(results):
-                syslog2(
-                    LOG_DEBUG,
-                    "msg_search contents basic result details",
-                    idx=idx,
-                    chunk_id=item.get("id"),
-                    metadata=item.get("metadata") or {},
-                )
+        # Log distances using helper
+        _log_retrieval_distances(results, query, "basic", LOG_ALERT, debug_rag)
     
     return results
 
@@ -404,18 +410,8 @@ def search_message_contents(
     # Step 3: Limit to top_k results after filtering
     results = results[:top_k]
     
-    # Log distance for all results (always visible, not just in debug mode)
-    for idx, item in enumerate(results):
-        distance = float(item.get("distance", 0.0))
-        chunk_id = item.get("id", "unknown")
-        syslog2(
-            LOG_ALERT,
-            "msg_search result distance",
-            idx=idx,
-            chunk_id=chunk_id,
-            distance=distance,
-            thr=thr,
-        )
+    # Log distances using helper (after filtering and limiting)
+    _log_retrieval_distances(results, query, "result", LOG_ALERT, debug_rag, threshold=thr)
     
     # Step 4: Prepare message parts
     all_message_parts = _prepare_message_parts(db, results, debug_rag)
