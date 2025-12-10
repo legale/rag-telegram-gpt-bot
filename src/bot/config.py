@@ -37,7 +37,9 @@ class BotConfig:
             "chunk_token_min": 50,
             "chunk_token_max": 1024,
             "chunk_overlap_ratio": 0.30,
-            "cosine_distance_thr": 1.5
+            "cosine_distance_thr": 1.5,
+            "rag_strategy_use_ntop": True,
+            "rag_ntop": 5
         }
         
         if not self.config_file.exists():
@@ -205,5 +207,27 @@ class BotConfig:
         if not isinstance(value, (int, float)) or value < 0:
             raise ValueError("cosine_distance_thr must be a non-negative float")
         self.data["cosine_distance_thr"] = float(value)
+        self.save()
+
+    @property
+    def rag_strategy_use_ntop(self) -> bool:
+        return self.data.get("rag_strategy_use_ntop", False)
+    
+    @rag_strategy_use_ntop.setter
+    def rag_strategy_use_ntop(self, value: bool):
+        if not isinstance(value, bool):
+            raise ValueError("rag_strategy_use_ntop must be a boolean")
+        self.data["rag_strategy_use_ntop"] = value
+        self.save()
+
+    @property
+    def rag_ntop(self) -> int:
+        return self.data.get("rag_ntop", 5)
+    
+    @rag_ntop.setter
+    def rag_ntop(self, value: int):
+        if not isinstance(value, int) or value < 1:
+            raise ValueError("rag_ntop must be a positive integer")
+        self.data["rag_ntop"] = value
         self.save()
 

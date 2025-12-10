@@ -188,6 +188,7 @@ class AdminCommandRouter:
             "• `/admin ingest status` - статус загрузки\n\n"
             "**Доступ:**\n"
             "• `/admin allowed list` - список разрешенных чатов\n"
+            "• `/admin allowed lookup <name>` - поиск чатов по имени\n"
             "• `/admin allowed add <id>` - разрешить чат\n"
             "• `/admin allowed remove <id>` - запретить чат\n\n"
             "**Статистика и мониторинг:**\n"

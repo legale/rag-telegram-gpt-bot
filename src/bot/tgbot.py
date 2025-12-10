@@ -537,16 +537,9 @@ async def init_runtime_for_current_profile(args: Optional[SimpleNamespace] = Non
 
     # settings commands
     settings_commands = SettingsCommands(profile_manager)
-    _register_command_group(
-        admin_router_local,
-        "allowed",
-        settings_commands,
-        {
-            "manage_chats": "list",  # First registration with "list"
-        }
-    )
-    admin_router_local.register("allowed", settings_commands.manage_chats, "add")
-    admin_router_local.register("allowed", settings_commands.manage_chats, "remove")
+    # Register manage_chats as direct handler so fallback passes subcommand in args
+    admin_router_local.register("allowed", settings_commands.manage_chats)
+    admin_router_local.register("allowed", settings_commands.lookup_chats, "lookup")
     admin_router_local.register("chat", settings_commands.manage_chats)
     admin_router_local.register("frequency", settings_commands.manage_frequency)
 

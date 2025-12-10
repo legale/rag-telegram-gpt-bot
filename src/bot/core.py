@@ -253,8 +253,6 @@ class LegaleBot:
         context_chunks = self.retrieval_service.retrieve(
             user_input, n_results=n_results
         )
-        
-        syslog2(LOG_NOTICE, "rag returned chunks", count=len(context_chunks))
 
         history_for_prompt = []
         for msg in self.chat_history[-5:]:

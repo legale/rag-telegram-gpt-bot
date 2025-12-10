@@ -23,9 +23,7 @@ class RetrievalService:
         search_mode: str = "two_stage",
         l2_top_k: int = 5,
         chunk_top_k: int = 50,
-        debug_rag: bool = False,
-        rag_strategy_use_ntop: bool = False,
-        rag_ntop: int = 5
+        debug_rag: bool = False
     ):
         """
         Initialize RetrievalService.
@@ -41,8 +39,6 @@ class RetrievalService:
             l2_top_k: Number of L2 topics to select in two-stage search
             chunk_top_k: Number of chunks to return in two-stage search
             debug_rag: enable detailed rag debug logging
-            rag_strategy_use_ntop: If True, take top rag_ntop results regardless of similarity threshold
-            rag_ntop: Number of top results to take when rag_strategy_use_ntop is enabled
         """
         self.vector_store = vector_store
         self.db = db
@@ -54,8 +50,6 @@ class RetrievalService:
         self.l2_top_k = l2_top_k
         self.chunk_top_k = chunk_top_k
         self.debug_rag = debug_rag
-        self.rag_strategy_use_ntop = rag_strategy_use_ntop
-        self.rag_ntop = rag_ntop
         
         # Get topics collections
         self.topics_l2_collection = vector_store.get_topics_l2_collection()
@@ -76,9 +70,7 @@ class RetrievalService:
         elif distance <= 2.0:
             return 1.0 - (distance / 2.0)
         else:
-            # For large distances, use inverse relationship to keep similarity informative
-            # Using 1/(1+distance) ensures similarity decreases smoothly but stays > 0
-            return 1.0 / (1.0 + distance)
+            return max(0.0, 1.0 - distance)
     
     def _build_chunk_dict(
         self, 
@@ -200,14 +192,14 @@ class RetrievalService:
             # Get all topics from collection
             all_topics = collection.get(include=["embeddings", "metadatas"])
             
-            if not all_topics or not all_topics.get("ids") or len(all_topics["ids"]) == 0:
+            if not all_topics or not all_topics.get("ids") or not all_topics["ids"]:
                 return []
             
             ids = all_topics["ids"]
             embeddings = all_topics.get("embeddings", [])
             metadatas = all_topics.get("metadatas", [])
             
-            if len(embeddings) == 0 or len(embeddings) != len(ids):
+            if not embeddings or len(embeddings) != len(ids):
                 return []
             
             # Ensure 1D float vectors
@@ -934,20 +926,12 @@ class RetrievalService:
         
         final_chunks = sorted(all_chunks.values(), key=lambda x: x["score"], reverse=True)
         
-        # Apply ntop strategy if enabled
-        if self.rag_strategy_use_ntop:
-            result_count = min(self.rag_ntop, len(final_chunks))
-        else:
-            result_count = min(n_results, len(final_chunks))
-        
         if self.debug_rag:
             syslog2(LOG_DEBUG, "retrieval complete", 
                    vector_count=len(vector_chunks),
                    topic_count=len(topic_chunks),
-                   final_count=len(final_chunks),
-                   rag_strategy_use_ntop=self.rag_strategy_use_ntop,
-                   result_count=result_count)
-            for idx, item in enumerate(final_chunks[:result_count]):
+                   final_count=len(final_chunks))
+            for idx, item in enumerate(final_chunks[:n_results]):
                 meta = item.get("metadata", {}) or {}
                 syslog2(
                     LOG_DEBUG,
@@ -960,7 +944,7 @@ class RetrievalService:
                     topic_l2_id=meta.get("topic_l2_id"),
                 )
         
-        return final_chunks[:result_count]
+        return final_chunks[:n_results]
     
     def retrieve(
         self, 
