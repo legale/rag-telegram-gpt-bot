@@ -84,8 +84,9 @@ class TelegramFetcher:
         with self.client:
             for dialog in self.client.iter_dialogs():
                 if dialog.name and name_lower in dialog.name.lower():
-                    # Use absolute value for negative IDs (groups/channels)
-                    chat_id = abs(dialog.id)
+                    # Return dialog.id as-is to preserve negative IDs for groups/channels
+                    # Groups and channels have negative IDs (e.g., -5074382841)
+                    chat_id = dialog.id
                     results.append((chat_id, dialog.name))
         
         return results

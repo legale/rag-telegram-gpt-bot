@@ -1079,10 +1079,33 @@ class SettingsCommands(BaseAdminCommand):
             # Session file is in project root, not in profile directory
             session_name = str(paths['session_file'].with_suffix(''))  # Remove .session extension
             
-            # Run synchronous Telegram client code in thread executor to avoid event loop conflicts
+            # Run synchronous Telegram client code in thread executor with new event loop
+            # Telethon requires event loop even for synchronous code
             import asyncio
-            fetcher = TelegramFetcher(API_ID, API_HASH, session_name=session_name)
-            results = await asyncio.to_thread(fetcher.search_chats_by_name, chat_name)
+            
+            def run_search_in_thread():
+                # Create new event loop for this thread (required by Telethon)
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    fetcher = TelegramFetcher(API_ID, API_HASH, session_name=session_name)
+                    return fetcher.search_chats_by_name(chat_name)
+                finally:
+                    # Clean up event loop
+                    try:
+                        # Cancel any pending tasks
+                        pending = asyncio.all_tasks(loop)
+                        for task in pending:
+                            task.cancel()
+                        if pending:
+                            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+                    except Exception:
+                        pass
+                    finally:
+                        loop.close()
+            
+            # Run in thread executor with new event loop
+            results = await asyncio.to_thread(run_search_in_thread)
             
             if not results:
                 return self.formatter.format_info_message(
