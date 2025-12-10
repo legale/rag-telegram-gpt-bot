@@ -828,6 +828,7 @@ class IngestionPipeline:
     def generate_embeddings(self, model: Optional[str] = None, batch_size: int = 128):
         """
         Generate embeddings for chunks without embeddings and save to SQLite (chunks.embedding_json).
+        Streaming version - processes chunks in batches to avoid memory issues.
         Does NOT write to vector database (that's stage3).
         
         Args:
@@ -850,47 +851,74 @@ class IngestionPipeline:
         # Get expected dimension from embedding client
         new_dimension = emb_client.get_dimension()
         
-        # Get all chunks from database that don't have embeddings
-        # Check embedding_json field (source of truth)
+        # Get chunks from database that don't have embeddings - STREAMING APPROACH
         session = self.db.get_session()
         try:
-            # Filter chunks without embeddings using SQL (embedding_json is NULL or embedding_dim doesn't match)
-            chunks_to_embed = session.query(ChunkModel).filter(
+            # Count total chunks to embed first
+            total_to_embed = session.query(ChunkModel).filter(
                 (ChunkModel.embedding_json.is_(None)) | 
                 (ChunkModel.embedding_dim.is_(None)) | 
                 (ChunkModel.embedding_dim != new_dimension)
-            ).all()
+            ).count()
             
-            if not chunks_to_embed:
+            if total_to_embed == 0:
                 syslog2(LOG_NOTICE, "all chunks already have embeddings")
                 return
             
             total_chunks = session.query(ChunkModel).count()
-            syslog2(LOG_NOTICE, "chunks to embed", total=total_chunks, missing=len(chunks_to_embed))
+            syslog2(LOG_NOTICE, "chunks to embed", total=total_chunks, missing=total_to_embed)
             
-            # Prepare data
-            ids = [chunk.id for chunk in chunks_to_embed]
-            documents = [chunk.text for chunk in chunks_to_embed]
-            
-            # Generate embeddings
-            embeddings = emb_client.get_embeddings_batched(
-                texts=documents,
-                batch_size=batch_size,
-                show_progress=True
+            # Process chunks in batches using yield_per - STREAMING APPROACH
+            # This avoids loading all chunks into memory at once
+            processed = 0
+            query = session.query(ChunkModel).filter(
+                (ChunkModel.embedding_json.is_(None)) | 
+                (ChunkModel.embedding_dim.is_(None)) | 
+                (ChunkModel.embedding_dim != new_dimension)
             )
             
-            # Save embeddings to SQLite (chunks.embedding_json)
-            # Update in batches for better performance
-            batch_update_size = 100
-            for i in range(0, len(ids), batch_update_size):
-                batch_ids = ids[i:i + batch_update_size]
-                batch_embeddings = embeddings[i:i + batch_update_size]
+            # Accumulate chunks in a batch
+            batch_chunks = []
+            for chunk in query.yield_per(batch_size):
+                batch_chunks.append(chunk)
+                
+                # When batch is full, process it immediately
+                if len(batch_chunks) >= batch_size:
+                    # Prepare batch data
+                    batch_ids = [chunk.id for chunk in batch_chunks]
+                    batch_texts = [chunk.text for chunk in batch_chunks]
+                    
+                    # Generate embeddings for this batch only (not accumulating all)
+                    batch_embeddings = emb_client.get_embeddings(batch_texts)
+                    
+                    # Save immediately to DB to free memory
+                    for chunk_id, embedding in zip(batch_ids, batch_embeddings):
+                        embedding_json = json.dumps(embedding)
+                        session.query(ChunkModel).filter(
+                            ChunkModel.id == chunk_id
+                        ).update({
+                            ChunkModel.embedding_json: embedding_json,
+                            ChunkModel.embedding_dim: new_dimension
+                        }, synchronize_session=False)
+                    
+                    session.commit()
+                    processed += len(batch_chunks)
+                    
+                    # Progress output
+                    pct = (processed * 100) // total_to_embed if total_to_embed > 0 else 0
+                    print(f"\rProcessing embeddings: {processed}/{total_to_embed} ({pct}%)", flush=True, end="")
+                    
+                    # Clear batch to free memory before next iteration
+                    batch_chunks = []
+            
+            # Process remaining chunks (last incomplete batch)
+            if batch_chunks:
+                batch_ids = [chunk.id for chunk in batch_chunks]
+                batch_texts = [chunk.text for chunk in batch_chunks]
+                batch_embeddings = emb_client.get_embeddings(batch_texts)
                 
                 for chunk_id, embedding in zip(batch_ids, batch_embeddings):
-                    # Convert embedding to JSON string
                     embedding_json = json.dumps(embedding)
-                    
-                    # Update chunk with embedding_json and embedding_dim
                     session.query(ChunkModel).filter(
                         ChunkModel.id == chunk_id
                     ).update({
@@ -899,11 +927,10 @@ class IngestionPipeline:
                     }, synchronize_session=False)
                 
                 session.commit()
-                if i % (batch_update_size * 10) == 0:
-                    print(f"\rSaving embeddings to database: {min(i + batch_update_size, len(ids))}/{len(ids)}", flush=True, end="")
+                processed += len(batch_chunks)
             
             print()  # Newline after progress
-            syslog2(LOG_NOTICE, "embeddings saved to sqlite database", count=len(ids))
+            syslog2(LOG_NOTICE, "embeddings saved to sqlite database", count=processed)
             
         finally:
             session.close()
