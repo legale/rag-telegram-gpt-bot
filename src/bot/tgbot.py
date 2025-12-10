@@ -230,21 +230,25 @@ class MessageHandler:
             
         Returns:
             Tuple of (threshold, query) or (None, error_message)
-            threshold is None if not specified (defaults to 1.5)
+            threshold uses config default if not specified
         """
         # Format: /find [thr] <query_string>
         parts = text.split(maxsplit=2)
+        
+        # Get default threshold from config
+        default_threshold = self.admin_manager.config.cosine_distance_thr if self.admin_manager else 1.5
+        
         if len(parts) < 2 or not parts[1].strip():
             return None, (
-                "Использование: /find [thr] <запрос>\n\n"
-                "Примеры:\n"
-                "  /find vpn туннель          - поиск с threshold=1.5 (по умолчанию)\n"
-                "  /find 2.0 vpn туннель       - поиск с threshold=2.0\n"
-                "  /find 0.5 test              - поиск с threshold=0.5"
+                f"Использование: /find [thr] <запрос>\n\n"
+                f"Примеры:\n"
+                f"  /find vpn туннель          - поиск с threshold={default_threshold} (по умолчанию)\n"
+                f"  /find 2.0 vpn туннель       - поиск с threshold=2.0\n"
+                f"  /find 0.5 test              - поиск с threshold=0.5"
             )
         
         # Try to parse first argument as threshold (float)
-        threshold = 1.5  # default threshold
+        threshold = default_threshold  # default threshold from config
         search_query = ""
         
         try:
@@ -275,12 +279,12 @@ class MessageHandler:
     
     async def _send_find_results(self, update: Update, search_query: str, threshold: float) -> Optional[str]:
         """
-        Execute search and send results.
+        Execute simple search in embeddings and send results filtered by cosine distance threshold.
         
         Args:
             update: Telegram update object
             search_query: Search query string
-            threshold: Distance threshold
+            threshold: Cosine distance threshold (filter results with distance <= threshold)
             
         Returns:
             Error message if failed, None or empty string if successful
@@ -289,21 +293,25 @@ class MessageHandler:
             # get db and retrieval from bot instance
             db = self.bot.db
             retrieval = self.bot.retrieval
-            from src.core.message_search import search_message_contents
             
             # Get debug_rag from global variable
             global debug_rag_mode
             
-            # search for message contents with two-stage search enabled
-            message_parts_list = search_message_contents(
-                retrieval, 
-                db, 
-                search_query, 
-                top_k=3,
-                debug_rag=debug_rag_mode,
-                thr=threshold,
-                use_two_stage=True
-            )
+            # Simple search in chunk embeddings
+            results = retrieval.search_chunks_basic(search_query, n_results=100)
+            
+            # Filter results by cosine distance threshold
+            filtered_results = [
+                item for item in results 
+                if float(item.get("distance", float('inf'))) <= threshold
+            ]
+            
+            if not filtered_results:
+                return f'по запросу "{search_query}" ничего не найдено (distance <= {threshold})'
+            
+            # Prepare message parts from filtered results
+            from src.core.message_search import _prepare_message_parts
+            message_parts_list = _prepare_message_parts(db, filtered_results, debug_rag_mode)
             
             if not message_parts_list:
                 return f'по запросу "{search_query}" ничего не найдено'
@@ -326,6 +334,8 @@ class MessageHandler:
                     "find command response sent",
                     chat_id=chat_id,
                     query=search_query,
+                    threshold=threshold,
+                    chunks_found=len(filtered_results),
                     messages=len(message_parts_list),
                     parts=total_parts,
                 )

@@ -36,7 +36,8 @@ class BotConfig:
             "rebuild": False,
             "chunk_token_min": 50,
             "chunk_token_max": 1024,
-            "chunk_overlap_ratio": 0.30
+            "chunk_overlap_ratio": 0.30,
+            "cosine_distance_thr": 1.5
         }
         
         if not self.config_file.exists():
@@ -193,5 +194,16 @@ class BotConfig:
         if not isinstance(value, (int, float)) or value < 0 or value > 1:
             raise ValueError("chunk_overlap_ratio must be a float between 0 and 1")
         self.data["chunk_overlap_ratio"] = float(value)
+        self.save()
+
+    @property
+    def cosine_distance_thr(self) -> float:
+        return self.data.get("cosine_distance_thr", 1.5)
+    
+    @cosine_distance_thr.setter
+    def cosine_distance_thr(self, value: float):
+        if not isinstance(value, (int, float)) or value < 0:
+            raise ValueError("cosine_distance_thr must be a non-negative float")
+        self.data["cosine_distance_thr"] = float(value)
         self.save()
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import sys
 import os
+import re
 
 # Add project root to sys.path to allow imports from src
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -35,6 +36,217 @@ except ImportError as e:
 from dotenv import load_dotenv
 from src.core.syslog2 import *
 from src.core.cli_parser import ArgStream, parse_int_option, parse_flag, parse_option, CLIError
+from typing import Optional, Tuple
+from pathlib import Path
+
+def handle_cli_command(command: str, bot, admin_manager, debug_rag: bool) -> Optional[str]:
+    """
+    Handle CLI commands synchronously (similar to Telegram bot commands).
+    
+    Args:
+        command: Command text (e.g., "/find 2.0 vpn туннель" or "/help")
+        bot: LegaleBot instance
+        admin_manager: AdminManager instance (can be None)
+        debug_rag: Whether to show debug RAG info
+        
+    Returns:
+        Response string if command was handled, None if not a command
+    """
+    if not command.startswith("/"):
+        return None
+    
+    parts = command.split(maxsplit=1)
+    cmd = parts[0].lower()
+    args_text = parts[1] if len(parts) > 1 else ""
+    
+    if cmd == "/start":
+        return "Привет!\n\nИспользуйте /help для справки."
+    
+    elif cmd == "/help":
+        return (
+            "Я анализирую историю чата и отвечаю на вопросы.\n\n"
+            "Доступные команды:\n"
+            "• /start — приветствие\n"
+            "• /help — эта справка\n"
+            "• /reset — сбросить контекст разговора\n"
+            "• /tokens — показать использование токенов\n"
+            "• /model — переключить модель LLM\n"
+            "• /find [thr] <запрос> — поиск сообщений по запросу\n\n"
+            "Просто напишите свой вопрос!"
+        )
+    
+    elif cmd == "/reset":
+        try:
+            return bot.reset_context()
+        except Exception as e:
+            syslog2(LOG_ERR, "reset context failed", error=str(e))
+            return "Ошибка при сбросе контекста."
+    
+    elif cmd == "/tokens":
+        try:
+            usage = bot.get_token_usage()
+            response = (
+                f"Использование токенов:\n\n"
+                f"Текущее: {usage['current_tokens']:,}\n"
+                f"Максимум: {usage['max_tokens']:,}\n"
+                f"Использовано: {usage['percentage']}%\n\n"
+            )
+            if usage["percentage"] > 80:
+                response += "Приближаетесь к лимиту! Используйте /reset для сброса."
+            elif usage["percentage"] > 50:
+                response += "Контекст заполнен наполовину."
+            else:
+                response += "Достаточно места для разговора."
+            return response
+        except Exception as e:
+            syslog2(LOG_ERR, "get token usage failed", error=str(e))
+            return "Ошибка при получении информации о токенах."
+    
+    elif cmd == "/model":
+        try:
+            msg = bot.get_model()
+            # Save new model to config if admin_manager is available
+            if admin_manager:
+                try:
+                    admin_manager.config.current_model = bot.current_model_name
+                except Exception as e:
+                    syslog2(LOG_WARNING, "failed to save model to config", error=str(e))
+            return msg
+        except Exception as e:
+            syslog2(LOG_ERR, "get model failed", error=str(e))
+            return "Ошибка при переключении модели."
+    
+    elif cmd == "/find":
+        return handle_find_command_cli(args_text, bot, admin_manager, debug_rag)
+    
+    else:
+        return None  # Unknown command
+
+
+def parse_find_command_args(text: str, admin_manager) -> Tuple[Optional[float], Optional[str]]:
+    """
+    Parse find command arguments (threshold and query).
+    
+    Args:
+        text: Command text (e.g., "2.0 vpn туннель" or "vpn туннель")
+        admin_manager: AdminManager instance for config access
+        
+    Returns:
+        Tuple of (threshold, query) or (None, error_message)
+    """
+    # Get default threshold from config
+    default_threshold = admin_manager.config.cosine_distance_thr if admin_manager else 1.5
+    
+    if not text or not text.strip():
+        return None, (
+            f"Использование: /find [thr] <запрос>\n\n"
+            f"Примеры:\n"
+            f"  /find vpn туннель          - поиск с threshold={default_threshold} (по умолчанию)\n"
+            f"  /find 2.0 vpn туннель       - поиск с threshold=2.0\n"
+            f"  /find 0.5 test              - поиск с threshold=0.5"
+        )
+    
+    parts = text.split(maxsplit=1)
+    threshold = default_threshold
+    search_query = ""
+    
+    try:
+        # Check if first argument is a number
+        potential_threshold = float(parts[0].strip())
+        threshold = potential_threshold
+        # If threshold parsed successfully, query is the rest
+        if len(parts) >= 2:
+            search_query = parts[1].strip()
+        else:
+            return None, (
+                "Использование: /find [thr] <запрос>\n\n"
+                "Если указан threshold, необходимо также указать запрос.\n"
+                "Пример: /find 2.0 vpn туннель"
+            )
+    except ValueError:
+        # First argument is not a number, treat entire text as query
+        search_query = text.strip()
+    
+    if not search_query:
+        return None, (
+            "Использование: /find [thr] <запрос>\n\n"
+            "Необходимо указать запрос для поиска.\n"
+            "Пример: /find vpn туннель"
+        )
+    
+    return threshold, search_query
+
+
+def handle_find_command_cli(args_text: str, bot, admin_manager, debug_rag: bool) -> str:
+    """
+    Handle /find command in CLI mode - output results to console.
+    
+    Args:
+        args_text: Command arguments
+        bot: LegaleBot instance
+        admin_manager: AdminManager instance (can be None)
+        debug_rag: Whether to show debug RAG info
+        
+    Returns:
+        Response message
+    """
+    try:
+        # Parse arguments
+        threshold, query = parse_find_command_args(args_text, admin_manager)
+        if threshold is None:
+            return query  # query is error message
+        
+        # Simple search in chunk embeddings
+        results = bot.retrieval.search_chunks_basic(query, n_results=100)
+        
+        # Filter results by cosine distance threshold
+        filtered_results = [
+            item for item in results 
+            if float(item.get("distance", float('inf'))) <= threshold
+        ]
+        
+        if not filtered_results:
+            return f'по запросу "{query}" ничего не найдено (distance <= {threshold})'
+        
+        # Prepare message parts from filtered results
+        from src.core.message_search import _prepare_message_parts
+        message_parts_list = _prepare_message_parts(bot.db, filtered_results, debug_rag)
+        
+        if not message_parts_list:
+            return f'по запросу "{query}" ничего не найдено'
+        
+        # Format and print results to console
+        output_lines = [f'Найдено результатов по запросу "{query}" (threshold={threshold}):\n']
+        output_lines.append("=" * 70)
+        
+        for idx, message_parts in enumerate(message_parts_list, 1):
+            for part_idx, part in enumerate(message_parts, 1):
+                # Remove HTML tags for console output
+                content = part.get("content", "")
+                # Simple HTML tag removal
+                content = re.sub(r'<[^>]+>', '', content)
+                
+                output_lines.append(f"\n--- Результат {idx}, часть {part_idx} ---")
+                output_lines.append(f"Distance: {part.get('distance', 'N/A')}")
+                output_lines.append("-" * 70)
+                output_lines.append(content)
+                output_lines.append("-" * 70)
+        
+        syslog2(
+            LOG_ALERT,
+            "find command cli",
+            query=query,
+            threshold=threshold,
+            chunks_found=len(filtered_results),
+            messages=len(message_parts_list),
+        )
+        
+        return "\n".join(output_lines)
+        
+    except Exception as e:
+        syslog2(LOG_ERR, "find command cli failed", error=str(e))
+        return f"Ошибка при выполнении поиска: {e}"
+
 
 def main():
     # Load .env from project root
@@ -119,7 +331,18 @@ def main():
             debug_rag=debug_rag,
             profile_dir=profile_dir
         )
+        
+        # Create AdminManager if profile_dir is available (for config access)
+        admin_manager = None
+        if profile_dir:
+            try:
+                from src.bot.admin import AdminManager
+                admin_manager = AdminManager(Path(profile_dir))
+            except Exception as e:
+                syslog2(LOG_WARNING, "admin manager init failed", error=str(e), action="continuing without admin_manager")
+        
         print("Bot ready! Type 'exit' or 'quit' to stop.")
+        print("Use /help to see available commands.")
         print("-" * 50)
     except Exception as e:
         syslog2(LOG_ERR, "bot init failed", error=str(e))
@@ -135,6 +358,15 @@ def main():
             if not user_input.strip():
                 continue
             
+            # Check if input is a command
+            command_response = handle_cli_command(user_input, bot, admin_manager, debug_rag)
+            if command_response is not None:
+                # Command was handled
+                print(f"Bot: {command_response}")
+                print("-" * 50)
+                continue
+            
+            # Not a command - handle as regular query
             # Debug RAG mode - show retrieved chunks and prompt
             if debug_rag:
                 debug_info = bot.get_rag_debug_info(user_input, n_results=chunks)
