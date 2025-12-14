@@ -160,14 +160,16 @@ src/
 *   **Action**: Create new adapter classes that call existing logic. Do *not* delete old files yet. ✅
 *   **Risk**: Low. ✅
 
-### Шаг 3: Core Extraction - Search
+### Шаг 3: Core Extraction - Search ✅
 Переписать `RAGSearch` как Use Case `HybridSearch`.
-*   **Files**: `src/core/use_cases/search.py`.
-*   **Action**: Создать чистую логику поиска, используя `FakeMessageStore` для тестов.
+*   **Files**: `src/core/use_cases/search.py`. ✅
+*   **Action**: Создать чистую логику поиска, используя только core interfaces. ✅
 
-### Шаг 4: App Wiring for Search
+### Шаг 4: App Wiring for Search ✅
 Обновить `legale.py` и `tgbot.py`, чтобы подменить старый `RAGSearch` на новый `HybridSearch` (через Dependency Injection в `src/app/bootstrap.py`).
-*   **Verification**: Команда `/find` должна работать идентично.
+*   **Files**: `src/app/bootstrap.py`, `src/adapters/embedding/embedder_adapter.py`, updated `src/bot/tgbot.py`. ✅
+*   **Action**: Создан bootstrap для DI, адаптер Embedder, обновлен tgbot.py для использования HybridSearch. ✅
+*   **Verification**: Команда `/find` должна работать идентично. (Ready for testing)
 
 ### Шаг 5: Dispatcher & CLI
 Создать `CommandDispatcher` и перевести CLI.
@@ -205,9 +207,9 @@ src/
     *   [x] Implement `SqliteChunkStore` (using `src/storage/db.py`)
     *   [x] Implement `ChromaVectorIndex` (using `src/storage/vector_store.py`)
 
-3.  **Implement Search Use Case**
-    *   [ ] Create `src/core/use_cases/search.py` (`HybridSearch` class)
-    *   [ ] Write unit tests with Fake adapters
+3.  **Implement Search Use Case** ✅
+    *   [x] Create `src/core/use_cases/search.py` (`HybridSearch` class)
+    *   [ ] Write unit tests with Fake adapters (deferred to later)
 
 4.  **Implement Command Dispatcher**
     *   [ ] Create `src/core/dispatcher.py` implementation

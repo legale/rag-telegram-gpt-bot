@@ -231,27 +231,44 @@ class MessageHandler:
             Error message if failed, None or empty string if successful
         """
         try:
-            # get db and retrieval from bot instance
+            # get db from bot instance
             db = self.bot.db
-            retrieval = self.bot.retrieval
             
             # Get debug_rag from global variable
             global debug_rag_mode
             
-            # Simple search in chunk embeddings
-            results = retrieval.search_chunks_basic(search_query, n_results=100)
+            # Get profile paths for creating HybridSearch
+            paths = _get_profile_paths()
+            profile_dir = str(paths['profile_dir'])
             
-            # Filter results by cosine distance threshold
-            filtered_results = [
-                item for item in results 
-                if float(item.get("distance", float('inf'))) <= threshold
-            ]
+            # Create HybridSearch use case via bootstrap
+            from src.app.bootstrap import create_hybrid_search
+            hybrid_search = create_hybrid_search(
+                db_url=paths["db_url"],
+                vector_db_path=str(paths["vector_db_path"]),
+                embedding_client=self.bot.embedding_client,
+                profile_dir=profile_dir
+            )
             
-            if not filtered_results:
+            # Convert threshold from distance to similarity score (threshold is distance, score = 1 - distance)
+            similarity_threshold = 1.0 - threshold if threshold <= 1.0 else 0.0
+            
+            # Perform search using HybridSearch
+            search_results = hybrid_search.search(
+                query=search_query,
+                top_k=100,
+                threshold=similarity_threshold,
+                enrich_with_messages=False  # We'll get messages from DB separately
+            )
+            
+            if not search_results:
                 return f'по запросу "{search_query}" ничего не найдено (distance <= {threshold})'
             
+            # Convert SearchResult objects to dict format
+            from src.core.message_search import convert_search_results_to_dict, _prepare_message_parts
+            filtered_results = convert_search_results_to_dict(search_results)
+            
             # Prepare message parts from filtered results
-            from src.core.message_search import _prepare_message_parts
             message_parts_list = _prepare_message_parts(db, filtered_results, debug_rag_mode)
             
             if not message_parts_list:

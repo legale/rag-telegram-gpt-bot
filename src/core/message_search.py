@@ -5,10 +5,42 @@ High-level message search functionality.
 
 from typing import List, Dict, Optional
 from src.core.retrieval import RetrievalService
+from src.core.domain import SearchResult
 from src.storage.db import Database, MessageModel
 from src.bot.utils import build_message_link
 from src.bot.utils.telegram_common import split_message_if_needed, MAX_TG_CONTENT_LEN
 from src.lib.syslog2 import *
+
+
+def convert_search_results_to_dict(results: List[SearchResult]) -> List[Dict]:
+    """
+    Convert SearchResult domain objects to dict format expected by message formatting.
+
+    Args:
+        results: List of SearchResult objects from HybridSearch
+
+    Returns:
+        List of dictionaries with keys: id, distance, metadata
+    """
+    dict_results = []
+    for result in results:
+        # Convert similarity score to distance (1.0 - score)
+        distance = 1.0 - result.score if result.score <= 1.0 else 0.0
+
+        # Extract metadata from chunk
+        metadata = result.chunk.metadata.copy() if result.chunk.metadata else {}
+        
+        # Add topics to metadata if present
+        if result.topics:
+            metadata["topics"] = result.topics
+
+        dict_results.append({
+            "id": result.chunk.id,
+            "distance": distance,
+            "metadata": metadata
+        })
+
+    return dict_results
 
 
 def _convert_similarity_to_distance(score: float) -> float:
@@ -102,151 +134,78 @@ def search_message_links(
         top_k: Number of results to return
         
     Returns:
-        List of Telegram message links
+        List of message link strings
     """
-    debug_rag = getattr(retrieval, "debug_rag", False)
-
-    if debug_rag:
-        syslog2(LOG_DEBUG, "msg_search links start", query=query, top_k=top_k)
-
-    # Search for chunks
     results = retrieval.search_chunks_basic(query, n_results=top_k)
-
-    # Log distances using helper
-    _log_retrieval_distances(results, query, "links", LOG_ALERT, debug_rag)
-
+    
+    if not results:
+        return []
+    
     links = []
-    for idx, item in enumerate(results):
+    for item in results:
         chunk_id = item.get("id")
         if not chunk_id:
-            if debug_rag:
-                syslog2(LOG_DEBUG, "msg_search links skip result without chunk_id", idx=idx)
             continue
         
-        # Get link info from database
-        chat_id, msg_id, chat_username = db.get_chunk_link_info(chunk_id)
+        link_info = db.get_chunk_link_info(chunk_id)
+        chat_id, msg_id, chat_username = link_info
         
-        if chat_id is None or msg_id is None:
-            if debug_rag:
-                syslog2(
-                    LOG_DEBUG,
-                    "msg_search links no_link_info",
-                    idx=idx,
-                    chunk_id=chunk_id,
-                    chat_id=str(chat_id),
-                    msg_id=str(msg_id),
-                )
-            continue
-        
-        # Build message link
-        link = build_message_link(chat_id, msg_id, chat_username)
-        links.append(link)
-
-        if debug_rag:
-            syslog2(
-                LOG_DEBUG,
-                "msg_search link built",
-                idx=idx,
-                chunk_id=chunk_id,
-                chat_id=chat_id,
-                msg_id=msg_id,
-                chat_username=chat_username or "",
-                link=link,
-            )
+        if chat_id and msg_id:
+            link = build_message_link(chat_id, msg_id, chat_username)
+            if link:
+                links.append(link)
     
-    syslog2(LOG_INFO, "message_search links", query=query, top_k=top_k, links=len(links))
-
-    if debug_rag:
-        syslog2(
-            LOG_DEBUG,
-            "msg_search links done",
-            query=query,
-            requested=top_k,
-            returned=len(links),
-        )
-
     return links
 
 
-def _search_chunks(
+def search_message_contents(
     retrieval: RetrievalService,
+    db: Database,
     query: str,
-    top_k: int,
-    use_two_stage: bool,
-    debug_rag: bool
-) -> List[Dict]:
+    top_k: int = 3,
+    threshold: Optional[float] = None,
+    debug_rag: bool = False,
+) -> List[List[Dict]]:
     """
-    Search for chunks using two-stage or direct search.
+    Search for message contents by text query.
     
     Args:
         retrieval: RetrievalService instance
+        db: Database instance
         query: Search query string
         top_k: Number of results to return
-        use_two_stage: If True, use two-stage search, else use direct search
+        threshold: Optional distance threshold for filtering
         debug_rag: Enable detailed RAG debug logging
         
     Returns:
-        List of chunk dictionaries with id, distance, metadata, source
+        List of lists, where each inner list contains message parts
     """
-    if use_two_stage:
-        if debug_rag:
-            syslog2(LOG_DEBUG, "msg_search using two-stage search")
-        # retrieve() returns List[Dict] with keys: id, text, metadata, score, source
-        # score is similarity (0-1), need to convert to distance
-        retrieve_results = retrieval.retrieve(query, n_results=top_k * 2)  # Get more results for filtering
-        
-        # Convert retrieve results to format compatible with search_chunks_basic
-        # retrieve returns similarity (score) and may include original distance
-        # Use original distance if available, otherwise convert: distance = 1 - similarity
-        results = []
-        for item in retrieve_results:
-            score = item.get("score", 0.0)
-            # Use original distance if available (from ChromaDB or computed distance)
-            if "distance" in item:
-                distance = float(item["distance"])
-            else:
-                # Fallback: convert similarity to distance for backward compatibility
-                distance = _convert_similarity_to_distance(score)
-            results.append({
-                "id": item.get("id"),
-                "distance": distance,
-                "metadata": item.get("metadata", {}),
-                "source": item.get("source", "unknown")
-            })
-        
-        # Log distances using helper
-        _log_retrieval_distances(results, query, "two-stage", LOG_ALERT, debug_rag)
-    else:
-        if debug_rag:
-            syslog2(LOG_DEBUG, "msg_search using direct search")
-        # Direct search using search_chunks_basic
-        results = retrieval.search_chunks_basic(query, n_results=top_k * 2)  # Get more results for filtering
-        
-        # Log distances using helper
-        _log_retrieval_distances(results, query, "basic", LOG_ALERT, debug_rag)
+    results = retrieval.search_chunks_basic(query, n_results=top_k)
     
-    return results
+    if threshold is not None:
+        results = _filter_by_threshold(results, threshold, debug_rag)
+    
+    _log_retrieval_distances(results, query, "contents", LOG_ALERT, debug_rag, threshold)
+    
+    return _prepare_message_parts(db, results, debug_rag)
 
 
-def _apply_threshold_filter(
+def _filter_by_threshold(
     results: List[Dict],
-    threshold: Optional[float],
-    debug_rag: bool
+    threshold: float,
+    debug_rag: bool = False
 ) -> List[Dict]:
     """
-    Apply threshold filtering to search results.
+    Filter results by distance threshold.
     
     Args:
-        results: List of chunk dictionaries
-        threshold: Maximum distance threshold (None = no filtering)
-        debug_rag: Enable detailed RAG debug logging
+        results: List of chunk dictionaries with id and distance
+        threshold: Maximum distance threshold
+        debug_rag: Enable detailed debug logging
         
     Returns:
-        Filtered list of chunk dictionaries
+        Filtered list of results
     """
-    if threshold is None:
-        return results
-    
     original_count = len(results)
     if debug_rag:
         # Log items that will be filtered out before filtering
@@ -399,67 +358,4 @@ def _prepare_message_parts(
             parts = _format_message_parts(msg, msg_id, distance, chunk_id, msg_idx, debug_rag)
             all_message_parts.append(parts)
     
-    return all_message_parts
-
-
-def search_message_contents(
-    retrieval: RetrievalService,
-    db: Database,
-    query: str,
-    top_k: int = 3,
-    debug_rag: bool = False,
-    thr: Optional[float] = None,
-    use_two_stage: bool = False,
-) -> List[List[Dict]]:
-    """
-    Search for message contents by text query and return formatted message parts.
-    
-    Args:
-        retrieval: RetrievalService instance
-        db: Database instance
-        query: Search query string
-        top_k: Number of results to return
-        debug_rag: Enable detailed RAG debug logging
-        thr: Maximum distance threshold for filtering results (None = no filtering)
-        use_two_stage: If True, use two-stage search (L2 topics -> chunks), else use direct search
-        
-    Returns:
-        List of lists, where each inner list contains message parts (Dict with id, date, sender, content, part, distance)
-        Each message may be split into multiple parts if it exceeds MAX_TG_CONTENT_LEN
-    """
-    if debug_rag:
-        syslog2(LOG_DEBUG, "msg_search contents start", query=query, top_k=top_k, use_two_stage=use_two_stage, thr=thr)
-
-    # Step 1: Search for chunks
-    results = _search_chunks(retrieval, query, top_k * 2, use_two_stage, debug_rag)
-    
-    # Step 2: Apply threshold filtering
-    results = _apply_threshold_filter(results, thr, debug_rag)
-    
-    # Step 3: Limit to top_k results after filtering
-    results = results[:top_k]
-    
-    # Log distances using helper (after filtering and limiting)
-    _log_retrieval_distances(results, query, "result", LOG_ALERT, debug_rag, threshold=thr)
-    
-    # Step 4: Prepare message parts
-    all_message_parts = _prepare_message_parts(db, results, debug_rag)
-    
-    syslog2(
-        LOG_INFO,
-        "message_search contents",
-        query=query,
-        top_k=top_k,
-        messages=len(all_message_parts),
-    )
-
-    if debug_rag:
-        syslog2(
-            LOG_ALERT,
-            "msg_search contents done",
-            query=query,
-            requested=top_k,
-            returned=len(all_message_parts),
-        )
-
     return all_message_parts
