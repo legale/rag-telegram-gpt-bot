@@ -18,30 +18,60 @@ from src.core.use_cases.commands import (
 )
 from src.bot.core import LegaleBot
 from src.bot.admin import AdminManager
+from src.bot.admin_router import AdminCommandRouter
 from src.lib.syslog2 import *
 
 
-def create_dispatcher(bot: LegaleBot, admin_manager: Optional[AdminManager] = None, debug_rag: bool = False) -> CommandDispatcher:
+def create_dispatcher(
+    bot: LegaleBot,
+    admin_manager: Optional[AdminManager] = None,
+    admin_router: Optional[AdminCommandRouter] = None,
+    debug_rag: bool = False
+) -> CommandDispatcher:
     """
     Create and configure CommandDispatcher with all command handlers.
 
     Args:
         bot: LegaleBot instance
         admin_manager: Optional AdminManager instance
+        admin_router: Optional AdminCommandRouter instance
         debug_rag: Whether to enable debug RAG mode
 
     Returns:
         Configured CommandDispatcher instance
     """
+    from src.core.dispatcher import CommandDispatcher
+    from src.core.use_cases.commands import (
+        StartCommandHandler,
+        HelpCommandHandler,
+        ResetCommandHandler,
+        TokensCommandHandler,
+        ModelCommandHandler,
+        FindCommandHandler,
+    )
+    from src.core.use_cases.admin_commands import (
+        AdminSetCommandHandler,
+        AdminGetCommandHandler,
+        AdminCommandHandler,
+    )
+
     dispatcher = CommandDispatcher()
 
-    # Register command handlers
+    # Register synchronous command handlers
     dispatcher.register("start", StartCommandHandler())
     dispatcher.register("help", HelpCommandHandler())
     dispatcher.register("reset", ResetCommandHandler(bot))
     dispatcher.register("tokens", TokensCommandHandler(bot))
     dispatcher.register("model", ModelCommandHandler(bot, admin_manager))
     dispatcher.register("find", FindCommandHandler(bot, admin_manager, debug_rag))
+
+    # Register asynchronous admin command handlers
+    if admin_manager:
+        dispatcher.register_async("admin_set", AdminSetCommandHandler(admin_manager))
+        dispatcher.register_async("admin_get", AdminGetCommandHandler(admin_manager))
+    
+    if admin_router:
+        dispatcher.register_async("admin", AdminCommandHandler(admin_router))
 
     return dispatcher
 

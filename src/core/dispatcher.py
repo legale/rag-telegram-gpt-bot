@@ -53,21 +53,40 @@ class CommandHandler(ABC):
         pass
 
 
+class AsyncCommandHandler(ABC):
+    """Abstract base class for async command handlers."""
+
+    @abstractmethod
+    async def handle(self, context: CommandContext) -> CommandResult:
+        """
+        Handle a command asynchronously.
+
+        Args:
+            context: Command context with user info and arguments
+
+        Returns:
+            CommandResult with success status and message
+        """
+        pass
+
+
 class CommandDispatcher:
     """
     Dispatches commands to appropriate handlers.
 
     This class provides a centralized way to route commands to their handlers,
     making it easier to add new commands and test command handling logic.
+    Supports both synchronous and asynchronous handlers.
     """
 
     def __init__(self):
         """Initialize dispatcher with empty handler registry."""
         self.handlers: Dict[str, CommandHandler] = {}
+        self.async_handlers: Dict[str, AsyncCommandHandler] = {}
 
     def register(self, command_name: str, handler: CommandHandler) -> None:
         """
-        Register a command handler.
+        Register a synchronous command handler.
 
         Args:
             command_name: Command name (e.g., "start", "help", "find")
@@ -76,6 +95,18 @@ class CommandDispatcher:
         # Normalize command name (remove leading slash, lowercase)
         normalized = command_name.lstrip("/").lower()
         self.handlers[normalized] = handler
+
+    def register_async(self, command_name: str, handler: AsyncCommandHandler) -> None:
+        """
+        Register an asynchronous command handler.
+
+        Args:
+            command_name: Command name (e.g., "admin", "admin_set")
+            handler: AsyncCommandHandler instance
+        """
+        # Normalize command name (remove leading slash, lowercase)
+        normalized = command_name.lstrip("/").lower()
+        self.async_handlers[normalized] = handler
 
     def dispatch(self, context: CommandContext) -> CommandResult:
         """
@@ -109,4 +140,48 @@ class CommandDispatcher:
                 message=f"Ошибка при выполнении команды: {e}",
                 error=str(e)
             )
+
+    async def dispatch_async(self, context: CommandContext) -> CommandResult:
+        """
+        Dispatch a command to its async handler.
+
+        Args:
+            context: Command context with command name and arguments
+
+        Returns:
+            CommandResult from handler, or error result if command not found
+        """
+        # Normalize command name
+        command_name = context.command_name.lstrip("/").lower()
+
+        # Find async handler first
+        async_handler = self.async_handlers.get(command_name)
+        if async_handler:
+            try:
+                return await async_handler.handle(context)
+            except Exception as e:
+                return CommandResult(
+                    success=False,
+                    message=f"Ошибка при выполнении команды: {e}",
+                    error=str(e)
+                )
+
+        # Fallback to sync handler if no async handler found
+        handler = self.handlers.get(command_name)
+        if handler:
+            try:
+                return handler.handle(context)
+            except Exception as e:
+                return CommandResult(
+                    success=False,
+                    message=f"Ошибка при выполнении команды: {e}",
+                    error=str(e)
+                )
+
+        # Command not found
+        return CommandResult(
+            success=False,
+            message=f"Неизвестная команда: /{command_name}",
+            error=f"Command '{command_name}' not found"
+        )
 

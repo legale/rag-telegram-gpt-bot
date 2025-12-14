@@ -422,41 +422,39 @@ class MessageHandler:
             user_id = str(message.from_user.id) if message.from_user else None
             chat_id = str(message.chat_id) if message.chat_id else None
             
-            # Create context
+            # Create context with metadata
             context = CommandContext(
                 user_id=user_id,
                 chat_id=chat_id,
                 command_name=command,
                 args=args_text.split() if args_text else [],
-                metadata={"update": update, "message": message}
+                metadata={
+                    "update": update,
+                    "message": message,
+                    "admin_manager": self.admin_manager,
+                    "admin_router": self.admin_router
+                }
             )
             
-            # Dispatch command (synchronous call)
-            result = command_dispatcher.dispatch(context)
+            # Check if this is an admin command (async handler)
+            admin_commands = ["/admin", "/admin_set", "/admin_get"]
+            is_admin_command = command.lower() in [c.lower() for c in admin_commands]
             
-            # Handle special case: find command needs formatting
-            if result.success and result.data and result.data.get("needs_formatting"):
-                # Use old handle_find_command for formatting and sending results
-                return await self.handle_find_command(text, update)
+            if is_admin_command:
+                # Use async dispatcher for admin commands
+                result = await command_dispatcher.dispatch_async(context)
+            else:
+                # Use sync dispatcher for regular commands
+                result = command_dispatcher.dispatch(context)
+                
+                # Handle special case: find command needs formatting
+                if result.success and result.data and result.data.get("needs_formatting"):
+                    # Use old handle_find_command for formatting and sending results
+                    return await self.handle_find_command(text, update)
             
             # Return message if command was handled
             if result.success or result.error:
                 return result.message
-        
-        # Fallback to old dispatch table for admin commands and special cases
-        message = update.message
-        user_id = message.from_user.id
-        
-        # Admin commands still use old handlers (not migrated to dispatcher yet)
-        admin_dispatch_table = {
-            "/admin_set": lambda: self.handle_admin_set_command(text, message),
-            "/admin_get": lambda: self.handle_admin_get_command(user_id),
-            "/admin": lambda: self.handle_admin_command(update),
-        }
-        
-        handler = admin_dispatch_table.get(command)
-        if handler:
-            return await handler()
         
         return None  # Not a recognized command
 
