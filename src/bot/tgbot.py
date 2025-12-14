@@ -49,6 +49,7 @@ admin_router: Optional[AdminCommandRouter] = None
 profile_manager = None  # Will be initialized in lifespan
 task_manager: Optional[TaskManager] = None
 ingest_commands: Optional[IngestCommands] = None
+command_dispatcher = None  # CommandDispatcher instance
 
 # Access control and frequency controller
 access_control: Optional[AccessControlService] = None
@@ -400,7 +401,7 @@ class MessageHandler:
         return command, remaining
     
     async def route_command(self, text: str, update: Update) -> Optional[str]:
-        """Route command to appropriate handler using dispatch table."""
+        """Route command to appropriate handler using CommandDispatcher."""
         syslog2(LOG_ALERT, "route_command", text=text)
         
         # Extract command and arguments
@@ -408,29 +409,52 @@ class MessageHandler:
         if not command:
             return None
         
-        # Explicit dispatch table mapping commands to handlers
-        message = update.message
-        user_id = message.from_user.id
-        
         # Normalize /set_admin to /admin_set
         if command == "/set_admin":
             text = text.replace("/set_admin", "/admin_set", 1)
             command = "/admin_set"
         
-        # Dispatch table: command -> handler callable
-        dispatch_table = {
-            "/start": self.handle_start_command,
-            "/help": self.handle_help_command,
-            "/reset": self.handle_reset_command,
-            "/tokens": self.handle_tokens_command,
-            "/model": self.handle_model_command,
-            "/find": lambda: self.handle_find_command(text, update),
+        # Use CommandDispatcher if available
+        global command_dispatcher
+        if command_dispatcher:
+            from src.core.dispatcher import CommandContext
+            message = update.message
+            user_id = str(message.from_user.id) if message.from_user else None
+            chat_id = str(message.chat_id) if message.chat_id else None
+            
+            # Create context
+            context = CommandContext(
+                user_id=user_id,
+                chat_id=chat_id,
+                command_name=command,
+                args=args_text.split() if args_text else [],
+                metadata={"update": update, "message": message}
+            )
+            
+            # Dispatch command (synchronous call)
+            result = command_dispatcher.dispatch(context)
+            
+            # Handle special case: find command needs formatting
+            if result.success and result.data and result.data.get("needs_formatting"):
+                # Use old handle_find_command for formatting and sending results
+                return await self.handle_find_command(text, update)
+            
+            # Return message if command was handled
+            if result.success or result.error:
+                return result.message
+        
+        # Fallback to old dispatch table for admin commands and special cases
+        message = update.message
+        user_id = message.from_user.id
+        
+        # Admin commands still use old handlers (not migrated to dispatcher yet)
+        admin_dispatch_table = {
             "/admin_set": lambda: self.handle_admin_set_command(text, message),
             "/admin_get": lambda: self.handle_admin_get_command(user_id),
             "/admin": lambda: self.handle_admin_command(update),
         }
         
-        handler = dispatch_table.get(command)
+        handler = admin_dispatch_table.get(command)
         if handler:
             return await handler()
         
@@ -681,7 +705,7 @@ async def init_runtime_for_current_profile(args: Optional[SimpleNamespace] = Non
     создать/переинициализировать bot_instance, admin_manager, admin_router и связанные команды
     под текущий активный профиль profile_manager
     """
-    global bot_instance, admin_manager, admin_router, task_manager, ingest_commands
+    global bot_instance, admin_manager, admin_router, task_manager, ingest_commands, command_dispatcher
 
     # Step 1: Get profile paths
     paths = _get_profile_paths()
@@ -700,7 +724,9 @@ async def init_runtime_for_current_profile(args: Optional[SimpleNamespace] = Non
     admin_router_local = AdminCommandRouter()
     task_manager_local, ingest_commands_local = _register_admin_commands(admin_router_local, bot_instance)
 
-
+    # Step 6: Create command dispatcher
+    from src.app.main_cli import create_dispatcher
+    command_dispatcher = create_dispatcher(bot_instance, admin_manager_local, debug_rag)
 
     # только после успешного создания всех локальных объектов – публикуем их в глобальные
     admin_manager = admin_manager_local

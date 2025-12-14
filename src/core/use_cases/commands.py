@@ -164,10 +164,8 @@ class FindCommandHandler(CommandHandler):
             CommandResult with search results or error
         """
         from src.bot.command_parser import parse_find_command_args
-        from src.core.message_search import convert_search_results_to_dict, _prepare_message_parts
         from src.app.bootstrap import create_hybrid_search
         from src.lib.syslog2 import syslog2, LOG_ERR, LOG_ALERT
-        import os
 
         try:
             # Parse arguments from context
@@ -181,19 +179,12 @@ class FindCommandHandler(CommandHandler):
                     error="Invalid arguments"
                 )
 
-            # Get profile paths
-            db_url = os.getenv("DATABASE_URL")
-            vector_db_path = os.getenv("VECTOR_DB_PATH")
-            profile_dir = os.getenv("PROFILE_DIR")
-            
-            if not db_url or not vector_db_path:
-                return CommandResult(
-                    success=False,
-                    message="Ошибка: не настроены пути к базе данных.",
-                    error="Missing DATABASE_URL or VECTOR_DB_PATH"
-                )
+            # Get paths from bot_instance
+            db_url = self.bot.db_url
+            vector_db_path = self.bot.vector_db_path
+            profile_dir = str(self.bot.profile_dir) if hasattr(self.bot, 'profile_dir') and self.bot.profile_dir else None
 
-            # Create HybridSearch
+            # Create HybridSearch use case
             hybrid_search = create_hybrid_search(
                 db_url=db_url,
                 vector_db_path=vector_db_path,
@@ -201,15 +192,13 @@ class FindCommandHandler(CommandHandler):
                 profile_dir=profile_dir
             )
 
-            # Convert threshold from distance to similarity score
-            similarity_threshold = 1.0 - threshold if threshold <= 1.0 else 0.0
-
-            # Perform search
+            # Perform search (threshold is distance, lower is better)
+            # Note: HybridSearch.search expects score_threshold as distance (lower is better)
             search_results = hybrid_search.search(
                 query=query,
                 top_k=100,
-                threshold=similarity_threshold,
-                enrich_with_messages=False
+                score_threshold=threshold,  # threshold is already distance
+                chat_id=context.chat_id  # Filter by chat_id if available
             )
 
             if not search_results:
@@ -219,14 +208,19 @@ class FindCommandHandler(CommandHandler):
                     data={"results_count": 0}
                 )
 
-            # Convert to dict format
-            filtered_results = convert_search_results_to_dict(search_results)
-
-            # Prepare message parts
-            message_parts_list = _prepare_message_parts(
-                self.bot.db,
-                filtered_results,
-                self.debug_rag
+            # For Telegram bot, we need to return a special result that will be handled
+            # by the message handler to format and send results properly
+            # Store results in metadata for later processing
+            return CommandResult(
+                success=True,
+                message="",  # Empty message - results will be sent separately
+                data={
+                    "results": search_results,
+                    "query": query,
+                    "threshold": threshold,
+                    "results_count": len(search_results),
+                    "needs_formatting": True  # Flag to indicate special handling needed
+                }
             )
 
             if not message_parts_list:
