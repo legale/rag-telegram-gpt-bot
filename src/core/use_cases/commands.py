@@ -192,14 +192,26 @@ class FindCommandHandler(CommandHandler):
                 profile_dir=profile_dir
             )
 
-            # Perform search (threshold is distance, lower is better)
-            # Note: HybridSearch.search expects score_threshold as distance (lower is better)
+            # Perform search
+            # Note: HybridSearch.search uses threshold as minimum similarity (>= threshold)
+            # But we have distance threshold (<= threshold, lower is better)
+            # For now, convert distance to similarity: similarity = 1 - distance
+            # Or use None to get all results and filter later
+            similarity_threshold = 1.0 - threshold if threshold <= 1.0 else 0.0
+            
             search_results = hybrid_search.search(
                 query=query,
                 top_k=100,
-                score_threshold=threshold,  # threshold is already distance
-                chat_id=context.chat_id  # Filter by chat_id if available
+                threshold=similarity_threshold,  # Convert distance to similarity
+                enrich_with_messages=True
             )
+            
+            # Filter by chat_id if provided (after search, since HybridSearch doesn't support chat_id filter yet)
+            if context.chat_id:
+                search_results = [
+                    result for result in search_results
+                    if result.chunk.metadata and result.chunk.metadata.get("chat_id") == context.chat_id
+                ]
 
             if not search_results:
                 return CommandResult(
