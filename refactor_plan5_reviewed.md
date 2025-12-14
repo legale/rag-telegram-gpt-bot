@@ -181,10 +181,12 @@ src/
 *   **Files**: `src/core/use_cases/ingest/*.py`. ✅
 *   **Action**: Созданы use cases для основных этапов (IngestMessages, ProcessChunks, GenerateEmbeddings, SyncToVectorStore, PipelineOrchestrator). ✅
 *   **Note**: Полная миграция требует расширения ChunkStore интерфейса для запросов chunks без embeddings. Clustering stages (4-9) остаются в IngestionPipeline. ✅
-*   **Files**: `src/core/use_cases/ingest.py`.
 
-### Шаг 7: Telegram Bot Migration
+### Шаг 7: Telegram Bot Migration ✅
 Перевести `tgbot.py` на использование Dispatcher.
+*   **Files**: Updated `src/bot/tgbot.py`. ✅
+*   **Action**: Создан dispatcher в init_runtime_for_current_profile, обновлен MessageHandler.route_command для использования CommandDispatcher. ✅
+*   **Note**: Базовые команды (start, help, reset, tokens, model, find) используют dispatcher. Admin команды остаются на старых handlers (отложено). ✅
 
 ## 7. Риски и Mitigation
 1.  **Import Hell**: Перемещение `syslog2` может сломать много файлов.
@@ -213,7 +215,7 @@ src/
 
 3.  **Implement Search Use Case** ✅
     *   [x] Create `src/core/use_cases/search.py` (`HybridSearch` class)
-    *   [ ] Write unit tests with Fake adapters (deferred to later)
+    *   [x] Write unit tests with Fake adapters
 
 4.  **Implement Command Dispatcher** ✅
     *   [x] Create `src/core/dispatcher.py` implementation
