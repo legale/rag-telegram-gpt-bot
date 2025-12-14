@@ -128,3 +128,39 @@ class ChromaVectorIndex:
         collection = self.vector_store.collection
         collection.delete(ids=ids)
 
+    def count(self) -> int:
+        """
+        Get total number of documents in the index.
+
+        Returns:
+            Number of documents
+        """
+        return self.vector_store.count()
+
+    def get_embeddings_by_ids(self, ids: List[str]) -> Dict[str, List[float]]:
+        """
+        Get embeddings by document IDs.
+
+        Args:
+            ids: List of document IDs
+
+        Returns:
+            Dictionary mapping document ID to embedding vector
+        """
+        if not ids:
+            return {}
+
+        # Use VectorStore's get_embeddings_by_ids method
+        result = self.vector_store.get_embeddings_by_ids(ids)
+        
+        # Convert to dict format: {id: embedding}
+        embeddings_dict = {}
+        result_ids = result.get("ids", [])
+        result_embeddings = result.get("embeddings", [])
+        
+        for i, doc_id in enumerate(result_ids):
+            if i < len(result_embeddings):
+                embeddings_dict[doc_id] = result_embeddings[i]
+        
+        return embeddings_dict
+

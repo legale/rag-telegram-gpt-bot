@@ -213,6 +213,46 @@ class SqliteChunkStore:
         """
         self.db.clear()
 
+    def get_by_topic_l1(self, topic_id: int, limit: int) -> List[Chunk]:
+        """
+        Get chunks assigned to an L1 topic.
+
+        Args:
+            topic_id: L1 topic ID
+            limit: Maximum number of chunks to return
+
+        Returns:
+            List of Chunk domain objects
+        """
+        session = self.db.get_session()
+        try:
+            models = session.query(ChunkModel).filter(
+                ChunkModel.topic_l1_id == topic_id
+            ).limit(limit).all()
+            return [self._model_to_domain(model) for model in models]
+        finally:
+            session.close()
+
+    def get_by_topic_l2(self, topic_id: int, limit: int) -> List[Chunk]:
+        """
+        Get chunks assigned to an L2 topic.
+
+        Args:
+            topic_id: L2 topic ID
+            limit: Maximum number of chunks to return
+
+        Returns:
+            List of Chunk domain objects
+        """
+        session = self.db.get_session()
+        try:
+            models = session.query(ChunkModel).filter(
+                ChunkModel.topic_l2_id == topic_id
+            ).limit(limit).all()
+            return [self._model_to_domain(model) for model in models]
+        finally:
+            session.close()
+
     def _model_to_domain(self, model: ChunkModel) -> Chunk:
         """
         Convert ChunkModel to domain Chunk object.

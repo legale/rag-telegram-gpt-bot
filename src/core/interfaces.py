@@ -48,6 +48,32 @@ class ChunkStore(Protocol):
     def clear(self) -> None:
         ...
 
+    def get_by_topic_l1(self, topic_id: int, limit: int) -> List[Chunk]:
+        """
+        Get chunks assigned to an L1 topic.
+
+        Args:
+            topic_id: L1 topic ID
+            limit: Maximum number of chunks to return
+
+        Returns:
+            List of Chunk objects
+        """
+        ...
+
+    def get_by_topic_l2(self, topic_id: int, limit: int) -> List[Chunk]:
+        """
+        Get chunks assigned to an L2 topic.
+
+        Args:
+            topic_id: L2 topic ID
+            limit: Maximum number of chunks to return
+
+        Returns:
+            List of Chunk objects
+        """
+        ...
+
 
 class VectorIndex(Protocol):
     def upsert(self, items: List[VectorDoc]) -> None:
@@ -57,6 +83,27 @@ class VectorIndex(Protocol):
         ...
 
     def delete(self, ids: List[str]) -> None:
+        ...
+
+    def count(self) -> int:
+        """
+        Get total number of documents in the index.
+
+        Returns:
+            Number of documents
+        """
+        ...
+
+    def get_embeddings_by_ids(self, ids: List[str]) -> Dict[str, List[float]]:
+        """
+        Get embeddings by document IDs.
+
+        Args:
+            ids: List of document IDs
+
+        Returns:
+            Dictionary mapping document ID to embedding vector
+        """
         ...
 
 
@@ -80,5 +127,62 @@ class ConfigProvider(Protocol):
 
 class TransactionManager(Protocol):
     def atomic(self) -> AbstractContextManager[None]:
+        ...
+
+
+class TopicIndex(Protocol):
+    """Interface for topic vector index (L1 or L2 topics)."""
+
+    def query(self, vector: List[float], top_k: int) -> List[ScoredDoc]:
+        """
+        Query topics by embedding vector.
+
+        Args:
+            vector: Query embedding vector
+            top_k: Number of top topics to return
+
+        Returns:
+            List of ScoredDoc objects with topic IDs and similarity scores
+        """
+        ...
+
+    def get_all(self) -> List[VectorDoc]:
+        """
+        Get all topics with their embeddings.
+
+        Returns:
+            List of VectorDoc objects representing all topics
+        """
+        ...
+
+    def count(self) -> int:
+        """
+        Get total number of topics in the index.
+
+        Returns:
+            Number of topics
+        """
+        ...
+
+
+class TopicIndexProvider(Protocol):
+    """Provider for topic indices (L1 and L2)."""
+
+    def get_l1_index(self) -> TopicIndex:
+        """
+        Get L1 topic index.
+
+        Returns:
+            TopicIndex instance for L1 topics
+        """
+        ...
+
+    def get_l2_index(self) -> TopicIndex:
+        """
+        Get L2 topic index.
+
+        Returns:
+            TopicIndex instance for L2 topics
+        """
         ...
 

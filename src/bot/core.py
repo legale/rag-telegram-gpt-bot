@@ -6,6 +6,7 @@ from src.core.embedding import EmbeddingClient, LocalEmbeddingClient, create_emb
 from src.core.retrieval import RetrievalService
 from src.core.prompt import PromptEngine
 from src.core.llm import LLMClient
+from src.app.bootstrap import create_retrieval_service
 import os
 from src.lib.syslog2 import *
 
@@ -57,27 +58,7 @@ class LegaleBot:
         # self.llm_client moved to after model selection logic
 
         
-        # Initialize services
-        rag_ntop = config.rag_ntop if config else 0
-        self.retrieval_service = RetrievalService(
-            vector_store=self.vector_store,
-            db=self.db,
-            embedding_client=self.embedding_client,
-            log_level=log_level,
-            debug_rag=self.debug_rag,
-            rag_ntop=rag_ntop
-        )
-        # Alias for compatibility
-        self.retrieval = self.retrieval_service
-        self.prompt_engine = PromptEngine()
-        
-        # Simple in-memory history for the current session
-        self.chat_history: List[Dict[str, str]] = []
-        
-        # Token limit configuration
-        self.max_context_tokens = int(os.getenv("MAX_CONTEXT_TOKENS", "14000"))
-        
-        # Model geting support
+        # Model getting support (needed before creating retrieval service)
         self.available_models = self._load_available_models()
         if not model_name and self.available_models:
             model_name = self.available_models[0]
@@ -92,6 +73,28 @@ class LegaleBot:
              model_name = "unknown" # LLMClient might fail or just log warning?
              
         self.llm_client = LLMClient(model=model_name, log_level=log_level)
+        
+        # Initialize services using bootstrap
+        rag_ntop = config.rag_ntop if config else 0
+        self.retrieval_service = create_retrieval_service(
+            db_url=db_url,
+            vector_db_path=vector_db_path,
+            embedding_client=self.embedding_client,
+            llm_client=self.llm_client,
+            profile_dir=profile_dir,
+            log_level=log_level,
+            debug_rag=self.debug_rag,
+            rag_ntop=rag_ntop
+        )
+        # Alias for compatibility
+        self.retrieval = self.retrieval_service
+        self.prompt_engine = PromptEngine()
+        
+        # Simple in-memory history for the current session
+        self.chat_history: List[Dict[str, str]] = []
+        
+        # Token limit configuration
+        self.max_context_tokens = int(os.getenv("MAX_CONTEXT_TOKENS", "14000"))
     
     def _load_available_models(self) -> List[str]:
         """
