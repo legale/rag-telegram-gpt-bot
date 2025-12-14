@@ -223,8 +223,12 @@ src/
     *   [x] Create `src/app/main_cli.py`
     *   [x] Wire up in `src/bot/cli.py` (CLI now uses dispatcher)
 
-6.  **Refactor Telegram Bot**
-    *   [ ] Update `src/bot/tgbot.py` to use `Dispatcher`
+6.  **Refactor Telegram Bot** ✅
+    *   [x] Update `src/bot/tgbot.py` to use `Dispatcher`
+    *   [x] Created dispatcher in init_runtime_for_current_profile
+    *   [x] Updated MessageHandler.route_command to use CommandDispatcher
+    *   [x] Basic commands (start, help, reset, tokens, model, find) now use dispatcher
+    *   [ ] Admin commands still use old handlers (deferred)
 
 ### Non-Critical
 
