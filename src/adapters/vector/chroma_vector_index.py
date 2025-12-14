@@ -95,14 +95,13 @@ class ChromaVectorIndex:
 
             for i, doc_id in enumerate(ids_list):
                 # ChromaDB returns distances (lower is better), convert to score (higher is better)
-                # Distance is typically L2 or cosine distance
+                # We use cosine similarity: distance = 1 - cosine_similarity
+                # So: cosine_similarity = 1 - distance, and score = cosine_similarity
                 distance = distances_list[i] if i < len(distances_list) else 1.0
                 
-                # Convert distance to similarity score (1.0 - distance for L2, or use distance directly for cosine similarity)
-                # For cosine similarity, distance is already 1 - similarity, so score = 1 - distance
-                # For L2, we might want to normalize differently
-                # Assuming cosine similarity: score = 1 - distance
-                score = max(0.0, 1.0 - distance) if distance <= 1.0 else 1.0 / (1.0 + distance)
+                # For cosine similarity: distance = 1 - similarity, so similarity = 1 - distance
+                # Clamp to [0, 1] range
+                score = max(0.0, min(1.0, 1.0 - distance))
 
                 metadata = metadatas_list[i] if i < len(metadatas_list) else {}
 

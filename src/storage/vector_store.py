@@ -35,6 +35,7 @@ class VectorStore:
         self.collection = self.client.get_or_create_collection(
             name=collection_name,
             embedding_function=None,  # embeddings always provided explicitly
+            metadata={"hnsw:space": "cosine"}  # Use cosine similarity instead of L2
         )
         # chroma limit is around 5461, keep some margin
         self.max_batch_size = max_batch_size
@@ -44,12 +45,14 @@ class VectorStore:
         self.topics_l2_collection = self.client.get_or_create_collection(
             name="embed-l2",
             embedding_function=None,  # embeddings always provided explicitly
+            metadata={"hnsw:space": "cosine"}  # Use cosine similarity instead of L2
         )
         
         # Initialize topics_l1 collection
         self.topics_l1_collection = self.client.get_or_create_collection(
             name="embed-l1-topics",
             embedding_function=None,  # embeddings always provided explicitly
+            metadata={"hnsw:space": "cosine"}  # Use cosine similarity instead of L2
         )
 
     def add_documents_with_embeddings(
@@ -157,6 +160,7 @@ class VectorStore:
         return self.client.get_or_create_collection(
             name=collection_name,
             embedding_function=None,  # embeddings always provided explicitly
+            metadata={"hnsw:space": "cosine"}  # Use cosine similarity instead of L2
         )
 
     def get_topics_l2_collection(self):

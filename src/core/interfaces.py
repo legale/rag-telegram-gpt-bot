@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Protocol
 from contextlib import AbstractContextManager
+from datetime import datetime
 
 from .domain import Message, Chunk, TopicUpdate, ProfileConfig
 
@@ -19,6 +20,16 @@ class ScoredDoc:
     id: str
     score: float
     meta: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class SearchFilters:
+    """Filters for search queries."""
+    author: Optional[str] = None  # from_id or user name
+    time_from: Optional[datetime] = None
+    time_to: Optional[datetime] = None
+    chat_id: Optional[str] = None
+    topic_l1_id: Optional[int] = None  # optional for analytics
 
 
 class MessageStore(Protocol):
@@ -112,6 +123,46 @@ class Embedder(Protocol):
         ...
 
     def embed_query(self, text: str) -> List[float]:
+        ...
+
+
+class FTSIndex(Protocol):
+    """Interface for Full-Text Search index (FTS5)."""
+    
+    def search(
+        self,
+        query: str,
+        top_k: int,
+        filters: Optional[SearchFilters] = None
+    ) -> List[ScoredDoc]:
+        """
+        Search using FTS5.
+        
+        Args:
+            query: Search query text
+            top_k: Number of results
+            filters: Optional filters (author, time_range, chat_id, etc.)
+        
+        Returns:
+            List of ScoredDoc with document IDs and scores
+        """
+        ...
+    
+    def normalize_text(self, text: str) -> str:
+        """
+        Normalize text for indexing/searching.
+        
+        Normalization includes:
+        - Lowercase
+        - ё -> е conversion
+        - Punctuation removal
+        
+        Args:
+            text: Text to normalize
+        
+        Returns:
+            Normalized text
+        """
         ...
 
 

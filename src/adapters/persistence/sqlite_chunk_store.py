@@ -6,8 +6,9 @@ from typing import Dict, List, Optional
 import json
 
 from src.core.domain import Chunk, TopicUpdate
-from src.core.interfaces import ChunkStore
+from src.core.interfaces import ChunkStore, FTSIndex
 from src.storage.db import Database, ChunkModel
+from .sqlite_fts_index import SqliteFTSIndex
 
 
 class SqliteChunkStore:
@@ -21,6 +22,7 @@ class SqliteChunkStore:
             database: Database instance from src.storage.db
         """
         self.db = database
+        self._fts_index: Optional[SqliteFTSIndex] = None
 
     def save_batch(self, chunks: List[Chunk]) -> int:
         """
@@ -111,7 +113,23 @@ class SqliteChunkStore:
         finally:
             session.close()
 
+        # FTS5 indexes are updated automatically via triggers
+        # But we ensure FTS tables exist
+        if self._fts_index is None:
+            self._fts_index = SqliteFTSIndex(self.db)
+
         return saved_count
+
+    def get_fts_index(self) -> FTSIndex:
+        """
+        Get FTS5 index for chunks.
+
+        Returns:
+            FTSIndex instance for searching chunks
+        """
+        if self._fts_index is None:
+            self._fts_index = SqliteFTSIndex(self.db)
+        return self._fts_index
 
     def get_by_ids(self, ids: List[str]) -> List[Chunk]:
         """

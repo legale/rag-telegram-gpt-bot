@@ -286,18 +286,9 @@ def cmd_ingest(args, profile_manager: ProfileManager):
             sys.exit(1)
         model = getattr(args, 'model', None)
         batch_size = getattr(args, 'batch_size', 128)
-        clustering_params = {}
-        if hasattr(args, 'min_cluster_size') and args.min_cluster_size:
-            clustering_params['min_cluster_size'] = args.min_cluster_size
-        if hasattr(args, 'min_samples') and args.min_samples:
-            clustering_params['min_samples'] = args.min_samples
-        if hasattr(args, 'metric') and args.metric:
-            clustering_params['metric'] = args.metric
-        if hasattr(args, 'cluster_selection_method') and args.cluster_selection_method:
-            clustering_params['cluster_selection_method'] = args.cluster_selection_method
-        if hasattr(args, 'cluster_selection_epsilon') and args.cluster_selection_epsilon is not None:
-            clustering_params['cluster_selection_epsilon'] = args.cluster_selection_epsilon
-        pipeline.run_all(args.file, model=model, batch_size=batch_size, **clustering_params)
+        # Topic clustering (L1/L2) is no longer needed for hybrid/FTS5 search
+        # Only stages 0-3 are run: messages, chunks, embeddings, vector sync
+        pipeline.run_all(args.file, model=model, batch_size=batch_size)
         
     elif ingest_command == 'stage0':
         if not args.file:
@@ -440,36 +431,6 @@ def cmd_ingest(args, profile_manager: ProfileManager):
         pipeline.run_stage7()
         syslog2(LOG_NOTICE, "stage7 complete")
         
-    elif ingest_command == 'stage8':
-        # Check if there are L1 topics
-        from src.storage.db import Database
-        db = Database(paths['db_url'])
-        l1_topics = db.get_all_topics_l1()
-        if not l1_topics:
-            syslog2(LOG_ERR, "no l1 topics found, run ingest stage4 first")
-            sys.exit(1)
-        
-        only_unnamed = getattr(args, 'only_unnamed', True)
-        rebuild = getattr(args, 'rebuild', False)
-        syslog2(LOG_NOTICE, "running stage8: name L1 topics")
-        pipeline.run_stage8(only_unnamed=only_unnamed, rebuild=rebuild)
-        syslog2(LOG_NOTICE, "stage8 complete")
-        
-    elif ingest_command == 'stage9':
-        # Check if there are L2 topics
-        from src.storage.db import Database
-        db = Database(paths['db_url'])
-        l2_topics = db.get_all_topics_l2()
-        if not l2_topics:
-            syslog2(LOG_ERR, "no l2 topics found, run ingest stage6 first")
-            sys.exit(1)
-        
-        only_unnamed = getattr(args, 'only_unnamed', True)
-        rebuild = getattr(args, 'rebuild', False)
-        syslog2(LOG_NOTICE, "running stage9: name L2 topics")
-        pipeline.run_stage9(only_unnamed=only_unnamed, rebuild=rebuild)
-        syslog2(LOG_NOTICE, "stage9 complete")
-        
     elif ingest_command == 'clear_all':
         syslog2(LOG_NOTICE, "clearing all stages")
         pipeline.clear_all()
@@ -515,16 +476,6 @@ def cmd_ingest(args, profile_manager: ProfileManager):
         removed = pipeline.clear_stage7()
         syslog2(LOG_NOTICE, "stage7 cleared", vectors_removed=removed)
         
-    elif ingest_command == 'clear_stage8':
-        syslog2(LOG_NOTICE, "clearing stage8: L1 topic names")
-        updated = pipeline.clear_stage8()
-        syslog2(LOG_NOTICE, "stage8 cleared", topics_updated=updated)
-        
-    elif ingest_command == 'clear_stage9':
-        syslog2(LOG_NOTICE, "clearing stage9: L2 topic names")
-        updated = pipeline.clear_stage9()
-        syslog2(LOG_NOTICE, "stage9 cleared", topics_updated=updated)
-    
     else:
         # Should not happen due to routing logic, but handle gracefully
         syslog2(LOG_ERR, "unknown ingest command")
@@ -658,6 +609,8 @@ def cmd_chat(args, profile_manager: ProfileManager):
         cli_args.extend(['--chunks', str(args.chunks)])
     if hasattr(args, 'debug_rag') and args.debug_rag:
         cli_args.append('--debug-rag')
+    if hasattr(args, 'retrieval_type') and args.retrieval_type:
+        cli_args.extend(['--retrieval-type', args.retrieval_type])
     
     # Override sys.argv for the CLI
     original_argv = sys.argv
@@ -988,18 +941,6 @@ def parse_ingest_clear_stage7(stream: ArgStream) -> dict:
     return {"profile": profile, "ingest_command": "clear_stage7"}
 
 
-def parse_ingest_clear_stage8(stream: ArgStream) -> dict:
-    """Parse ingest clear stage8 command."""
-    profile = parse_option(stream, "profile")
-    return {"profile": profile, "ingest_command": "clear_stage8"}
-
-
-def parse_ingest_clear_stage9(stream: ArgStream) -> dict:
-    """Parse ingest clear stage9 command."""
-    profile = parse_option(stream, "profile")
-    return {"profile": profile, "ingest_command": "clear_stage9"}
-
-
 def parse_ingest_info(stream: ArgStream) -> dict:
     """Parse ingest info command."""
     profile = parse_option(stream, "profile")
@@ -1061,8 +1002,9 @@ def parse_chat(stream: ArgStream) -> dict:
     """Parse chat command."""
     chunks = parse_int_option(stream, "chunks")
     debug_rag = parse_flag(stream, "debug-rag")
+    retrieval_type = parse_choice_option(stream, "retrieval-type", ["legacy", "hybrid", "vector_only", "fts_only"], "legacy")
     profile = parse_option(stream, "profile")
-    return {"chunks": chunks, "debug_rag": debug_rag, "profile": profile}
+    return {"chunks": chunks, "debug_rag": debug_rag, "retrieval_type": retrieval_type, "profile": profile}
 
 
 def parse_bot_register(stream: ArgStream) -> dict:
@@ -1088,7 +1030,8 @@ def parse_bot_run(stream: ArgStream) -> dict:
     port = parse_int_option(stream, "port", 8000)
     profile = parse_option(stream, "profile")
     debug_rag = parse_flag(stream, "debug-rag")
-    return {"host": host, "port": port, "profile": profile, "debug_rag": debug_rag, "bot_command": "run"}
+    retrieval_type = parse_choice_option(stream, "retrieval-type", ["legacy", "hybrid", "vector_only", "fts_only"], "legacy")
+    return {"host": host, "port": port, "profile": profile, "debug_rag": debug_rag, "retrieval_type": retrieval_type, "bot_command": "run"}
 
 
 def parse_bot_daemon(stream: ArgStream) -> dict:

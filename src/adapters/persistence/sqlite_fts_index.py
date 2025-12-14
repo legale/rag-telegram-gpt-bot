@@ -7,6 +7,7 @@ import unicodedata
 import sqlite3
 from typing import List, Optional
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError, DatabaseError as SQLAlchemyDatabaseError
 
 from src.core.interfaces import FTSIndex, ScoredDoc, SearchFilters
 from src.storage.db import Database
@@ -490,7 +491,7 @@ class SqliteFTSIndex:
             
             return scored_docs
             
-        except sqlite3.DatabaseError as e:
+        except (sqlite3.DatabaseError, OperationalError, SQLAlchemyDatabaseError) as e:
             syslog2(LOG_ERR, "database error during fts search", table=table, error=str(e))
             # Attempt recovery if not already attempted
             if not self._recovery_attempted:
@@ -502,7 +503,20 @@ class SqliteFTSIndex:
                     return self.search(query, top_k, filters, table)
             return []
         except Exception as e:
-            syslog2(LOG_ERR, "unexpected error during fts search", table=table, error=str(e))
+            # Check if it's a database-related error wrapped in generic Exception
+            error_str = str(e)
+            if "database disk image is malformed" in error_str.lower() or "database" in error_str.lower():
+                syslog2(LOG_ERR, "database error during fts search (wrapped)", table=table, error=error_str)
+                # Attempt recovery if not already attempted
+                if not self._recovery_attempted:
+                    syslog2(LOG_WARNING, "attempting fts table recovery after database error", table=table)
+                    session.close()  # Close before recovery
+                    if self._recover_fts_tables(table):
+                        self._recovery_attempted = False  # Reset flag
+                        # Retry search after recovery
+                        return self.search(query, top_k, filters, table)
+            else:
+                syslog2(LOG_ERR, "unexpected error during fts search", table=table, error=error_str)
             return []
         finally:
             session.close()

@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import List
+from typing import List, Optional
 import json
 
 from src.core.domain import Message
-from src.core.interfaces import MessageStore
+from src.core.interfaces import MessageStore, FTSIndex
 from src.storage.db import Database, MessageModel, MessageMetaModel
+from .sqlite_fts_index import SqliteFTSIndex
 
 
 class SqliteMessageStore:
@@ -22,6 +23,7 @@ class SqliteMessageStore:
             database: Database instance from src.storage.db
         """
         self.db = database
+        self._fts_index: Optional[SqliteFTSIndex] = None
 
     def save_batch(self, messages: List[Message]) -> int:
         """
@@ -78,7 +80,23 @@ class SqliteMessageStore:
         finally:
             session.close()
 
+        # FTS5 indexes are updated automatically via triggers
+        # But we ensure FTS tables exist
+        if self._fts_index is None:
+            self._fts_index = SqliteFTSIndex(self.db)
+        
         return saved_count
+
+    def get_fts_index(self) -> FTSIndex:
+        """
+        Get FTS5 index for messages.
+
+        Returns:
+            FTSIndex instance for searching messages
+        """
+        if self._fts_index is None:
+            self._fts_index = SqliteFTSIndex(self.db)
+        return self._fts_index
 
     def get_by_chat(self, chat_id: str, limit: int, offset: int) -> List[Message]:
         """

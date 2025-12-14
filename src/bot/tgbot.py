@@ -548,7 +548,7 @@ def _map_log_level_to_constant(log_level: Union[str, int]) -> int:
     return log_level_map.get(log_level_upper, LOG_WARNING)
 
 
-def _get_bot_configuration(admin_manager_local: AdminManager, args: Optional[SimpleNamespace]) -> Tuple[str, bool, int]:
+def _get_bot_configuration(admin_manager_local: AdminManager, args: Optional[SimpleNamespace]) -> Tuple[str, bool, int, str]:
     """
     Extract bot configuration from admin manager and args.
     
@@ -557,7 +557,7 @@ def _get_bot_configuration(admin_manager_local: AdminManager, args: Optional[Sim
         args: Optional namespace with configuration overrides
         
     Returns:
-        Tuple of (model_name, debug_rag, log_level)
+        Tuple of (model_name, debug_rag, log_level, retrieval_type)
     """
     model_name = admin_manager_local.config.current_model or "openai/gpt-oss-20b:free"
     debug_rag = getattr(args, 'debug_rag', False) if args else False
@@ -566,10 +566,12 @@ def _get_bot_configuration(admin_manager_local: AdminManager, args: Optional[Sim
     log_level = getattr(args, 'log_level', LOG_WARNING) if args else LOG_WARNING
     log_level = _map_log_level_to_constant(log_level)
     
-    return model_name, debug_rag, log_level
+    retrieval_type = getattr(args, 'retrieval_type', 'legacy') if args else 'legacy'
+    
+    return model_name, debug_rag, log_level, retrieval_type
 
 
-def _create_legale_bot(paths: Dict, model_name: str, log_level: int, debug_rag: bool, profile_dir: str) -> LegaleBot:
+def _create_legale_bot(paths: Dict, model_name: str, log_level: int, debug_rag: bool, profile_dir: str, retrieval_type: str = "legacy") -> LegaleBot:
     """
     Create and initialize LegaleBot instance.
     
@@ -579,6 +581,7 @@ def _create_legale_bot(paths: Dict, model_name: str, log_level: int, debug_rag: 
         log_level: Logging level
         debug_rag: Debug RAG flag
         profile_dir: Profile directory path
+        retrieval_type: Retrieval type ("legacy", "hybrid", "vector_only", "fts_only")
         
     Returns:
         Initialized LegaleBot instance
@@ -589,7 +592,8 @@ def _create_legale_bot(paths: Dict, model_name: str, log_level: int, debug_rag: 
         model_name=model_name,
         log_level=log_level,
         debug_rag=debug_rag,
-        profile_dir=profile_dir
+        profile_dir=profile_dir,
+        retrieval_type=retrieval_type
     )
     syslog2(
         LOG_WARNING, 
@@ -713,10 +717,10 @@ async def init_runtime_for_current_profile(args: Optional[SimpleNamespace] = Non
     admin_manager_local = _create_admin_manager(profile_dir)
 
     # Step 3: Get bot configuration
-    model_name, debug_rag, log_level = _get_bot_configuration(admin_manager_local, args)
+    model_name, debug_rag, log_level, retrieval_type = _get_bot_configuration(admin_manager_local, args)
 
     # Step 4: Create LegaleBot
-    bot_instance = _create_legale_bot(paths, model_name, log_level, debug_rag, profile_dir)
+    bot_instance = _create_legale_bot(paths, model_name, log_level, debug_rag, profile_dir, retrieval_type)
 
     # Step 5: Create admin router and register commands
     admin_router_local = AdminCommandRouter()

@@ -128,34 +128,6 @@ class IngestionPipeline:
         syslog2(LOG_NOTICE, f"stage{stage_num} cleared", before=before, removed=removed)
         return removed
     
-    def _clear_topic_names(self, topic_model, stage_num: int, topic_level: str) -> int:
-        """
-        Clear topic names by resetting to 'unknown'.
-        
-        Args:
-            topic_model: SQLAlchemy model class (TopicL1Model or TopicL2Model)
-            stage_num: Stage number for logging
-            topic_level: Topic level name ("l1" or "l2")
-            
-        Returns:
-            Number of topics updated
-        """
-        syslog2(LOG_NOTICE, f"clearing stage{stage_num}: {topic_level} topic names")
-        session = self.db.get_session()
-        try:
-            updated = session.query(topic_model).update({
-                topic_model.title: "unknown",
-                topic_model.descr: "Pending description..."
-            }, synchronize_session=False)
-            session.commit()
-            syslog2(LOG_NOTICE, f"stage{stage_num} cleared", updated=updated)
-            return updated
-        except Exception as e:
-            session.rollback()
-            raise e
-        finally:
-            session.close()
-    
     def _clear_stage_with_config(self, stage_num: int, stage_name: str, clear_func) -> int:
         """
         Generic stage clearing with logging.
@@ -227,21 +199,9 @@ class IngestionPipeline:
         """Clear stage7: L2 topics from vector_db collection."""
         return self._clear_vector_collection(self.vector_store.topics_l2_collection, 7, "vector_db topics_l2")
 
-    def clear_stage8(self) -> int:
-        """Clear stage8: L1 topic names (reset to 'unknown')."""
-        from src.storage.db import TopicL1Model
-        return self._clear_topic_names(TopicL1Model, 8, "l1")
-
-    def clear_stage9(self) -> int:
-        """Clear stage9: L2 topic names (reset to 'unknown')."""
-        from src.storage.db import TopicL2Model
-        return self._clear_topic_names(TopicL2Model, 9, "l2")
-
     def clear_all(self):
         """Clear all stages."""
         # Clear in reverse order to maintain referential integrity
-        self.clear_stage9()
-        self.clear_stage8()
         self.clear_stage7()
         self.clear_stage6()
         self.clear_stage5()
@@ -420,7 +380,7 @@ class IngestionPipeline:
         Reads embeddings from SQLite, saves center_vec_json to SQLite, does NOT write to vector_db."""
         from src.ai.clustering import TopicClusterer
         
-        # LLM client not needed for clustering - only for naming (stage8)
+        # LLM client not needed for clustering
         clusterer = TopicClusterer(
             db=self.db,
             vector_store=self.vector_store,
@@ -506,76 +466,12 @@ class IngestionPipeline:
         syslog2(LOG_NOTICE, "l1 topics synced to vector database", count=len(ids))
         syslog2(LOG_NOTICE, "stage5 complete")
 
-    def run_stage8(self, only_unnamed: bool = True, rebuild: bool = False):
-        """Run stage8: name L1 topics using LLM."""
-        from src.ai.clustering import TopicClusterer
-        
-        # LLM client needed for naming
-        llm_client = self._get_llm_client()
-        clusterer = TopicClusterer(
-            db=self.db,
-            vector_store=self.vector_store,
-            llm_client=llm_client
-        )
-        
-        # Create progress callback for topic naming
-        def progress_callback(current, total, stage, total_all=None):
-            percentage = int((current / total * 100)) if total > 0 else 0
-            if total_all is not None and total_all != total:
-                print(f"\rNaming {stage.upper()} topics: {current}/{total} ({percentage}%) (filtered/total: {total}/{total_all})", flush=True, end="")
-            elif total_all is not None:
-                print(f"\rNaming {stage.upper()} topics: {current}/{total} ({percentage}%) (all: {total_all})", flush=True, end="")
-            else:
-                print(f"\rNaming {stage.upper()} topics: {current}/{total} ({percentage}%)", flush=True, end="")
-            if current == total:
-                print()  # Newline after progress
-        
-        syslog2(LOG_NOTICE, "naming l1 topics")
-        clusterer.name_topics(
-            progress_callback=progress_callback,
-            only_unnamed=only_unnamed,
-            rebuild=rebuild,
-            target='l1'
-        )
-
-    def run_stage9(self, only_unnamed: bool = True, rebuild: bool = False):
-        """Run stage9: name L2 topics using LLM."""
-        from src.ai.clustering import TopicClusterer
-        
-        # LLM client needed for naming
-        llm_client = self._get_llm_client()
-        clusterer = TopicClusterer(
-            db=self.db,
-            vector_store=self.vector_store,
-            llm_client=llm_client
-        )
-        
-        # Create progress callback for topic naming
-        def progress_callback(current, total, stage, total_all=None):
-            percentage = int((current / total * 100)) if total > 0 else 0
-            if total_all is not None and total_all != total:
-                print(f"\rNaming {stage.upper()} topics: {current}/{total} ({percentage}%) (filtered/total: {total}/{total_all})", flush=True, end="")
-            elif total_all is not None:
-                print(f"\rNaming {stage.upper()} topics: {current}/{total} ({percentage}%) (all: {total_all})", flush=True, end="")
-            else:
-                print(f"\rNaming {stage.upper()} topics: {current}/{total} ({percentage}%)", flush=True, end="")
-            if current == total:
-                print()  # Newline after progress
-        
-        syslog2(LOG_NOTICE, "naming l2 topics")
-        clusterer.name_topics(
-            progress_callback=progress_callback,
-            only_unnamed=only_unnamed,
-            rebuild=rebuild,
-            target='l2'
-        )
-
     def run_stage6(self, **clustering_params):
         """Run stage6: L2 clustering - cluster L1 topics into L2 topics.
         Reads L1 centroids from SQLite, saves center_vec_json to SQLite, does NOT write to vector_db."""
         from src.ai.clustering import TopicClusterer
         
-        # LLM client not needed for clustering - only for naming (stage9)
+        # LLM client not needed for clustering
         clusterer = TopicClusterer(
             db=self.db,
             vector_store=self.vector_store,
@@ -657,7 +553,17 @@ class IngestionPipeline:
         syslog2(LOG_NOTICE, "stage7 complete")
 
     def run_all(self, file_path: str, model: Optional[str] = None, batch_size: int = 128, **clustering_params):
-        """Run all stages in sequence."""
+        """
+        Run all stages in sequence (stages 0-3 only).
+        
+        For hybrid search and FTS5, we only need:
+        - stage0: Parse and store messages
+        - stage1: Create and store chunks
+        - stage2: Generate embeddings for chunks (save to SQLite)
+        - stage3: Sync chunks to vector database
+        
+        Topic clustering (L1/L2) is no longer needed for hybrid/FTS5 search.
+        """
         syslog2(LOG_NOTICE, "running stage0: parse and store messages")
         self.run_stage0(file_path)
         
@@ -670,25 +576,7 @@ class IngestionPipeline:
         syslog2(LOG_NOTICE, "running stage3: sync chunks to vector database")
         self.run_stage3()
         
-        syslog2(LOG_NOTICE, "running stage4: L1 clustering (save to SQLite)")
-        self.run_stage4(**clustering_params)
-        
-        syslog2(LOG_NOTICE, "running stage5: sync L1 topics to vector database")
-        self.run_stage5()
-        
-        syslog2(LOG_NOTICE, "running stage6: L2 clustering (save to SQLite)")
-        self.run_stage6(**clustering_params)
-        
-        syslog2(LOG_NOTICE, "running stage7: sync L2 topics to vector database")
-        self.run_stage7()
-        
-        syslog2(LOG_NOTICE, "running stage8: name L1 topics")
-        self.run_stage8()
-        
-        syslog2(LOG_NOTICE, "running stage9: name L2 topics")
-        self.run_stage9()
-        
-        syslog2(LOG_NOTICE, "all stages complete")
+        syslog2(LOG_NOTICE, "all stages complete (stages 0-3: messages, chunks, embeddings, vector sync)")
 
     def parse_and_store_messages(self, file_path: str):
         """
@@ -1405,42 +1293,6 @@ class IngestionPipeline:
             lines.append(f"error: {str(e)}")
         
         lines.append("")
-        
-        # Stage 8: L1 Topic Names
-        session = self.db.get_session()
-        try:
-            from src.storage.db import TopicL1Model
-            l1_topics = session.query(TopicL1Model).all()
-            named_l1 = sum(1 for t in l1_topics if t.title and t.title.lower() not in ("unknown", "") and not t.title.startswith("Topic L1-"))
-            unnamed_l1 = len(l1_topics) - named_l1
-            
-            lines.append("stage8 l1 topic names:")
-            lines.append(f"named={named_l1}")
-            lines.append(f"unnamed={unnamed_l1}")
-        except Exception as e:
-            lines.append("stage8 l1 topic names:")
-            lines.append(f"error: {str(e)}")
-        finally:
-            session.close()
-        
-        lines.append("")
-        
-        # Stage 9: L2 Topic Names
-        session = self.db.get_session()
-        try:
-            from src.storage.db import TopicL2Model
-            l2_topics = session.query(TopicL2Model).all()
-            named_l2 = sum(1 for t in l2_topics if t.title and t.title.lower() not in ("unknown", "") and not t.title.startswith("Topic L2-"))
-            unnamed_l2 = len(l2_topics) - named_l2
-            
-            lines.append("stage9 l2 topic names:")
-            lines.append(f"named={named_l2}")
-            lines.append(f"unnamed={unnamed_l2}")
-        except Exception as e:
-            lines.append("stage9 l2 topic names:")
-            lines.append(f"error: {str(e)}")
-        finally:
-            session.close()
         
         return "\n".join(lines)
 

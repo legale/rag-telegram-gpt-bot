@@ -122,6 +122,82 @@ class Database:
         """Checks for new columns and adds them if missing (SQLite specific)."""
         from sqlalchemy import text
         with self.engine.connect() as conn:
+            # Ensure FTS5 tables exist (for hybrid retrieval)
+            try:
+                # Create messages_fts table if it doesn't exist
+                conn.execute(text("""
+                    CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+                        msg_id UNINDEXED,
+                        chat_id UNINDEXED,
+                        from_id UNINDEXED,
+                        ts UNINDEXED,
+                        text,
+                        content='messages',
+                        content_rowid='rowid'
+                    )
+                """))
+                
+                # Create chunks_fts table if it doesn't exist
+                conn.execute(text("""
+                    CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+                        id UNINDEXED,
+                        chat_id UNINDEXED,
+                        text,
+                        content='chunks',
+                        content_rowid='rowid'
+                    )
+                """))
+                
+                # Create triggers to keep FTS5 in sync with main tables
+                # Messages triggers
+                conn.execute(text("""
+                    CREATE TRIGGER IF NOT EXISTS messages_fts_insert AFTER INSERT ON messages BEGIN
+                        INSERT INTO messages_fts(msg_id, chat_id, from_id, ts, text)
+                        VALUES (new.msg_id, new.chat_id, new.from_id, new.ts, new.text);
+                    END
+                """))
+                
+                conn.execute(text("""
+                    CREATE TRIGGER IF NOT EXISTS messages_fts_delete AFTER DELETE ON messages BEGIN
+                        DELETE FROM messages_fts WHERE msg_id = old.msg_id;
+                    END
+                """))
+                
+                conn.execute(text("""
+                    CREATE TRIGGER IF NOT EXISTS messages_fts_update AFTER UPDATE ON messages BEGIN
+                        DELETE FROM messages_fts WHERE msg_id = old.msg_id;
+                        INSERT INTO messages_fts(msg_id, chat_id, from_id, ts, text)
+                        VALUES (new.msg_id, new.chat_id, new.from_id, new.ts, new.text);
+                    END
+                """))
+                
+                # Chunks triggers
+                conn.execute(text("""
+                    CREATE TRIGGER IF NOT EXISTS chunks_fts_insert AFTER INSERT ON chunks BEGIN
+                        INSERT INTO chunks_fts(id, chat_id, text)
+                        VALUES (new.id, new.chat_id, new.text);
+                    END
+                """))
+                
+                conn.execute(text("""
+                    CREATE TRIGGER IF NOT EXISTS chunks_fts_delete AFTER DELETE ON chunks BEGIN
+                        DELETE FROM chunks_fts WHERE id = old.id;
+                    END
+                """))
+                
+                conn.execute(text("""
+                    CREATE TRIGGER IF NOT EXISTS chunks_fts_update AFTER UPDATE ON chunks BEGIN
+                        DELETE FROM chunks_fts WHERE id = old.id;
+                        INSERT INTO chunks_fts(id, chat_id, text)
+                        VALUES (new.id, new.chat_id, new.text);
+                    END
+                """))
+                
+                conn.commit()
+            except Exception as e:
+                # FTS5 might not be available, log warning but continue
+                syslog2(LOG_DEBUG, "fts5 tables creation skipped", error=str(e))
+            
             # Check chunks table columns
             try:
                 # We can't easily check all at once, so we try accessing one.

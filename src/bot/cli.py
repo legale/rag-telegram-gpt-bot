@@ -228,6 +228,7 @@ def main():
     # Parse other options
     chunks = parse_int_option(stream, "--chunks") or 5
     debug_rag = parse_flag(stream, "--debug-rag")
+    retrieval_type = parse_option(stream, "--retrieval-type") or "legacy"
     
     # Count -v flags for log level (need to check before stream consumes them)
     verbose = 0
@@ -271,7 +272,7 @@ def main():
         syslog2(LOG_ERR, "models file missing")
         sys.exit(1)
 
-    syslog2(LOG_NOTICE, "cli bot initializing", model=model_name, log_level=syslog_level, chunks=chunks)
+    syslog2(LOG_NOTICE, "cli bot initializing", model=model_name, log_level=syslog_level, chunks=chunks, retrieval_type=retrieval_type)
     
     # Get paths from environment (set by legale.py)
     db_url = os.getenv("DATABASE_URL")
@@ -290,7 +291,8 @@ def main():
             model_name=model_name, 
             log_level=syslog_level,
             debug_rag=debug_rag,
-            profile_dir=profile_dir
+            profile_dir=profile_dir,
+            retrieval_type=retrieval_type
         )
         
         # Create AdminManager if profile_dir is available (for config access)
