@@ -4,9 +4,10 @@ from src.storage.db import Database
 from src.storage.vector_store import VectorStore
 from src.core.embedding import EmbeddingClient, LocalEmbeddingClient, create_embedding_client
 from src.core.retrieval import RetrievalService
+from src.core.use_cases.hybrid_retrieval import HybridRetrievalService
 from src.core.prompt import PromptEngine
 from src.core.llm import LLMClient
-from src.app.bootstrap import create_retrieval_service
+from src.app.bootstrap import create_retrieval_service, create_hybrid_retrieval
 import os
 from src.lib.syslog2 import *
 
@@ -20,7 +21,8 @@ class LegaleBot:
         model_name: Optional[str] = None,
         log_level: int = LOG_WARNING,
         debug_rag: bool = False,
-        profile_dir: Optional[Union[str, Path]] = None
+        profile_dir: Optional[Union[str, Path]] = None,
+        retrieval_type: str = "legacy"  # "legacy" | "hybrid" | "vector_only" | "fts_only"
     ):
         # Initialize components
         if not db_url or not vector_db_path:
@@ -74,20 +76,62 @@ class LegaleBot:
              
         self.llm_client = LLMClient(model=model_name, log_level=log_level)
         
-        # Initialize services using bootstrap
-        rag_ntop = config.rag_ntop if config else 0
-        self.retrieval_service = create_retrieval_service(
-            db_url=db_url,
-            vector_db_path=vector_db_path,
-            embedding_client=self.embedding_client,
-            llm_client=self.llm_client,
-            profile_dir=profile_dir,
-            log_level=log_level,
-            debug_rag=self.debug_rag,
-            rag_ntop=rag_ntop
-        )
-        # Alias for compatibility
-        self.retrieval = self.retrieval_service
+        # Initialize services using bootstrap based on retrieval_type
+        self.retrieval_type = retrieval_type
+        
+        if retrieval_type == "hybrid":
+            # Use new hybrid retrieval (FTS5 + vector rerank)
+            self.retrieval_service = create_hybrid_retrieval(
+                db_url=db_url,
+                vector_db_path=vector_db_path,
+                embedding_client=self.embedding_client,
+                profile_dir=profile_dir,
+                log_level=log_level,
+            )
+            self.retrieval = self.retrieval_service
+        elif retrieval_type == "legacy":
+            # Use old RetrievalService
+            rag_ntop = config.rag_ntop if config else 0
+            self.retrieval_service = create_retrieval_service(
+                db_url=db_url,
+                vector_db_path=vector_db_path,
+                embedding_client=self.embedding_client,
+                llm_client=self.llm_client,
+                profile_dir=profile_dir,
+                log_level=log_level,
+                debug_rag=self.debug_rag,
+                rag_ntop=rag_ntop
+            )
+            self.retrieval = self.retrieval_service
+        elif retrieval_type == "vector_only":
+            # TODO: Implement vector-only mode
+            # For now, use legacy but disable topic retrieval
+            rag_ntop = config.rag_ntop if config else 0
+            self.retrieval_service = create_retrieval_service(
+                db_url=db_url,
+                vector_db_path=vector_db_path,
+                embedding_client=self.embedding_client,
+                llm_client=self.llm_client,
+                profile_dir=profile_dir,
+                log_level=log_level,
+                debug_rag=self.debug_rag,
+                rag_ntop=rag_ntop,
+                use_topic_retrieval=False
+            )
+            self.retrieval = self.retrieval_service
+        elif retrieval_type == "fts_only":
+            # FTS-only mode: skip vector reranking
+            self.retrieval_service = create_hybrid_retrieval(
+                db_url=db_url,
+                vector_db_path=vector_db_path,
+                embedding_client=self.embedding_client,
+                profile_dir=profile_dir,
+                log_level=log_level,
+                fts_only=True,
+            )
+            self.retrieval = self.retrieval_service
+        else:
+            raise ValueError(f"Unknown retrieval_type: {retrieval_type}. Use: legacy, hybrid, vector_only, fts_only")
         self.prompt_engine = PromptEngine()
         
         # Simple in-memory history for the current session
@@ -398,7 +442,7 @@ class LegaleBot:
             self.chat_history.append({"role": "user", "content": user_input})
             return ""
 
-        syslog2(LOG_NOTICE, "retrieving context", rag_ntop=self.retrieval_service.rag_ntop)
+        syslog2(LOG_NOTICE, "retrieving context", retrieval_type=self.retrieval_type)
         context_chunks = self.retrieval_service.retrieve(
             user_input, n_results=n_results
         )
