@@ -44,6 +44,7 @@ class HybridSearch:
         threshold: Optional[float] = None,
         enrich_with_messages: bool = True,
         message_window_sec: int = 300,
+        chat_id: Optional[str] = None,
     ) -> List[SearchResult]:
         """
         Perform hybrid search: vector search + message context enrichment.
@@ -65,10 +66,15 @@ class HybridSearch:
         query_vector = self.embedder.embed_query(query)
 
         # Step 2: Vector search to get candidate chunk IDs with scores
+        # Build filter if chat_id is provided
+        vector_filter = None
+        if chat_id:
+            vector_filter = {"chat_id": chat_id}
+        
         scored_docs = self.vector_index.query(
             vector=query_vector,
             top_k=top_k,
-            filter=None  # Can be extended to support metadata filters
+            filter=vector_filter
         )
 
         if not scored_docs:
