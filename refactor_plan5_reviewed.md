@@ -239,5 +239,7 @@ src/
     *   [ ] Full migration requires extending ChunkStore interface (deferred)
     *   [ ] Clustering stages (4-9) remain in IngestionPipeline (deferred)
 
-8.  **Expand Tests Coverage**
-    *   [ ] Add contract tests for Adapters
+8.  **Expand Tests Coverage** ✅ (частично)
+    *   [x] Add contract tests for Adapters
+    *   [x] Created test_adapters_contract.py with tests for MessageStore, ChunkStore, VectorIndex, Embedder
+    *   [ ] Write unit tests with Fake adapters (for HybridSearch - deferred)
