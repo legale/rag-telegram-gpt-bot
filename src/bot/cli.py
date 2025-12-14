@@ -305,6 +305,10 @@ def main():
         print("Bot ready! Type 'exit' or 'quit' to stop.")
         print("Use /help to see available commands.")
         print("-" * 50)
+        
+        # Create dispatcher once before the loop
+        from src.app.main_cli import create_dispatcher, handle_command
+        dispatcher = create_dispatcher(bot, admin_manager, debug_rag)
     except Exception as e:
         syslog2(LOG_ERR, "bot init failed", error=str(e))
         return
@@ -319,8 +323,8 @@ def main():
             if not user_input.strip():
                 continue
             
-            # Check if input is a command
-            command_response = handle_cli_command(user_input, bot, admin_manager, debug_rag)
+            # Check if input is a command using dispatcher
+            command_response = handle_command(user_input, dispatcher)
             if command_response is not None:
                 # Command was handled
                 print(f"Bot: {command_response}")
