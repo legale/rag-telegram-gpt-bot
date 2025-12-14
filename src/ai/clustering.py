@@ -9,7 +9,7 @@ import time
 
 from src.storage.db import Database
 from src.storage.vector_store import VectorStore
-from src.core.syslog2 import *
+from src.lib.syslog2 import *
 from src.core.llm import LLMClient
 from src.core.prompt import *
 

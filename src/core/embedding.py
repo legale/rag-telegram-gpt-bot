@@ -21,7 +21,7 @@ try:
 except ImportError:
     OfflineModeIsEnabled = None
 
-from src.core.syslog2 import *
+from src.lib.syslog2 import *
 
 
 

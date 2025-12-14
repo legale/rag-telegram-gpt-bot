@@ -13,7 +13,7 @@ import subprocess
 import shutil
 import asyncio
 from pathlib import Path
-from src.core.syslog2 import *
+from src.lib.syslog2 import *
 
 # Check if we're running inside poetry's virtualenv
 def is_in_virtualenv():
@@ -48,7 +48,7 @@ if not is_in_virtualenv():
 import warnings
 from typing import Optional
 from dotenv import load_dotenv, set_key, find_dotenv
-from src.core.syslog2 import *
+from src.lib.syslog2 import *
 from src.core.cli_parser import (
     CommandParser, CommandSpec, ArgStream, CLIError, CLIHelp,
     parse_flag, parse_option, parse_int_option, parse_float_option, parse_choice_option

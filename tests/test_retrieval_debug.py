@@ -5,7 +5,7 @@ import pytest
 from unittest.mock import Mock, patch
 from src.core.retrieval import RetrievalService
 from src.storage.db import ChunkModel, TopicL1Model, TopicL2Model
-from src.core.syslog2 import LOG_DEBUG
+from src.lib.syslog2 import LOG_DEBUG
 
 
 def test_retrieval_with_empty_vector_store():

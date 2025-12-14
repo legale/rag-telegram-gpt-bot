@@ -3,7 +3,7 @@ from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from datetime import datetime
 from typing import List, Optional, Tuple, Any
 import json
-from src.core.syslog2 import *
+from src.lib.syslog2 import *
 
 Base = declarative_base()
 

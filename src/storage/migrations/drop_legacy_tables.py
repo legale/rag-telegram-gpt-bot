@@ -6,7 +6,7 @@ since we now use hierarchical topics (topics_l1 and topics_l2).
 """
 
 from sqlalchemy import create_engine, text
-from src.core.syslog2 import *
+from src.lib.syslog2 import *
 
 
 def drop_legacy_tables(db_url: str) -> None:

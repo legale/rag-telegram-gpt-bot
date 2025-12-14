@@ -9,7 +9,7 @@ from src.core.embedding import EmbeddingClient
 from src.core.llm import LLMClient
 from src.core.distance_utils import distance_to_similarity, similarity_to_distance
 from src.core.chunk_utils import build_chunk_dict_from_model
-from src.core.syslog2 import *
+from src.lib.syslog2 import *
 
 # Rephrasing prompt template
 REPHRASING_PROMPT_TEMPLATE = """пользователь просит: {query}

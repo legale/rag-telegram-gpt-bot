@@ -3,7 +3,7 @@ Admin command handlers for Legale Bot.
 Implements handlers for /admin commands.
 """
 
-from typing import List, Dict
+from typing import List, Dict, Optional, Tuple
 from telegram import Update
 from telegram.ext import ContextTypes
 from pathlib import Path
@@ -17,7 +17,7 @@ from src.bot.utils import (
     CommandValidator,
     HealthChecker,
 )
-from src.core.syslog2 import *
+from src.lib.syslog2 import *
 
 logger = logging.getLogger("legale_admin_commands")
 
@@ -79,7 +79,23 @@ class BaseAdminCommand:
         if not profile_dir.exists():
             return False, f"Профиль `{profile_name}` не существует."
         return True, ""
-
+    
+    def _validate_and_get_profile_paths(self, profile_name: str) -> Tuple[Optional[Dict], Optional[str]]:
+        """
+        Validate profile and get its paths (helper to reduce duplication).
+        
+        Args:
+            profile_name: Profile name to validate
+            
+        Returns:
+            Tuple of (paths_dict, error_message). paths_dict is None if validation failed.
+        """
+        exists, error = self.validate_profile_exists(profile_name)
+        if not exists:
+            return None, error
+        
+        paths = self.get_profile_paths(profile_name)
+        return paths, None
 
 
 class ProfileCommands(BaseAdminCommand):
@@ -172,6 +188,29 @@ class ProfileCommands(BaseAdminCommand):
         
         return response
     
+    def _format_profile_list_item(self, profile_dir: Path, profile_name: str, is_active: bool) -> str:
+        """
+        Format single profile item for list display.
+        
+        Args:
+            profile_dir: Profile directory path
+            profile_name: Profile name
+            is_active: Whether profile is active
+            
+        Returns:
+            Formatted string for profile item
+        """
+        # Get database info using utility
+        db_path = profile_dir / "legale_bot.db"
+        db_size = self.formatter.format_file_size(db_path.stat().st_size) if db_path.exists() else "0B"
+        chunk_count = self.db_stats.get_chunk_count(db_path) if db_path.exists() else 0
+        
+        marker = "" if is_active else ""
+        active_text = " **(активный)**" if is_active else ""
+        db_text = f"БД: {db_size}, чанков: {self.formatter.format_number(chunk_count)}" if db_path.exists() else "БД не создана"
+        
+        return f"{marker} `{profile_name}`{active_text}\n   {db_text}\n"
+    
     async def list_profiles(self, update: Update, context: ContextTypes.DEFAULT_TYPE, 
                            admin_manager, args: List[str]) -> str:
         """Handle /admin profile list command."""
@@ -192,17 +231,8 @@ class ProfileCommands(BaseAdminCommand):
             stats = self._get_profile_stats(profile_name)
             is_active = stats['is_active']
             
-            # Get database info using utility
-            db_path = profile_dir / "legale_bot.db"
-            db_size = self.formatter.format_file_size(db_path.stat().st_size) if db_path.exists() else "0B"
-            chunk_count = self.db_stats.get_chunk_count(db_path) if db_path.exists() else 0
-            
-            marker = "" if is_active else ""
-            active_text = " **(активный)**" if is_active else ""
-            db_text = f"БД: {db_size}, чанков: {self.formatter.format_number(chunk_count)}" if db_path.exists() else "БД не создана"
-            
-            response += f"{marker} `{profile_name}`{active_text}\n"
-            response += f"   {db_text}\n\n"
+            response += self._format_profile_list_item(profile_dir, profile_name, is_active)
+            response += "\n"
         
         response += f"\n**Активный профиль:** `{current}`"
         return response
@@ -570,21 +600,29 @@ class IngestCommands(BaseAdminCommand):
         else:
             return f"Неизвестный статус: {task.status}"
     
-    async def handle_file_upload(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
-                                 admin_manager) -> str:
-        """Handle file upload for ingestion."""
-        user_id = update.message.from_user.id
+    def _is_waiting_for_file(self, user_id: int) -> bool:
+        """
+        Check if user is waiting for file upload.
         
-        # Check if user is waiting for file
-        if user_id not in self.waiting_for_file or not self.waiting_for_file[user_id]:
-            return None  # Not waiting for file, ignore
+        Args:
+            user_id: User ID
+            
+        Returns:
+            True if user is waiting for file, False otherwise
+        """
+        return user_id in self.waiting_for_file and self.waiting_for_file[user_id]
+    
+    def _validate_upload(self, document) -> Optional[str]:
+        """
+        Validate uploaded file.
         
-        # Clear waiting flag
-        self.waiting_for_file[user_id] = False
-        
-        document = update.message.document
-        
-        # Validate file
+        Args:
+            document: Telegram document object
+            
+        Returns:
+            Error message if validation fails, None otherwise
+        """
+        # Validate file format
         if not document.file_name.endswith('.json'):
             return "Файл должен быть в формате JSON.\n\nОтправьте JSON файл с дампом чата."
         
@@ -596,44 +634,90 @@ class IngestCommands(BaseAdminCommand):
                 f"Используйте CLI для загрузки больших файлов."
             )
         
+        return None
+    
+    async def _download_file(self, context: ContextTypes.DEFAULT_TYPE, document, user_id: int) -> Path:
+        """
+        Download uploaded file to temporary directory.
+        
+        Args:
+            context: Telegram context
+            document: Telegram document object
+            user_id: User ID for filename
+            
+        Returns:
+            Path to downloaded file
+        """
+        # Download file
+        file = await context.bot.get_file(document.file_id)
+        
+        # Create temp directory
+        import tempfile
+        temp_dir = Path(tempfile.gettempdir()) / "legale_bot"
+        temp_dir.mkdir(exist_ok=True)
+        
+        # Save file - convert Path to string to avoid MagicMock issues in tests
+        temp_file = temp_dir / f"{user_id}_{document.file_name}"
+        await file.download_to_drive(str(temp_file))
+        
+        file_size_str = self.formatter.format_file_size(document.file_size)
+        syslog2(LOG_NOTICE, "file downloaded for ingestion", path=str(temp_file), size=file_size_str)
+        
+        return temp_file
+    
+    async def _start_ingestion_task(self, temp_file: Path, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """
+        Start ingestion task in background.
+        
+        Args:
+            temp_file: Path to downloaded file
+            update: Telegram update
+            context: Telegram context
+        """
+        # Send initial message
+        status_message = await update.message.reply_text(
+            "Файл получен!\n\nПодготовка к загрузке..."
+        )
+        
+        # Start ingestion task - convert Path to string to avoid MagicMock issues in tests
+        task = self.task_manager.start_ingestion(str(temp_file), self.profile_manager)
+        
+        # Run task in background
+        import asyncio
+        asyncio.create_task(
+            task.run(context.bot, update.message.chat_id, status_message.message_id)
+        )
+    
+    async def handle_file_upload(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
+                                 admin_manager) -> str:
+        """Handle file upload for ingestion."""
+        user_id = update.message.from_user.id
+        document = update.message.document
+        
+        # Check if user is waiting for file
+        if not self._is_waiting_for_file(user_id):
+            return None  # Not waiting for file, ignore
+        
+        # Clear waiting flag
+        self.waiting_for_file[user_id] = False
+        
+        # Validate upload
+        validation_error = self._validate_upload(document)
+        if validation_error:
+            return validation_error
+        
         try:
             # Download file
-            file = await context.bot.get_file(document.file_id)
+            temp_file = await self._download_file(context, document, user_id)
             
-            # Create temp directory
-            import tempfile
-            temp_dir = Path(tempfile.gettempdir()) / "legale_bot"
-            temp_dir.mkdir(exist_ok=True)
-            
-            # Save file - convert Path to string to avoid MagicMock issues in tests
-            temp_file = temp_dir / f"{user_id}_{document.file_name}"
-            await file.download_to_drive(str(temp_file))
-            
-            file_size_str = self.formatter.format_file_size(document.file_size)
-            syslog2(LOG_NOTICE, "file downloaded for ingestion", path=str(temp_file), size=file_size_str)
-            
-            # Send initial message
-            status_message = await update.message.reply_text(
-                "Файл получен!\n\nПодготовка к загрузке..."
-            )
-            
-            # Start ingestion task - convert Path to string to avoid MagicMock issues in tests
-            task = self.task_manager.start_ingestion(str(temp_file), self.profile_manager)
-            
-            # Run task in background
-            import asyncio
-            asyncio.create_task(
-                task.run(context.bot, update.message.chat_id, status_message.message_id)
-            )
+            # Start ingestion task
+            await self._start_ingestion_task(temp_file, update, context)
             
             return None  # Message already sent
             
         except Exception as e:
             return await self.handle_error(e, "обработке файла")
     
-    def is_waiting_for_file(self, user_id: int) -> bool:
-        """Check if user is waiting for file upload."""
-        return user_id in self.waiting_for_file and self.waiting_for_file[user_id]
 
 
 class StatsCommands(BaseAdminCommand):
@@ -944,6 +1028,75 @@ class SystemPromptCommands(BaseAdminCommand):
 class SettingsCommands(BaseAdminCommand):
     """Handlers for bot configuration settings."""
 
+    def _get_chat_id_from_args(self, update: Update, args: List[str]) -> Tuple[Optional[int], Optional[str]]:
+        """
+        Extract chat ID from command arguments or use current chat.
+        
+        Args:
+            update: Telegram update
+            args: Command arguments
+            
+        Returns:
+            Tuple of (chat_id, error_message) where error_message is None if successful
+        """
+        if len(args) < 2:
+            return update.message.chat_id, None
+        
+        is_valid, parsed_id, error = self.validator.validate_chat_id(args[1])
+        if not is_valid:
+            return None, error
+        return parsed_id, None
+    
+    async def _handle_chats_list(self, config) -> str:
+        """Handle list subcommand."""
+        chats = config.allowed_chats
+        if not chats:
+            return self.formatter.format_info_message(
+                "Список разрешенных чатов пуст.\n"
+                "**Внимание**: Бот игнорирует ВСЕ сообщения в чатах, "
+                "которых нет в списке (кроме админ-команд)."
+            )
+        
+        response = "**Разрешенные чаты**:\n\n"
+        for chat_id in chats:
+            response += f"- `{chat_id}`\n"
+        return response
+    
+    async def _handle_chats_add(self, update: Update, config, args: List[str]) -> str:
+        """Handle add subcommand."""
+        chat_id, error = self._get_chat_id_from_args(update, args)
+        if error:
+            return error
+        
+        if chat_id in config.allowed_chats:
+            return self.formatter.format_warning_message(f"Чат `{chat_id}` уже в списке.")
+        
+        config.add_allowed_chat(chat_id)
+        return self.formatter.format_success_message(
+            f"Чат `{chat_id}` добавлен в список разрешенных."
+        )
+    
+    async def _handle_chats_remove(self, update: Update, config, args: List[str]) -> str:
+        """Handle remove subcommand."""
+        chat_id, error = self._get_chat_id_from_args(update, args)
+        if error:
+            return error
+        
+        if chat_id not in config.allowed_chats:
+            return self.formatter.format_warning_message(f"Чат `{chat_id}` отсутствует в списке.")
+        
+        config.remove_allowed_chat(chat_id)
+        return self.formatter.format_success_message(
+            f"Чат `{chat_id}` удален из списка разрешенных."
+        )
+    
+    async def _handle_chats_lookup_fallback(self) -> str:
+        """Handle lookup subcommand fallback (should be handled by dedicated handler)."""
+        return (
+            "Команда `lookup` должна быть обработана специальным обработчиком.\n\n"
+            "Используйте: `/admin allowed lookup <chat_name_substring>`"
+        )
+    
     async def manage_chats(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
                           admin_manager, args: List[str]) -> str:
         """Handle /admin allowed commands."""
@@ -953,66 +1106,19 @@ class SettingsCommands(BaseAdminCommand):
         subcommand = args[0].lower()
         config = admin_manager.config
         
-        if subcommand == 'list':
-            chats = config.allowed_chats
-            if not chats:
-                return self.formatter.format_info_message(
-                    "Список разрешенных чатов пуст.\n"
-                    "**Внимание**: Бот игнорирует ВСЕ сообщения в чатах, "
-                    "которых нет в списке (кроме админ-команд)."
-                )
-            
-            response = "**Разрешенные чаты**:\n\n"
-            for chat_id in chats:
-                response += f"- `{chat_id}`\n"
-            return response
-            
-        elif subcommand == 'add':
-            # Determine chat ID
-            if len(args) < 2:
-                chat_id = update.message.chat_id
-            else:
-                is_valid, parsed_id, error = self.validator.validate_chat_id(args[1])
-                if not is_valid:
-                    return error
-                chat_id = parsed_id
-            
-            if chat_id in config.allowed_chats:
-                return self.formatter.format_warning_message(f"Чат `{chat_id}` уже в списке.")
-            
-            config.add_allowed_chat(chat_id)
-            return self.formatter.format_success_message(
-                f"Чат `{chat_id}` добавлен в список разрешенных."
-            )
-            
-        elif subcommand == 'remove':
-            # Determine chat ID
-            if len(args) < 2:
-                chat_id = update.message.chat_id
-            else:
-                is_valid, parsed_id, error = self.validator.validate_chat_id(args[1])
-                if not is_valid:
-                    return error
-                chat_id = parsed_id
-            
-            if chat_id not in config.allowed_chats:
-                return self.formatter.format_warning_message(f"Чат `{chat_id}` отсутствует в списке.")
-            
-            config.remove_allowed_chat(chat_id)
-            return self.formatter.format_success_message(
-                f"Чат `{chat_id}` удален из списка разрешенных."
-            )
+        # Dispatch table for subcommands
+        subcommand_handlers = {
+            'list': lambda: self._handle_chats_list(config),
+            'add': lambda: self._handle_chats_add(update, config, args),
+            'remove': lambda: self._handle_chats_remove(update, config, args),
+            'lookup': lambda: self._handle_chats_lookup_fallback(),
+        }
         
-        elif subcommand == 'lookup':
-            # This should be handled by lookup_chats handler, but if it falls through,
-            # provide helpful error message
-            return (
-                "Команда `lookup` должна быть обработана специальным обработчиком.\n\n"
-                "Используйте: `/admin allowed lookup <chat_name_substring>`"
-            )
-            
-        else:
-            return f"Неизвестная подкоманда: {subcommand}\n\nИспользуйте /admin help allowed"
+        handler = subcommand_handlers.get(subcommand)
+        if handler:
+            return await handler()
+        
+        return f"Неизвестная подкоманда: {subcommand}\n\nИспользуйте /admin help allowed"
 
     async def manage_frequency(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
                              admin_manager, args: List[str]) -> str:
@@ -1041,6 +1147,60 @@ class SettingsCommands(BaseAdminCommand):
             f"Частота ответов установлена: **1 ответ на {freq} сообщений**"
         )
 
+    def _create_telegram_event_loop(self):
+        """
+        Create new event loop for Telegram client (required by Telethon).
+        
+        Returns:
+            New event loop instance
+        """
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        return loop
+    
+    def _cleanup_event_loop(self, loop):
+        """
+        Clean up event loop by canceling pending tasks and closing loop.
+        
+        Args:
+            loop: Event loop to clean up
+        """
+        import asyncio
+        try:
+            # Cancel any pending tasks
+            pending = asyncio.all_tasks(loop)
+            for task in pending:
+                task.cancel()
+            if pending:
+                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+        except Exception:
+            pass
+        finally:
+            loop.close()
+    
+    def _execute_chat_search(self, API_ID: int, API_HASH: str, session_name: str, chat_name: str):
+        """
+        Execute chat search in thread with event loop.
+        
+        Args:
+            API_ID: Telegram API ID
+            API_HASH: Telegram API hash
+            session_name: Session file name (without extension)
+            chat_name: Chat name to search for
+            
+        Returns:
+            List of (chat_id, chat_name) tuples
+        """
+        from src.ingestion.telegram import TelegramFetcher
+        
+        loop = self._create_telegram_event_loop()
+        try:
+            fetcher = TelegramFetcher(API_ID, API_HASH, session_name=session_name)
+            return fetcher.search_chats_by_name(chat_name)
+        finally:
+            self._cleanup_event_loop(loop)
+    
     async def lookup_chats(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
                           admin_manager, args: List[str]) -> str:
         """Handle /admin allowed lookup <chat_name> command."""
@@ -1051,9 +1211,9 @@ class SettingsCommands(BaseAdminCommand):
         chat_name = " ".join(args)
         
         try:
-            from src.ingestion.telegram import TelegramFetcher
             import os
             from dotenv import load_dotenv
+            import asyncio
             
             load_dotenv()
             
@@ -1079,33 +1239,10 @@ class SettingsCommands(BaseAdminCommand):
             # Session file is in project root, not in profile directory
             session_name = str(paths['session_file'].with_suffix(''))  # Remove .session extension
             
-            # Run synchronous Telegram client code in thread executor with new event loop
-            # Telethon requires event loop even for synchronous code
-            import asyncio
-            
-            def run_search_in_thread():
-                # Create new event loop for this thread (required by Telethon)
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    fetcher = TelegramFetcher(API_ID, API_HASH, session_name=session_name)
-                    return fetcher.search_chats_by_name(chat_name)
-                finally:
-                    # Clean up event loop
-                    try:
-                        # Cancel any pending tasks
-                        pending = asyncio.all_tasks(loop)
-                        for task in pending:
-                            task.cancel()
-                        if pending:
-                            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
-                    except Exception:
-                        pass
-                    finally:
-                        loop.close()
-            
-            # Run in thread executor with new event loop
-            results = await asyncio.to_thread(run_search_in_thread)
+            # Run search in thread executor with new event loop
+            results = await asyncio.to_thread(
+                self._execute_chat_search, API_ID, API_HASH, session_name, chat_name
+            )
             
             if not results:
                 return self.formatter.format_info_message(

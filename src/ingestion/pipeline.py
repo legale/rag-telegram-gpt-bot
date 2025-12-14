@@ -19,7 +19,17 @@ from src.core.embedding import EmbeddingClient, create_embedding_client
 from pathlib import Path
 import uuid
 import json
-from src.core.syslog2 import *
+from src.lib.syslog2 import *
+
+
+class IngestionPipelineError(Exception):
+    """Base exception for ingestion pipeline errors."""
+    pass
+
+
+class ConfigurationError(IngestionPipelineError):
+    """Exception raised when configuration is invalid."""
+    pass
 
 try:
     from tqdm import tqdm
@@ -40,7 +50,7 @@ class IngestionPipeline:
         # Load profile config - REQUIRED
         if not self.profile_dir or not self.profile_dir.exists():
             syslog2(LOG_ERR, "profile directory not found, cannot initialize ingestion pipeline")
-            sys.exit(1)
+            raise ConfigurationError("profile directory not found, cannot initialize ingestion pipeline")
         
         try:
             from src.bot.config import BotConfig
@@ -52,7 +62,7 @@ class IngestionPipeline:
                 syslog2(LOG_ERR, "embedding_model is not set in profile config", config_file=config.config_file)
                 syslog2(LOG_ERR, "please add embedding_model parameter to config.json")
                 syslog2(LOG_NOTICE, "example config.json", example='{"embedding_model": "paraphrase-multilingual-mpnet-base-v2", "embedding_generator": "local", "current_model": "openai/gpt-oss-20b:free"}')
-                sys.exit(1)
+                raise ConfigurationError("embedding_model is not set in profile config")
             
             embedding_generator = config.embedding_generator
             
@@ -67,12 +77,11 @@ class IngestionPipeline:
                 chunk_token_max=config.chunk_token_max,
                 chunk_overlap_ratio=config.chunk_overlap_ratio
             )
-        except SystemExit:
-            # Already handled in create_embedding_client
+        except ConfigurationError:
             raise
         except Exception as e:
             syslog2(LOG_ERR, "could not load profile config", error=str(e))
-            sys.exit(1)
+            raise ConfigurationError(f"could not load profile config: {e}") from e
         
         self.vector_store = VectorStore(
             persist_directory=vector_db_path,
@@ -96,19 +105,81 @@ class IngestionPipeline:
         syslog2(LOG_NOTICE, "vector store cleanup", path=self.vector_store.persist_directory, collection=self.vector_store.collection_name, before=vector_before, removed=removed_vectors, remaining=vector_after)
         syslog2(LOG_NOTICE, "data cleared")
 
+    def _clear_vector_collection(self, collection, stage_num: int, stage_name: str) -> int:
+        """
+        Clear vector database collection.
+        
+        Args:
+            collection: ChromaDB collection instance
+            stage_num: Stage number for logging
+            stage_name: Stage name for logging
+            
+        Returns:
+            Number of items removed
+        """
+        syslog2(LOG_NOTICE, f"clearing stage{stage_num}: {stage_name}")
+        before = collection.count()
+        if before > 0:
+            all_data = collection.get()
+            if all_data and all_data.get("ids"):
+                collection.delete(ids=all_data["ids"])
+        after = collection.count()
+        removed = before - after
+        syslog2(LOG_NOTICE, f"stage{stage_num} cleared", before=before, removed=removed)
+        return removed
+    
+    def _clear_topic_names(self, topic_model, stage_num: int, topic_level: str) -> int:
+        """
+        Clear topic names by resetting to 'unknown'.
+        
+        Args:
+            topic_model: SQLAlchemy model class (TopicL1Model or TopicL2Model)
+            stage_num: Stage number for logging
+            topic_level: Topic level name ("l1" or "l2")
+            
+        Returns:
+            Number of topics updated
+        """
+        syslog2(LOG_NOTICE, f"clearing stage{stage_num}: {topic_level} topic names")
+        session = self.db.get_session()
+        try:
+            updated = session.query(topic_model).update({
+                topic_model.title: "unknown",
+                topic_model.descr: "Pending description..."
+            }, synchronize_session=False)
+            session.commit()
+            syslog2(LOG_NOTICE, f"stage{stage_num} cleared", updated=updated)
+            return updated
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
+    
+    def _clear_stage_with_config(self, stage_num: int, stage_name: str, clear_func) -> int:
+        """
+        Generic stage clearing with logging.
+        
+        Args:
+            stage_num: Stage number
+            stage_name: Stage description
+            clear_func: Function to call for clearing
+            
+        Returns:
+            Result from clear_func
+        """
+        syslog2(LOG_NOTICE, f"clearing stage{stage_num}: {stage_name}")
+        result = clear_func()
+        syslog2(LOG_NOTICE, f"stage{stage_num} cleared", result=result)
+        return result
+    
     def clear_stage0(self) -> int:
         """Clear stage0: messages from SQL database."""
-        syslog2(LOG_NOTICE, "clearing stage0: messages")
-        deleted = self.db.clear_messages()
-        syslog2(LOG_NOTICE, "stage0 cleared", deleted=deleted)
-        return deleted
+        return self._clear_stage_with_config(0, "messages", self.db.clear_messages)
 
     def clear_stage1(self) -> int:
         """Clear stage1: chunks from SQL database."""
-        syslog2(LOG_NOTICE, "clearing stage1: chunks")
-        deleted = self.db.clear()
-        syslog2(LOG_NOTICE, "stage1 cleared", deleted=deleted)
-        return deleted
+        return self._clear_stage_with_config(1, "chunks", self.db.clear)
 
     def clear_stage2(self) -> int:
         """Clear stage2: embeddings for chunks (embedding_json in SQLite)."""
@@ -130,11 +201,7 @@ class IngestionPipeline:
 
     def clear_stage3(self) -> int:
         """Clear stage3: chunks from vector_db collection."""
-        syslog2(LOG_NOTICE, "clearing stage3: vector_db chunks")
-        before = self.vector_store.count()
-        removed = self.vector_store.clear()
-        syslog2(LOG_NOTICE, "stage3 cleared", before=before, removed=removed)
-        return removed
+        return self._clear_vector_collection(self.vector_store.collection, 3, "vector_db chunks")
 
     def clear_stage4(self) -> int:
         """Clear stage4: L1 clustering results (topics_l1) and topic_l1_id assignments."""
@@ -146,16 +213,7 @@ class IngestionPipeline:
 
     def clear_stage5(self) -> int:
         """Clear stage5: L1 topics from vector_db collection."""
-        syslog2(LOG_NOTICE, "clearing stage5: vector_db topics_l1")
-        before = self.vector_store.topics_l1_collection.count()
-        if before > 0:
-            all_data = self.vector_store.topics_l1_collection.get()
-            if all_data and all_data.get("ids"):
-                self.vector_store.topics_l1_collection.delete(ids=all_data["ids"])
-        after = self.vector_store.topics_l1_collection.count()
-        removed = before - after
-        syslog2(LOG_NOTICE, "stage5 cleared", before=before, removed=removed)
-        return removed
+        return self._clear_vector_collection(self.vector_store.topics_l1_collection, 5, "vector_db topics_l1")
 
     def clear_stage6(self) -> int:
         """Clear stage6: L2 clustering results (topics_l2) and topic_l2_id assignments."""
@@ -167,54 +225,17 @@ class IngestionPipeline:
 
     def clear_stage7(self) -> int:
         """Clear stage7: L2 topics from vector_db collection."""
-        syslog2(LOG_NOTICE, "clearing stage7: vector_db topics_l2")
-        before = self.vector_store.topics_l2_collection.count()
-        if before > 0:
-            all_data = self.vector_store.topics_l2_collection.get()
-            if all_data and all_data.get("ids"):
-                self.vector_store.topics_l2_collection.delete(ids=all_data["ids"])
-        after = self.vector_store.topics_l2_collection.count()
-        removed = before - after
-        syslog2(LOG_NOTICE, "stage7 cleared", before=before, removed=removed)
-        return removed
+        return self._clear_vector_collection(self.vector_store.topics_l2_collection, 7, "vector_db topics_l2")
 
     def clear_stage8(self) -> int:
         """Clear stage8: L1 topic names (reset to 'unknown')."""
-        syslog2(LOG_NOTICE, "clearing stage8: l1 topic names")
-        session = self.db.get_session()
-        try:
-            from src.storage.db import TopicL1Model
-            updated = session.query(TopicL1Model).update({
-                TopicL1Model.title: "unknown",
-                TopicL1Model.descr: "Pending description..."
-            }, synchronize_session=False)
-            session.commit()
-            syslog2(LOG_NOTICE, "stage8 cleared", updated=updated)
-            return updated
-        except Exception as e:
-            session.rollback()
-            raise e
-        finally:
-            session.close()
+        from src.storage.db import TopicL1Model
+        return self._clear_topic_names(TopicL1Model, 8, "l1")
 
     def clear_stage9(self) -> int:
         """Clear stage9: L2 topic names (reset to 'unknown')."""
-        syslog2(LOG_NOTICE, "clearing stage9: l2 topic names")
-        session = self.db.get_session()
-        try:
-            from src.storage.db import TopicL2Model
-            updated = session.query(TopicL2Model).update({
-                TopicL2Model.title: "unknown",
-                TopicL2Model.descr: "Pending description..."
-            }, synchronize_session=False)
-            session.commit()
-            syslog2(LOG_NOTICE, "stage9 cleared", updated=updated)
-            return updated
-        except Exception as e:
-            session.rollback()
-            raise e
-        finally:
-            session.close()
+        from src.storage.db import TopicL2Model
+        return self._clear_topic_names(TopicL2Model, 9, "l2")
 
     def clear_all(self):
         """Clear all stages."""
@@ -240,9 +261,8 @@ class IngestionPipeline:
     def run_stage1(self):
         """Run stage1: create and store chunks."""
         if not self.profile_dir or not self.profile_dir.exists():
-            import sys
             syslog2(LOG_ERR, "profile directory not found")
-            sys.exit(1)
+            raise ConfigurationError("profile directory not found")
         
         self.parse_and_store_chunks()
 
@@ -371,11 +391,10 @@ class IngestionPipeline:
     def _get_llm_client(self):
         """Get LLM client using model from profile config. Model must be explicitly set."""
         from src.core.llm import LLMClient
-        import sys
         
         if not self.profile_dir or not self.profile_dir.exists():
             syslog2(LOG_ERR, "profile directory not found")
-            sys.exit(1)
+            raise ConfigurationError("profile directory not found")
         
         try:
             from src.bot.config import BotConfig
@@ -387,12 +406,14 @@ class IngestionPipeline:
                 syslog2(LOG_ERR, "current_model is not set in profile config", config_file=config.config_file)
                 syslog2(LOG_ERR, "please add current_model parameter to config.json")
                 syslog2(LOG_NOTICE, "example config.json", example='{"embedding_model": "paraphrase-multilingual-mpnet-base-v2", "embedding_generator": "local", "current_model": "openai/gpt-oss-20b:free"}')
-                sys.exit(1)
+                raise ConfigurationError("current_model is not set in profile config")
             
             return LLMClient(model=model_name, log_level=LOG_WARNING)
+        except ConfigurationError:
+            raise
         except Exception as e:
             syslog2(LOG_ERR, "failed to load model from profile config", error=str(e))
-            sys.exit(1)
+            raise ConfigurationError(f"failed to load model from profile config: {e}") from e
 
     def run_stage4(self, **clustering_params):
         """Run stage4: L1 clustering - cluster chunk embeddings into topics_l1 (HDBSCAN clustering).
@@ -740,9 +761,8 @@ class IngestionPipeline:
             messages_db = session.query(MessageModel).order_by(MessageModel.ts).all()
             
             if not messages_db:
-                import sys
                 syslog2(LOG_ERR, "no messages found in database, run ingest stage0 first")
-                sys.exit(1)
+                raise IngestionPipelineError("no messages found in database, run ingest stage0 first")
             
             # Convert to ChatMessage format for chunker
             from src.ingestion.parser import ChatMessage

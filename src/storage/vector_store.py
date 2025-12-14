@@ -5,7 +5,7 @@ import chromadb
 from chromadb.config import Settings
 
 from src.core.embedding import EmbeddingClient, LocalEmbeddingClient
-from src.core.syslog2 import *
+from src.lib.syslog2 import *
 import os
 
 # Completely disable telemetry

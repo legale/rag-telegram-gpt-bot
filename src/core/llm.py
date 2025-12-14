@@ -3,7 +3,7 @@ from typing import List, Dict, Optional, Generator
 import os
 import json
 import tiktoken
-from src.core.syslog2 import *
+from src.lib.syslog2 import *
 
 class LLMClient:
     """Client for interacting with LLM APIs (OpenRouter/OpenAI)."""
@@ -88,6 +88,10 @@ class LLMClient:
         Returns:
             The generated text response.
         """
+        # Log LLM input at LOG_INFO level
+        if self.log_level <= LOG_INFO:
+            syslog2(LOG_INFO, "llm input", model=self.model, messages=messages, temperature=temperature, max_tokens=max_tokens)
+        
         if self.log_level >= LOG_DEBUG:
             syslog2(LOG_DEBUG, "LLM request", model=self.model)
             # Log full messages at LOG_DEBUG level
@@ -102,6 +106,10 @@ class LLMClient:
             )
             
             content = response.choices[0].message.content
+            
+            # Log LLM output at LOG_INFO level
+            if self.log_level <= LOG_INFO:
+                syslog2(LOG_INFO, "llm output", model=self.model, response=content)
             
             if self.log_level >= LOG_DEBUG:
                 syslog2(LOG_DEBUG, "LLM response", response=response)

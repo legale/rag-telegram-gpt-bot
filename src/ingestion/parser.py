@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import List, Optional
 import json
-from src.core.syslog2 import *
+from src.lib.syslog2 import *
 
 @dataclass
 class ChatMessage:

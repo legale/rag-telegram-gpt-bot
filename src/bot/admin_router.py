@@ -7,7 +7,7 @@ from typing import Optional, Callable, Dict, Any, Tuple, List
 from telegram import Update
 from telegram.ext import ContextTypes
 import logging
-from src.core.syslog2 import *
+from src.lib.syslog2 import *
 
 
 class AdminCommandRouter:

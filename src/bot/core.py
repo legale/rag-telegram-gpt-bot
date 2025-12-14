@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional, Union
+from typing import List, Dict, Optional, Union, Tuple
 from pathlib import Path
 from src.storage.db import Database
 from src.storage.vector_store import VectorStore
@@ -7,7 +7,7 @@ from src.core.retrieval import RetrievalService
 from src.core.prompt import PromptEngine
 from src.core.llm import LLMClient
 import os
-from src.core.syslog2 import *
+from src.lib.syslog2 import *
 
 class LegaleBot:
     """Main bot class orchestrating the RAG pipeline."""
@@ -186,6 +186,77 @@ class LegaleBot:
         self.chat_history = []
         return "Контекст сброшен!"
     
+    def _build_history_for_prompt(self, max_messages: int = 5) -> List[Dict[str, str]]:
+        """
+        Build history for prompt from chat history.
+        
+        Args:
+            max_messages: Maximum number of recent messages to include
+            
+        Returns:
+            List of history entries with sender and content
+        """
+        history_for_prompt = []
+        for msg in self.chat_history[-max_messages:]:
+            sender = "User" if msg["role"] == "user" else "Bot"
+            history_for_prompt.append(
+                {"sender": sender, "content": msg["content"]}
+            )
+        return history_for_prompt
+    
+    def _build_prompt_and_history(
+        self, 
+        context_chunks: List[Dict], 
+        user_task: str, 
+        max_messages: int = 5,
+        custom_template: Optional[str] = None
+    ) -> Tuple[str, List[Dict[str, str]]]:
+        """
+        Build system prompt and history for prompt (helper to reduce duplication).
+        
+        Args:
+            context_chunks: Retrieved context chunks
+            user_task: User task/query string
+            max_messages: Maximum number of recent messages to include in history
+            custom_template: Optional custom system prompt template
+            
+        Returns:
+            Tuple of (system_prompt, history_for_prompt)
+        """
+        history_for_prompt = self._build_history_for_prompt(max_messages=max_messages)
+        system_prompt = self.prompt_engine.construct_prompt(
+            context_chunks=context_chunks,
+            chat_history=history_for_prompt,
+            user_task=user_task,
+            custom_template=custom_template
+        )
+        return system_prompt, history_for_prompt
+    
+    def _calculate_token_usage(self, system_prompt: str, user_content: str = "") -> Dict[str, Union[int, float]]:
+        """
+        Calculate token usage for given messages.
+        
+        Args:
+            system_prompt: System prompt content
+            user_content: User message content (optional)
+            
+        Returns:
+            Dictionary with current_tokens, max_tokens, and percentage
+        """
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ]
+        
+        current_tokens = self.llm_client.count_tokens(messages)
+        percentage = (current_tokens / self.max_context_tokens) * 100 if self.max_context_tokens > 0 else 0.0
+        
+        return {
+            "current_tokens": current_tokens,
+            "max_tokens": self.max_context_tokens,
+            "percentage": round(percentage, 2),
+        }
+    
     def get_token_usage(self) -> Dict[str, int]:
         """
         Get current token usage statistics.
@@ -197,51 +268,128 @@ class LegaleBot:
                 "percentage": 0.0,
             }
 
-        # берем последние N сообщений как в chat()
-        history_for_prompt = []
-        for msg in self.chat_history[-5:]:
-            sender = "User" if msg["role"] == "user" else "Bot"
-            history_for_prompt.append(
-                {"sender": sender, "content": msg["content"]}
-            )
-
         # делаем системный промпт без реального task, только для оценки объема контекста
-        system_prompt = self.prompt_engine.construct_prompt(
+        system_prompt, _ = self._build_prompt_and_history(
             context_chunks=[],
-            chat_history=history_for_prompt,
             user_task="",
+            max_messages=5
         )
 
         # считаем так же, как реально вызываем модель: system + пустой user
+        return self._calculate_token_usage(system_prompt, user_content="")
+
+    def _ensure_context_limit(self) -> str:
+        """
+        Ensure context doesn't exceed token limit by resetting if necessary.
+        
+        Returns:
+            Warning message if context was reset, empty string otherwise
+        """
+        if not self.chat_history:
+            return ""
+        
+        token_usage = self.get_token_usage()
+        # можно сбрасывать не по 100%, а, например, по 0.8 * лимита
+        if token_usage["current_tokens"] >= self.max_context_tokens:
+            self.reset_context()
+            warning = "Контекст был автоматически сброшен из-за достижения лимита токенов.\n\n"
+            if self.log_level <= LOG_INFO:
+                syslog2(LOG_WARNING, "auto reset context", token_usage=f"{token_usage['current_tokens']}/{self.max_context_tokens}")
+            return warning
+        return ""
+    
+    def _is_token_limit_error(self, error_msg: str) -> bool:
+        """
+        Check if error is related to token limit or payment issues.
+        
+        Args:
+            error_msg: Error message string
+            
+        Returns:
+            True if error is token limit related
+        """
+        return ("402" in error_msg or 
+                "context_length_exceeded" in error_msg or 
+                "Prompt tokens limit exceeded" in error_msg)
+    
+    def _retry_after_reset(self, context_chunks: List[Dict], user_input: str, 
+                          system_prompt_template: Optional[str] = None) -> str:
+        """
+        Retry LLM call after resetting context due to token limit error.
+        
+        Args:
+            context_chunks: Retrieved context chunks
+            user_input: User input message
+            system_prompt_template: Optional custom system prompt template
+            
+        Returns:
+            Response from LLM or error message
+        """
+        if self.log_level <= LOG_INFO:
+            syslog2(LOG_ERR, "token limit exceeded", action="resetting context and retrying")
+        
+        # Force reset context
+        self.reset_context()
+        
+        # Reconstruct prompt without history
+        system_prompt = self.prompt_engine.construct_prompt(
+            context_chunks=context_chunks,
+            chat_history=[],
+            user_task=user_input,
+            custom_template=system_prompt_template
+        )
+        
         messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": ""},
+            {"role": "user", "content": user_input},
         ]
-
-        current_tokens = self.llm_client.count_tokens(messages)
-        percentage = (current_tokens / self.max_context_tokens) * 100 if self.max_context_tokens > 0 else 0.0
-
-        return {
-            "current_tokens": current_tokens,
-            "max_tokens": self.max_context_tokens,
-            "percentage": round(percentage, 2),
-        }
-
+        
+        try:
+            # Retry
+            response = self.llm_client.complete(messages)
+            return "Ошибка лимита токенов/баланса. Контекст сброшен.\n\n" + response
+        except Exception as retry_e:
+            syslog2(LOG_ERR, "retry failed", error=str(retry_e))
+            return "Ошибка: Не удалось получить ответ даже после сброса контекста (лимит токенов или баланс исчерпан)."
+    
+    def _call_llm_with_retry(
+        self, 
+        messages: List[Dict[str, str]], 
+        context_chunks: List[Dict], 
+        user_input: str,
+        system_prompt_template: Optional[str] = None
+    ) -> str:
+        """
+        Call LLM with automatic retry on token limit errors.
+        
+        Args:
+            messages: Messages to send to LLM
+            context_chunks: Retrieved context chunks (for retry)
+            user_input: User input (for retry)
+            system_prompt_template: Optional custom template (for retry)
+            
+        Returns:
+            LLM response string
+            
+        Raises:
+            Exception: If LLM call fails with non-token-limit error
+        """
+        try:
+            return self.llm_client.complete(messages)
+        except Exception as e:
+            error_msg = str(e)
+            # Check for token limit or payment issues
+            if self._is_token_limit_error(error_msg):
+                return self._retry_after_reset(context_chunks, user_input, system_prompt_template)
+            else:
+                # Re-raise other errors
+                raise
+    
     def chat(self, user_input: str, n_results: int = 3, respond: bool = True, system_prompt_template: str = None) -> str:
         """
         Process a user message and return the bot's response.
         """
-        auto_reset_warning = ""
-        if self.chat_history:
-            token_usage = self.get_token_usage()
-            # можно сбрасывать не по 100%, а, например, по 0.8 * лимита
-            if token_usage["current_tokens"] >= self.max_context_tokens:
-                self.reset_context()
-                auto_reset_warning = (
-                    "Контекст был автоматически сброшен из-за достижения лимита токенов.\n\n"
-                )
-                if self.log_level <= LOG_INFO:
-                    syslog2(LOG_WARNING, "auto reset context", token_usage=f"{token_usage['current_tokens']}/{self.max_context_tokens}")
+        auto_reset_warning = self._ensure_context_limit()
 
         if not respond:
             self.chat_history.append({"role": "user", "content": user_input})
@@ -252,18 +400,11 @@ class LegaleBot:
             user_input, n_results=n_results
         )
 
-        history_for_prompt = []
-        for msg in self.chat_history[-5:]:
-            sender = "User" if msg["role"] == "user" else "Bot"
-            history_for_prompt.append(
-                {"sender": sender, "content": msg["content"]}
-            )
-
         # системный промпт: контекст + история + инструкции, но без дублирования user_input
-        system_prompt = self.prompt_engine.construct_prompt(
+        system_prompt, _ = self._build_prompt_and_history(
             context_chunks=context_chunks,
-            chat_history=history_for_prompt,
             user_task=user_input,
+            max_messages=5,
             custom_template=system_prompt_template
         )
 
@@ -277,44 +418,13 @@ class LegaleBot:
         ]
 
         try:
-            response = self.llm_client.complete(messages)
+            response = self._call_llm_with_retry(messages, context_chunks, user_input, system_prompt_template)
+            # Check if retry already included warning
+            if "Ошибка лимита токенов" in response:
+                auto_reset_warning = ""
         except Exception as e:
-            error_msg = str(e)
-            # Check for token limit or payment issues (OpenRouter 402 or context length)
-            if "402" in error_msg or "context_length_exceeded" in error_msg or "Prompt tokens limit exceeded" in error_msg:
-                if self.log_level <= LOG_INFO:
-                    syslog2(LOG_ERR, "token limit exceeded", error=str(e), action="resetting context and retrying")
-                
-                # Force reset context
-                self.reset_context()
-                
-                # Reconstruct prompt without history
-                system_prompt = self.prompt_engine.construct_prompt(
-                    context_chunks=context_chunks,
-                    chat_history=[],
-                    user_task=user_input,
-                    custom_template=system_prompt_template
-                )
-                
-                messages = [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_input},
-                ]
-                
-                # Append warning to result
-                auto_reset_warning = "Ошибка лимита токенов/баланса. Контекст сброшен.\n\n"
-                
-                try:
-                    # Retry
-                    response = self.llm_client.complete(messages)
-                except Exception as retry_e:
-                     syslog2(LOG_ERR, "retry failed", error=str(retry_e))
-                     return "Ошибка: Не удалось получить ответ даже после сброса контекста (лимит токенов или баланс исчерпан)."
-            else:
-                 # Other errors
-                 syslog2(LOG_ERR, "llm call failed", error=str(e))
-                 # In verbose mode, might want to show error, but for user safety keep it generic or specific if needed
-                 return f"Произошла ошибка при обращении к нейросети: {e}"
+            syslog2(LOG_ERR, "llm call failed", error=str(e))
+            return f"Произошла ошибка при обращении к нейросети: {e}"
 
         self.chat_history.append({"role": "user", "content": user_input})
         self.chat_history.append({"role": "assistant", "content": response})
@@ -338,31 +448,19 @@ class LegaleBot:
             user_input, n_results=n_results
         )
         
-        # Build history for prompt
-        history_for_prompt = []
-        for msg in self.chat_history[-5:]:
-            sender = "User" if msg["role"] == "user" else "Bot"
-            history_for_prompt.append(
-                {"sender": sender, "content": msg["content"]}
-            )
-        
-        # Construct prompt
-        system_prompt = self.prompt_engine.construct_prompt(
+        # Build prompt and history using helper
+        system_prompt, _ = self._build_prompt_and_history(
             context_chunks=context_chunks,
-            chat_history=history_for_prompt,
             user_task=user_input,
+            max_messages=5
         )
         
-        # Count tokens
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_input},
-        ]
-        token_count = self.llm_client.count_tokens(messages)
+        # Count tokens using helper
+        token_usage = self._calculate_token_usage(system_prompt, user_input)
         
         return {
             "chunks": context_chunks,
             "prompt": system_prompt,
-            "token_count": token_count,
+            "token_count": token_usage["current_tokens"],
             "chunks_count": len(context_chunks)
         }

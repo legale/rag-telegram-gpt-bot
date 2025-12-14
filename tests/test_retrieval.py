@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import Mock
 from src.core.retrieval import RetrievalService
 from src.storage.db import ChunkModel
-from src.core.syslog2 import LOG_DEBUG
+from src.lib.syslog2 import LOG_DEBUG
 
 def test_retrieval_service():
     # Mocks

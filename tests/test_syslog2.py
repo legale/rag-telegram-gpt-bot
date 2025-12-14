@@ -1,8 +1,8 @@
 """Tests for syslog2 logging utilities."""
 import pytest
 from unittest.mock import patch
-from src.core.syslog2 import *
-from src.core.syslog2 import _format_params, _get_caller_info
+from src.lib.syslog2 import *
+from src.lib.syslog2 import _format_params, _get_caller_info
 
 def test_setup_log():
     setup_log(LOG_DEBUG)

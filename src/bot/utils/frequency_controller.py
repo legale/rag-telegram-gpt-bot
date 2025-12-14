@@ -9,7 +9,7 @@ Manages response frequency logic including:
 
 import logging
 from typing import Dict
-from src.core.syslog2 import *
+from src.lib.syslog2 import *
 
 
 class FrequencyController:

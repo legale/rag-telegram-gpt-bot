@@ -14,7 +14,7 @@ import os
 import logging
 import signal
 from types import SimpleNamespace
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List, Tuple, Union
 from contextlib import asynccontextmanager
 
 # Add project root to path
@@ -36,7 +36,7 @@ from src.bot.admin_commands import ProfileCommands, HelpCommands, IngestCommands
 from src.bot.admin_tasks import TaskManager
 from src.bot.utils import AccessControlService, FrequencyController
 from src.bot.command_parser import parse_find_command_args as parse_find_args_common
-from src.core.syslog2 import *
+from src.lib.syslog2 import *
 
 # Load environment variables
 load_dotenv()
@@ -60,9 +60,6 @@ debug_rag_mode: bool = False
 # Logging setup
 logger = logging.getLogger("legale_tgbot")
 
-# Chat message counters for frequency control (deprecated - now in FrequencyController)
-chat_counters: Dict[int, int] = {}
-
 
 class MessageHandler:
     """Handles message routing and command processing."""
@@ -71,20 +68,6 @@ class MessageHandler:
         self.bot = bot_instance
         self.admin_manager = admin_manager
         self.admin_router = admin_router
-        
-        # Command dispatch table
-        self._command_handlers = {
-            "/start": self.handle_start_command,
-            "/help": self.handle_help_command,
-            "/reset": self.handle_reset_command,
-            "/tokens": self.handle_tokens_command,
-            "/model": self.handle_model_command,
-            "/find": self.handle_find_command,
-            "/admin_set": self.handle_admin_set_command,
-            "/set_admin": self.handle_admin_set_command,
-            "/admin_get": self.handle_admin_get_command,
-            "/admin": self.handle_admin_command,
-        }
     
     async def handle_start_command(self) -> str:
         """Handle /start command."""
@@ -276,32 +259,28 @@ class MessageHandler:
             
             # send each message part as separate message
             chat_id = update.message.chat_id
-            total_parts = 0
-            try:
-                for message_parts in message_parts_list:
-                    for part in message_parts:
-                        await telegram_app.bot.send_message(
-                            chat_id=chat_id,
-                            text=part["content"],
-                            parse_mode="HTML"
-                        )
-                        total_parts += 1
-                
-                syslog2(
-                    LOG_ALERT,
-                    "find command response sent",
-                    chat_id=chat_id,
-                    query=search_query,
-                    threshold=threshold,
-                    chunks_found=len(filtered_results),
-                    messages=len(message_parts_list),
-                    parts=total_parts,
-                )
-                # return empty string to signal "handled, but ничего не слать отдельно"
-                return ""
-            except Exception as e:
-                syslog2(LOG_ERR, "failed to send find response", chat_id=chat_id, error=str(e))
-                return f"Ошибка при отправке результатов поиска: {e}"
+            total_parts = await _send_message_parts_unified(
+                chat_id=chat_id,
+                message_parts_list=message_parts_list,
+                log_context={
+                    "query": search_query,
+                    "threshold": threshold,
+                    "chunks_found": len(filtered_results),
+                }
+            )
+            
+            syslog2(
+                LOG_ALERT,
+                "find command response sent",
+                chat_id=chat_id,
+                query=search_query,
+                threshold=threshold,
+                chunks_found=len(filtered_results),
+                messages=len(message_parts_list),
+                parts=total_parts,
+            )
+            # return empty string to signal "handled, but ничего не слать отдельно"
+            return ""
         except Exception as e:
             syslog2(LOG_ERR, "find command failed", error=str(e))
             return f"Ошибка при выполнении поиска: {e}"
@@ -384,29 +363,59 @@ class MessageHandler:
             syslog2(LOG_ERR, "process user query failed", error=str(e))
             return f"Произошла ошибка при обработке вашего запроса. error={e}"
     
+    def _get_command_and_args(self, text: str) -> Tuple[Optional[str], str]:
+        """
+        Extract command and arguments from text.
+        
+        Args:
+            text: Command text
+            
+        Returns:
+            Tuple of (command, remaining_text)
+        """
+        text = text.strip()
+        if not text.startswith("/"):
+            return None, text
+        
+        parts = text.split(maxsplit=1)
+        command = parts[0]
+        remaining = parts[1] if len(parts) > 1 else ""
+        return command, remaining
+    
     async def route_command(self, text: str, update: Update) -> Optional[str]:
         """Route command to appropriate handler using dispatch table."""
         syslog2(LOG_ALERT, "route_command", text=text)
+        
+        # Extract command and arguments
+        command, args_text = self._get_command_and_args(text)
+        if not command:
+            return None
+        
+        # Explicit dispatch table mapping commands to handlers
         message = update.message
         user_id = message.from_user.id
         
-        # Find matching command handler
-        for command_prefix, handler in self._command_handlers.items():
-            if text.startswith(command_prefix):
-                # Special handling for commands that need additional arguments
-                if command_prefix == "/find":
-                    return await handler(text, update)
-                elif command_prefix in ("/admin_set", "/set_admin"):
-                    # Normalize command to /admin_set for handler
-                    normalized_text = text.replace("/set_admin", "/admin_set", 1) if text.startswith("/set_admin") else text
-                    return await handler(normalized_text, message)
-                elif command_prefix == "/admin_get":
-                    return await handler(user_id)
-                elif command_prefix == "/admin":
-                    return await handler(update)
-                else:
-                    # Simple commands without arguments
-                    return await handler()
+        # Normalize /set_admin to /admin_set
+        if command == "/set_admin":
+            text = text.replace("/set_admin", "/admin_set", 1)
+            command = "/admin_set"
+        
+        # Dispatch table: command -> handler callable
+        dispatch_table = {
+            "/start": self.handle_start_command,
+            "/help": self.handle_help_command,
+            "/reset": self.handle_reset_command,
+            "/tokens": self.handle_tokens_command,
+            "/model": self.handle_model_command,
+            "/find": lambda: self.handle_find_command(text, update),
+            "/admin_set": lambda: self.handle_admin_set_command(text, message),
+            "/admin_get": lambda: self.handle_admin_get_command(user_id),
+            "/admin": lambda: self.handle_admin_command(update),
+        }
+        
+        handler = dispatch_table.get(command)
+        if handler:
+            return await handler()
         
         return None  # Not a recognized command
 
@@ -436,53 +445,106 @@ def _register_command_group(
             router.register(group_name, method)
 
 
-# инициализация рантайма под текущий профиль
-async def init_runtime_for_current_profile(args: Optional[SimpleNamespace] = None):
+def _get_profile_paths() -> Dict:
     """
-    создать/переинициализировать bot_instance, admin_manager, admin_router и связанные команды
-    под текущий активный профиль profile_manager
+    Get profile paths for current active profile.
+    
+    Returns:
+        Dictionary with profile paths
+        
+    Raises:
+        RuntimeError: If profile_manager is not initialized
     """
-    global bot_instance, admin_manager, admin_router, task_manager, ingest_commands
-
     if profile_manager is None:
         raise RuntimeError("profile_manager is not initialized")
+    
+    return profile_manager.get_profile_paths()
 
-    # получаем пути для текущего профиля (использует ACTIVE_PROFILE из .env)
-    paths = profile_manager.get_profile_paths()
 
-    # пересоздаем admin_manager sначала, чтобы получить конфиг
-    profile_dir = paths["profile_dir"]
+def _create_admin_manager(profile_dir: str) -> AdminManager:
+    """
+    Create and initialize AdminManager for profile.
+    
+    Args:
+        profile_dir: Profile directory path
+        
+    Returns:
+        Initialized AdminManager instance
+    """
     admin_manager_local = AdminManager(profile_dir)
     syslog2(LOG_NOTICE, "admin manager initialized", profile_dir=str(profile_dir))
+    return admin_manager_local
 
-    # Загружаем сохраненную модель
+
+def _map_log_level_to_constant(log_level: Union[str, int]) -> int:
+    """
+    Map log level string or number to syslog2 constant.
+    
+    Args:
+        log_level: Log level as string (e.g., "INFO", "LOG_DEBUG") or int constant
+        
+    Returns:
+        syslog2 log level constant (LOG_ALERT, LOG_CRIT, LOG_ERR, etc.)
+    """
+    if isinstance(log_level, int):
+        return log_level
+    
+    log_level_upper = str(log_level).upper()
+    log_level_map = {
+        "LOG_ALERT": LOG_ALERT,
+        "LOG_CRIT": LOG_CRIT,
+        "LOG_ERR": LOG_ERR,
+        "LOG_WARNING": LOG_WARNING,
+        "LOG_NOTICE": LOG_NOTICE,
+        "LOG_INFO": LOG_INFO,
+        "LOG_DEBUG": LOG_DEBUG,
+        "ALERT": LOG_ALERT,
+        "CRIT": LOG_CRIT,
+        "ERR": LOG_ERR,
+        "WARNING": LOG_WARNING,
+        "NOTICE": LOG_NOTICE,
+        "INFO": LOG_INFO,
+        "DEBUG": LOG_DEBUG,
+    }
+    return log_level_map.get(log_level_upper, LOG_WARNING)
+
+
+def _get_bot_configuration(admin_manager_local: AdminManager, args: Optional[SimpleNamespace]) -> Tuple[str, bool, int]:
+    """
+    Extract bot configuration from admin manager and args.
+    
+    Args:
+        admin_manager_local: AdminManager instance
+        args: Optional namespace with configuration overrides
+        
+    Returns:
+        Tuple of (model_name, debug_rag, log_level)
+    """
     model_name = admin_manager_local.config.current_model or "openai/gpt-oss-20b:free"
     debug_rag = getattr(args, 'debug_rag', False) if args else False
     
     # Получаем log_level из args, преобразуем строку в константу если нужно
     log_level = getattr(args, 'log_level', LOG_WARNING) if args else LOG_WARNING
-    if isinstance(log_level, str):
-        log_level_upper = log_level.upper()
-        log_level_map = {
-            "LOG_ALERT": LOG_ALERT,
-            "LOG_CRIT": LOG_CRIT,
-            "LOG_ERR": LOG_ERR,
-            "LOG_WARNING": LOG_WARNING,
-            "LOG_NOTICE": LOG_NOTICE,
-            "LOG_INFO": LOG_INFO,
-            "LOG_DEBUG": LOG_DEBUG,
-            "ALERT": LOG_ALERT,
-            "CRIT": LOG_CRIT,
-            "ERR": LOG_ERR,
-            "WARNING": LOG_WARNING,
-            "NOTICE": LOG_NOTICE,
-            "INFO": LOG_INFO,
-            "DEBUG": LOG_DEBUG,
-        }
-        log_level = log_level_map.get(log_level_upper, LOG_WARNING)
+    log_level = _map_log_level_to_constant(log_level)
+    
+    return model_name, debug_rag, log_level
 
-    # пересоздаем core
-    bot_instance = LegaleBot(
+
+def _create_legale_bot(paths: Dict, model_name: str, log_level: int, debug_rag: bool, profile_dir: str) -> LegaleBot:
+    """
+    Create and initialize LegaleBot instance.
+    
+    Args:
+        paths: Profile paths dictionary
+        model_name: Model name to use
+        log_level: Logging level
+        debug_rag: Debug RAG flag
+        profile_dir: Profile directory path
+        
+    Returns:
+        Initialized LegaleBot instance
+    """
+    bot_instance_local = LegaleBot(
         db_url=paths["db_url"],
         vector_db_path=str(paths["vector_db_path"]),
         model_name=model_name,
@@ -490,10 +552,28 @@ async def init_runtime_for_current_profile(args: Optional[SimpleNamespace] = Non
         debug_rag=debug_rag,
         profile_dir=profile_dir
     )
-    syslog2(LOG_WARNING, "bot core initialized", profile=profile_manager.get_current_profile(), db_url=paths["db_url"], vector=paths["vector_db_path"], model=model_name)
+    syslog2(
+        LOG_WARNING, 
+        "bot core initialized", 
+        profile=profile_manager.get_current_profile(), 
+        db_url=paths["db_url"], 
+        vector=paths["vector_db_path"], 
+        model=model_name
+    )
+    return bot_instance_local
 
-    # пересоздаем admin_router и все команды
-    admin_router_local = AdminCommandRouter()
+
+def _register_admin_commands(admin_router_local: AdminCommandRouter, bot_instance_local: LegaleBot) -> Tuple[TaskManager, IngestCommands]:
+    """
+    Register all admin commands in the router.
+    
+    Args:
+        admin_router_local: AdminCommandRouter instance
+        bot_instance_local: LegaleBot instance
+        
+    Returns:
+        Tuple of (task_manager, ingest_commands)
+    """
     task_manager_local = TaskManager()
 
     # profile commands
@@ -544,7 +624,7 @@ async def init_runtime_for_current_profile(args: Optional[SimpleNamespace] = Non
     admin_router_local.register("frequency", settings_commands.manage_frequency)
 
     # model commands
-    model_commands = ModelCommands(profile_manager, bot_instance)
+    model_commands = ModelCommands(profile_manager, bot_instance_local)
     _register_command_group(
         admin_router_local,
         "model",
@@ -574,6 +654,34 @@ async def init_runtime_for_current_profile(args: Optional[SimpleNamespace] = Non
     admin_router_local.register("help", help_commands.show_help)
 
     syslog2(LOG_INFO, "admin router initialized")
+    
+    return task_manager_local, ingest_commands_local
+
+
+# инициализация рантайма под текущий профиль
+async def init_runtime_for_current_profile(args: Optional[SimpleNamespace] = None):
+    """
+    создать/переинициализировать bot_instance, admin_manager, admin_router и связанные команды
+    под текущий активный профиль profile_manager
+    """
+    global bot_instance, admin_manager, admin_router, task_manager, ingest_commands
+
+    # Step 1: Get profile paths
+    paths = _get_profile_paths()
+
+    # Step 2: Create admin manager
+    profile_dir = paths["profile_dir"]
+    admin_manager_local = _create_admin_manager(profile_dir)
+
+    # Step 3: Get bot configuration
+    model_name, debug_rag, log_level = _get_bot_configuration(admin_manager_local, args)
+
+    # Step 4: Create LegaleBot
+    bot_instance = _create_legale_bot(paths, model_name, log_level, debug_rag, profile_dir)
+
+    # Step 5: Create admin router and register commands
+    admin_router_local = AdminCommandRouter()
+    task_manager_local, ingest_commands_local = _register_admin_commands(admin_router_local, bot_instance)
 
 
 
@@ -597,6 +705,28 @@ async def reload_for_current_profile(args: Optional[SimpleNamespace] = None):
     return paths
 
 
+def _map_syslog2_to_logging_level(syslog2_level: int) -> int:
+    """
+    Map syslog2 constant to logging level.
+    
+    Args:
+        syslog2_level: syslog2 log level constant
+        
+    Returns:
+        logging level constant
+    """
+    mapping = {
+        LOG_ALERT: logging.CRITICAL,
+        LOG_CRIT: logging.CRITICAL,
+        LOG_ERR: logging.ERROR,
+        LOG_WARNING: logging.WARNING,
+        LOG_NOTICE: logging.INFO,
+        LOG_INFO: logging.INFO,
+        LOG_DEBUG: logging.DEBUG,
+    }
+    return mapping.get(syslog2_level, logging.WARNING)
+
+
 def setup_logging(log_level: Optional[str] = None, use_syslog: bool = False):
     """
     Configure logging based on log level.
@@ -605,30 +735,10 @@ def setup_logging(log_level: Optional[str] = None, use_syslog: bool = False):
         log_level: Log level string (INFO, DEBUG, WARNING, etc.) or number (6=INFO, 7=DEBUG)
         use_syslog: If True, log to syslog instead of stdout
     """
-    # Map log_level to logging level
+    # Map log_level to logging level using shared mapping function
     if log_level:
-        # Convert to string if it's a number
-        if not isinstance(log_level, str):
-            log_level = str(log_level)
-        log_level_upper = log_level.upper()
-        level_map = {
-            "1": logging.CRITICAL,  # ALERT
-            "2": logging.CRITICAL,  # CRIT
-            "3": logging.ERROR,     # ERR
-            "4": logging.WARNING,   # WARNING
-            "5": logging.INFO,      # NOTICE
-            "6": logging.INFO,      # INFO
-            "7": logging.DEBUG,     # DEBUG
-            "ALERT": logging.CRITICAL,
-            "CRIT": logging.CRITICAL,
-            "ERR": logging.ERROR,
-            "ERROR": logging.ERROR,
-            "WARNING": logging.WARNING,
-            "NOTICE": logging.INFO,
-            "INFO": logging.INFO,
-            "DEBUG": logging.DEBUG,
-        }
-        level = level_map.get(log_level_upper, logging.WARNING)
+        syslog2_level = _map_log_level_to_constant(log_level)
+        level = _map_syslog2_to_logging_level(syslog2_level)
     else:
         level = logging.WARNING
     
@@ -715,6 +825,124 @@ async def lifespan(app: FastAPI, args: Optional[SimpleNamespace] = None):
     syslog2(LOG_NOTICE, "shutdown complete")
 
 
+async def process_document_update(update: Update) -> Optional[str]:
+    """
+    Process document update (file upload for ingestion).
+    
+    Args:
+        update: Telegram update object
+        
+    Returns:
+        Response text to send to user, or None if no response needed
+    """
+    if not (update.message and update.message.document and ingest_commands):
+        return None
+    
+    return await ingest_commands.handle_file_upload(update, None, admin_manager)
+
+
+async def process_text_update(update: Update) -> None:
+    """
+    Process text message update.
+    
+    Args:
+        update: Telegram update object
+    """
+    if not (update.message and update.message.text):
+        return
+    
+    try:
+        await handle_message(update)
+    except Exception as e:
+        syslog2(LOG_ERR, "handle_message failed", error=str(e), update_id=update.update_id)
+        # Try to send error message to user
+        try:
+            if update.message:
+                await telegram_app.bot.send_message(
+                    chat_id=update.message.chat_id,
+                    text="Произошла ошибка при обработке сообщения. Попробуйте позже."
+                )
+        except:
+            pass
+
+
+async def _parse_webhook_update(request: Request) -> Optional[Update]:
+    """
+    Parse Telegram update from HTTP request.
+    
+    Args:
+        request: FastAPI request object
+        
+    Returns:
+        Update object or None if parsing failed
+    """
+    try:
+        data = await request.json()
+        update = Update.de_json(data, telegram_app.bot)
+        syslog2(LOG_DEBUG, "update received", update_id=update.update_id)
+        return update
+    except Exception as e:
+        syslog2(LOG_ERR, "webhook parse failed", error=str(e))
+        return None
+
+
+async def _process_webhook_update(update: Update) -> Optional[str]:
+    """
+    Process Telegram update (business logic).
+    
+    Args:
+        update: Telegram update object
+        
+    Returns:
+        Response text to send (for document updates) or None
+    """
+    # Handle document update (file upload)
+    response_text = await process_document_update(update)
+    if response_text:
+        return response_text
+    
+    # Handle text message update
+    await process_text_update(update)
+    
+    return None
+
+
+def _setup_webhook_endpoint(app: FastAPI):
+    """
+    Setup webhook endpoint for FastAPI app.
+    
+    Args:
+        app: FastAPI application instance
+    """
+    @app.post("/webhook")
+    async def webhook(request: Request):
+        """
+        Handle incoming Telegram webhook updates.
+        HTTP endpoint that parses requests and delegates to business logic.
+        """
+        # Parse update from HTTP request
+        update = await _parse_webhook_update(request)
+        if update is None:
+            return Response(status_code=400)
+        
+        try:
+            # Process update (business logic)
+            response_text = await _process_webhook_update(update)
+            
+            # Send response if needed (for document updates)
+            if response_text and update.message:
+                await telegram_app.bot.send_message(
+                    chat_id=update.message.chat_id, 
+                    text=response_text
+                )
+            
+            return Response(status_code=200)
+        
+        except Exception as e:
+            syslog2(LOG_ERR, "webhook processing failed", error=str(e))
+            return Response(status_code=500)
+
+
 def create_app(args: Optional[SimpleNamespace] = None):
     """
     Create FastAPI app with lifespan that captures args.
@@ -732,46 +960,8 @@ def create_app(args: Optional[SimpleNamespace] = None):
         """Health check endpoint for monitoring."""
         return {"status": "healthy", "bot_loaded": bot_instance is not None}
     
-    @app.post("/webhook")
-    async def webhook(request: Request):
-        """
-        Handle incoming Telegram webhook updates.
-        """
-        try:
-            # Parse update
-            data = await request.json()
-            update = Update.de_json(data, telegram_app.bot)
-            
-            syslog2(LOG_DEBUG, "update received", update_id=update.update_id)
-            
-            # Handle file upload (for ingestion)
-            if update.message and update.message.document and ingest_commands:
-                response_text = await ingest_commands.handle_file_upload(update, None, admin_manager)
-                if response_text:
-                    await telegram_app.bot.send_message(chat_id=update.message.chat_id, text=response_text)
-                return Response(status_code=200)
-            
-            # Handle message
-            if update.message and update.message.text:
-                try:
-                    await handle_message(update)
-                except Exception as e:
-                    syslog2(LOG_ERR, "handle_message failed", error=str(e), update_id=update.update_id)
-                    # Try to send error message to user
-                    try:
-                        if update.message:
-                            await telegram_app.bot.send_message(
-                                chat_id=update.message.chat_id,
-                                text="Произошла ошибка при обработке сообщения. Попробуйте позже."
-                            )
-                    except:
-                        pass
-            
-            return Response(status_code=200)
-        
-        except Exception as e:
-            syslog2(LOG_ERR, "webhook processing failed", error=str(e))
-            return Response(status_code=500)
+    # Setup webhook endpoint
+    _setup_webhook_endpoint(app)
     
     return app
 
@@ -799,6 +989,46 @@ def is_bot_mentioned(message, bot_username: str, bot_id: int) -> bool:
     return False
 
 
+def _ensure_required_components() -> Optional[MessageHandler]:
+    """
+    Ensure admin_manager and bot_instance are available and create MessageHandler.
+    
+    Returns:
+        MessageHandler instance if components are available, None otherwise
+    """
+    if not admin_manager:
+        syslog2(LOG_ERR, "admin manager missing", action="drop_message")
+        return None
+    
+    if not bot_instance:
+        syslog2(LOG_ERR, "bot instance missing", action="drop_message")
+        return None
+    
+    return MessageHandler(bot_instance, admin_manager, admin_router)
+
+
+async def _ensure_handler_available(handler_func, chat_id: int, *args, **kwargs) -> bool:
+    """
+    Ensure MessageHandler is available, execute handler function and send response.
+    
+    Args:
+        handler_func: Async function that takes MessageHandler and returns response string
+        chat_id: Chat ID for sending response
+        *args, **kwargs: Additional arguments to pass to handler_func
+        
+    Returns:
+        True if handler was executed and response sent, False if handler unavailable
+    """
+    handler = _ensure_required_components()
+    if not handler:
+        return True  # Signal that command was "handled" (by dropping it)
+    
+    response = await handler_func(handler, *args, **kwargs)
+    if response:
+        await telegram_app.bot.send_message(chat_id=chat_id, text=response)
+    return True
+
+
 async def _handle_public_commands(message, text: str, chat_id: int) -> bool:
     """
     Handle public commands that bypass access control.
@@ -824,37 +1054,18 @@ async def _handle_public_commands(message, text: str, chat_id: int) -> bool:
     
     # Handle /help command
     if text == "/help" or (text.startswith("/") and text.startswith("/help")):
-        if not admin_manager:
-            syslog2(LOG_ERR, "admin manager missing", action="drop_message")
-            return True
-        
-        if not bot_instance:
-            syslog2(LOG_ERR, "bot instance missing", action="drop_message")
-            return True
-        
-        handler = MessageHandler(bot_instance, admin_manager, admin_router)
-        response = await handler.handle_help_command()
-        if response:
-            await telegram_app.bot.send_message(chat_id=chat_id, text=response)
-        return True
+        async def help_handler(handler: MessageHandler) -> str:
+            return await handler.handle_help_command()
+        return await _ensure_handler_available(help_handler, chat_id)
     
     # Handle /admin_set or /set_admin command
     if text.startswith("/") and (text.startswith("/admin_set") or text.startswith("/set_admin")):
-        if not admin_manager:
-            syslog2(LOG_ERR, "admin manager missing", action="drop_message")
-            return True
-        
-        if not bot_instance:
-            syslog2(LOG_ERR, "bot instance missing", action="drop_message")
-            return True
-        
-        handler = MessageHandler(bot_instance, admin_manager, admin_router)
         # Normalize command to /admin_set for handler
         normalized_text = text.replace("/set_admin", "/admin_set", 1) if text.startswith("/set_admin") else text
-        response = await handler.handle_admin_set_command(normalized_text, message)
-        if response:
-            await telegram_app.bot.send_message(chat_id=chat_id, text=response)
-        return True
+        
+        async def admin_set_handler(handler: MessageHandler) -> str:
+            return await handler.handle_admin_set_command(normalized_text, message)
+        return await _ensure_handler_available(admin_set_handler, chat_id)
     
     return False
 
@@ -895,6 +1106,51 @@ def _check_access(user_id: int, chat_id: int, is_private: bool, is_command: bool
     return is_allowed, denial_reason
 
 
+def _extract_mention_text(text: str, bot_username: str) -> Optional[str]:
+    """
+    Extract text after bot mention prefix.
+    
+    Args:
+        text: Message text
+        bot_username: Bot username (lowercase)
+        
+    Returns:
+        Text after mention prefix, or None if mention not found
+    """
+    raw_text = text.strip()
+    lowered = raw_text.lower()
+    mention_prefix = f"@{bot_username}"
+    
+    if not lowered.startswith(mention_prefix):
+        return None
+    
+    return raw_text[len(mention_prefix):].lstrip()
+
+
+def _parse_search_command(text_after_mention: str) -> Optional[str]:
+    """
+    Parse search command from text after mention.
+    
+    Args:
+        text_after_mention: Text after bot mention
+        
+    Returns:
+        Search query if valid search command found, None otherwise
+    """
+    parts = text_after_mention.split(maxsplit=1)
+    
+    if not parts:
+        return None
+    
+    first = parts[0].lower()
+    rest = parts[1].strip() if len(parts) > 1 else ""
+    
+    if first in ("поиск", "find") and rest:
+        return rest
+    
+    return None
+
+
 def _parse_search_mention(message, bot_username: str, bot_id: int) -> Tuple[bool, str]:
     """
     Parse search mention from message.
@@ -914,46 +1170,37 @@ def _parse_search_mention(message, bot_username: str, bot_id: int) -> Tuple[bool
     if not has_mention or is_command:
         return False, ""
     
-    raw_text = text.strip()
-    lowered = raw_text.lower()
-    mention_prefix = f"@{bot_username}"
-    
-    if not lowered.startswith(mention_prefix):
+    text_after_mention = _extract_mention_text(text, bot_username)
+    if text_after_mention is None:
         return False, ""
     
-    raw_text = raw_text[len(mention_prefix):].lstrip()
-    parts = raw_text.split(maxsplit=1)
-    
-    if not parts:
+    search_query = _parse_search_command(text_after_mention)
+    if search_query is None:
         return False, ""
     
-    first = parts[0].lower()
-    rest = parts[1].strip() if len(parts) > 1 else ""
-    
-    if first in ("поиск", "find") and rest:
-        return True, rest
-    
-    return False, ""
+    return True, search_query
 
 
-async def _send_search_results(chat_id: int, message_parts_list: List[List[Dict]], query: str) -> None:
+async def _send_message_parts_unified(chat_id: int, message_parts_list: List[List[Dict]], empty_message: str = "", log_context: Dict = None) -> int:
     """
-    Send search results to chat.
+    Unified helper for sending message parts with logging.
     
     Args:
         chat_id: Chat ID
-        message_parts_list: List of message parts from search
-        query: Search query
+        message_parts_list: List of message parts to send
+        empty_message: Message to send if message_parts_list is empty
+        log_context: Additional context for logging
+        
+    Returns:
+        Total number of message parts sent
     """
     if not message_parts_list:
-        try:
-            await telegram_app.bot.send_message(
-                chat_id=chat_id,
-                text=f'по запросу "{query}" ничего не найдено'
-            )
-        except Exception as e:
-            syslog2(LOG_ERR, "failed to send search response", chat_id=chat_id, error=str(e))
-        return
+        if empty_message:
+            try:
+                await telegram_app.bot.send_message(chat_id=chat_id, text=empty_message)
+            except Exception as e:
+                syslog2(LOG_ERR, "failed to send empty message", chat_id=chat_id, error=str(e))
+        return 0
     
     # Send each message part as separate message
     total_parts = 0
@@ -967,9 +1214,239 @@ async def _send_search_results(chat_id: int, message_parts_list: List[List[Dict]
                 )
                 total_parts += 1
         
-        syslog2(LOG_NOTICE, "search response sent", chat_id=chat_id, query=query, messages=len(message_parts_list), parts=total_parts)
+        log_data = {"chat_id": chat_id, "messages": len(message_parts_list), "parts": total_parts}
+        if log_context:
+            log_data.update(log_context)
+        syslog2(LOG_NOTICE, "message parts sent", **log_data)
     except Exception as e:
-        syslog2(LOG_ERR, "failed to send search response", chat_id=chat_id, error=str(e))
+        syslog2(LOG_ERR, "failed to send message parts", chat_id=chat_id, error=str(e))
+    
+    return total_parts
+
+
+async def _send_message_parts(chat_id: int, message_parts_list: List[List[Dict]], empty_message: str = "", log_context: Dict = None) -> int:
+    """
+    Send message parts to chat and return total number of parts sent.
+    
+    Deprecated: Use _send_message_parts_unified instead.
+    
+    Args:
+        chat_id: Chat ID
+        message_parts_list: List of message parts to send
+        empty_message: Message to send if message_parts_list is empty
+        log_context: Additional context for logging
+        
+    Returns:
+        Total number of message parts sent
+    """
+    return await _send_message_parts_unified(chat_id, message_parts_list, empty_message, log_context)
+
+
+async def _send_search_results(chat_id: int, message_parts_list: List[List[Dict]], query: str) -> None:
+    """
+    Send search results to chat.
+    
+    Args:
+        chat_id: Chat ID
+        message_parts_list: List of message parts from search
+        query: Search query
+    """
+    empty_message = f'по запросу "{query}" ничего не найдено' if query else ""
+    await _send_message_parts_unified(
+        chat_id=chat_id,
+        message_parts_list=message_parts_list,
+        empty_message=empty_message,
+        log_context={"query": query}
+    )
+
+
+async def _should_ignore_message(respond: bool, target_freq: int, chat_id: int) -> bool:
+    """
+    Check if message should be ignored based on frequency settings.
+    
+    Args:
+        respond: Whether bot should respond
+        target_freq: Response frequency setting
+        chat_id: Chat ID for logging
+        
+    Returns:
+        True if message should be ignored
+    """
+    if not respond and target_freq == 0:
+        syslog2(LOG_DEBUG, "message ignored", chat_id=chat_id, reason="freq=0, no mention")
+        return True
+    return False
+
+
+async def _handle_search_mention(message, bot_username: str, bot_id: int, chat_id: int) -> bool:
+    """
+    Handle search mention command.
+    
+    Args:
+        message: Telegram message object
+        bot_username: Bot username (lowercase)
+        bot_id: Bot ID
+        chat_id: Chat ID
+        
+    Returns:
+        True if search mention was handled, False otherwise
+    """
+    is_search_command, search_query = _parse_search_mention(message, bot_username, bot_id)
+    if is_search_command:
+        from src.core.message_search import search_message_contents
+        message_parts_list = search_message_contents(bot_instance.retrieval, bot_instance.db, search_query, top_k=3)
+        await _send_search_results(chat_id, message_parts_list, search_query)
+        return True
+    return False
+
+
+async def _process_command_message(text: str, update: Update, handler: MessageHandler, respond: bool) -> Optional[str]:
+    """
+    Process command message.
+    
+    Args:
+        text: Message text
+        update: Telegram update object
+        handler: MessageHandler instance
+        respond: Whether bot should respond
+        
+    Returns:
+        Response text or None
+    """
+    response = await handler.route_command(text, update)
+    if response is None:
+        # Not a recognized command, treat as regular query
+        syslog2(LOG_ALERT, "handle_user_query as not a recognized command", text=text, respond=respond)
+        response = await handler.handle_user_query(text, respond)
+    return response
+
+
+async def _process_regular_message(text: str, handler: MessageHandler, respond: bool, config, chat_id: int) -> Optional[str]:
+    """
+    Process regular (non-command) message.
+    
+    Args:
+        text: Message text
+        handler: MessageHandler instance
+        respond: Whether bot should respond
+        config: Admin config
+        chat_id: Chat ID
+        
+    Returns:
+        Response text or None if message should be ignored
+    """
+    target_freq = config.response_frequency or 0
+    if await _should_ignore_message(respond, target_freq, chat_id):
+        return None
+
+    syslog2(LOG_ALERT, "handle_user_query as regular query", text=text, respond=respond)
+    return await handler.handle_user_query(text, respond)
+
+
+async def _determine_response_decision(message, is_command: bool, is_private: bool, chat_id: int) -> Tuple[bool, str]:
+    """
+    Determine if bot should respond to message.
+    
+    Args:
+        message: Telegram message object
+        is_command: Whether message is a command
+        is_private: Whether message is from private chat
+        chat_id: Chat ID
+        
+    Returns:
+        Tuple of (should_respond, reason)
+    """
+    config = admin_manager.config
+    bot_username = (telegram_app.bot.username or "").lower()
+    bot_id = telegram_app.bot.id
+    has_mention = is_bot_mentioned(message, bot_username, bot_id)
+    
+    respond, reason = frequency_controller.should_respond(
+        chat_id=chat_id,
+        frequency=config.response_frequency or 0,
+        has_mention=has_mention,
+        is_command=is_command,
+        is_private=is_private
+    )
+    
+    syslog2(LOG_DEBUG, "response decision", chat_id=chat_id, respond=respond, reason=reason, is_command=is_command, is_private=is_private, has_mention=has_mention)
+    return respond, reason
+
+
+async def _send_response_if_available(response: Optional[str], chat_id: int, is_command: bool, respond: bool) -> None:
+    """
+    Send response message if available.
+    
+    Args:
+        response: Response text or None
+        chat_id: Chat ID
+        is_command: Whether original message was a command
+        respond: Whether bot should respond
+    """
+    if response:
+        try:
+            await telegram_app.bot.send_message(chat_id=chat_id, text=response)
+            syslog2(LOG_NOTICE, "response sent", chat_id=chat_id, response_length=len(response))
+        except Exception as e:
+            syslog2(LOG_ERR, "failed to send response", chat_id=chat_id, error=str(e))
+    else:
+        syslog2(LOG_DEBUG, "no response generated", chat_id=chat_id, is_command=is_command, respond=respond)
+
+
+async def _handle_public_commands_step(message, text: str, chat_id: int) -> bool:
+    """
+    Step 1: Handle public commands (bypass access control).
+    
+    Returns:
+        True if command was handled and processing should stop, False otherwise
+    """
+    return await _handle_public_commands(message, text, chat_id)
+
+
+async def _check_access_step(user_id: int, chat_id: int, is_private: bool, is_command: bool, command_text: Optional[str]) -> bool:
+    """
+    Step 2: Check if user has access to send message.
+    
+    Returns:
+        True if access granted, False otherwise
+    """
+    is_allowed, _ = _check_access(user_id, chat_id, is_private, is_command, command_text)
+    return is_allowed
+
+
+async def _determine_response_step(message, is_command: bool, is_private: bool, chat_id: int) -> Tuple[bool, str]:
+    """
+    Step 3: Determine if bot should respond to message.
+    
+    Returns:
+        Tuple of (should_respond, reason)
+    """
+    return await _determine_response_decision(message, is_command, is_private, chat_id)
+
+
+async def _handle_search_mention_step(message, bot_username: str, bot_id: int, chat_id: int) -> bool:
+    """
+    Step 5: Parse and handle search mentions.
+    
+    Returns:
+        True if search mention was handled, False otherwise
+    """
+    return await _handle_search_mention(message, bot_username, bot_id, chat_id)
+
+
+async def _route_message_step(text: str, update: Update, is_command: bool, respond: bool, chat_id: int) -> Optional[str]:
+    """
+    Step 6: Route message to appropriate handler.
+    
+    Returns:
+        Response text or None if message should be ignored
+    """
+    handler = MessageHandler(bot_instance, admin_manager, admin_router)
+    
+    if is_command:
+        return await _process_command_message(text, update, handler, respond)
+    else:
+        return await _process_regular_message(text, handler, respond, admin_manager.config, chat_id)
 
 
 async def handle_message(update: Update):
@@ -989,29 +1466,15 @@ async def handle_message(update: Update):
     is_private = (message.chat.type == "private")
 
     # Step 1: Handle public commands (bypass access control)
-    if await _handle_public_commands(message, text, chat_id):
+    if await _handle_public_commands_step(message, text, chat_id):
         return
 
     # Step 2: Check access
-    is_allowed, _ = _check_access(user_id, chat_id, is_private, is_command, text if is_command else None)
-    if not is_allowed:
+    if not await _check_access_step(user_id, chat_id, is_private, is_command, text if is_command else None):
         return
 
     # Step 3: Determine if bot should respond
-    config = admin_manager.config
-    bot_username = (telegram_app.bot.username or "").lower()
-    bot_id = telegram_app.bot.id
-    has_mention = is_bot_mentioned(message, bot_username, bot_id)
-    
-    respond, reason = frequency_controller.should_respond(
-        chat_id=chat_id,
-        frequency=config.response_frequency or 0,
-        has_mention=has_mention,
-        is_command=is_command,
-        is_private=is_private
-    )
-    
-    syslog2(LOG_DEBUG, "response decision", chat_id=chat_id, respond=respond, reason=reason, is_command=is_command, is_private=is_private, has_mention=has_mention)
+    respond, reason = await _determine_response_step(message, is_command, is_private, chat_id)
 
     # Step 4: Check if bot_instance is available
     if not bot_instance:
@@ -1019,44 +1482,18 @@ async def handle_message(update: Update):
         return
     
     # Step 5: Parse and handle search mentions
-    is_search_command, search_query = _parse_search_mention(message, bot_username, bot_id)
-    if is_search_command:
-        from src.core.message_search import search_message_contents
-        message_parts_list = search_message_contents(bot_instance.retrieval, bot_instance.db, search_query, top_k=3)
-        await _send_search_results(chat_id, message_parts_list, search_query)
+    bot_username = (telegram_app.bot.username or "").lower()
+    bot_id = telegram_app.bot.id
+    if await _handle_search_mention_step(message, bot_username, bot_id, chat_id):
         return
     
     # Step 6: Route message to appropriate handler
-    handler = MessageHandler(bot_instance, admin_manager, admin_router)
-    
-    response = None
-    if is_command:
-        response = await handler.route_command(text, update)
-        if response is None:
-            # Not a recognized command, treat as regular query
-            syslog2(LOG_ALERT, "handle_user_query as not a recognized command", text=text, respond=respond)
-            response = await handler.handle_user_query(text, respond)
-    else:
-        # Regular user query
-        # Если частота 0 и мы не отвечаем (нет упоминания), то полностью игнорируем сообщение
-        # (не сохраняем в историю и не тратим ресурсы)
-        target_freq = config.response_frequency or 0
-        if not respond and target_freq == 0:
-            syslog2(LOG_DEBUG, "message ignored", chat_id=chat_id, reason="freq=0, no mention")
-            return
-
-        syslog2(LOG_ALERT, "handle_user_query as regular query", text=text, respond=respond)
-        response = await handler.handle_user_query(text, respond)
+    response = await _route_message_step(text, update, is_command, respond, chat_id)
+    if response is None:
+        return  # Message was ignored
 
     # Step 7: Send response if available
-    if response:
-        try:
-            await telegram_app.bot.send_message(chat_id=chat_id, text=response)
-            syslog2(LOG_NOTICE, "response sent", chat_id=chat_id, response_length=len(response))
-        except Exception as e:
-            syslog2(LOG_ERR, "failed to send response", chat_id=chat_id, error=str(e))
-    else:
-        syslog2(LOG_DEBUG, "no response generated", chat_id=chat_id, is_command=is_command, respond=respond)
+    await _send_response_if_available(response, chat_id, is_command, respond)
 
 
 def register_webhook(url: str, token: str):

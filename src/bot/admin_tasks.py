@@ -6,7 +6,7 @@ Handles long-running operations like data ingestion.
 import asyncio
 import logging
 from pathlib import Path
-from src.core.syslog2 import *
+from src.lib.syslog2 import *
 from typing import Optional, Callable, Tuple, List, Dict
 from telegram import Bot
 
@@ -34,13 +34,26 @@ class IngestionTask:
         self.error = None
         self.result = None
     
-    async def _update_progress(self, bot: Bot, chat_id: int, message_id: int, text: str) -> None:
-        """Update progress indicator."""
-        await bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=text
-        )
+    async def _update_progress(self, bot: Bot, chat_id: int, message_id: int, text: str, 
+                              parse_mode: Optional[str] = None) -> None:
+        """
+        Update progress indicator.
+        
+        Args:
+            bot: Telegram bot instance
+            chat_id: Chat ID for updates
+            message_id: Message ID to edit
+            text: Message text
+            parse_mode: Optional parse mode (e.g., 'Markdown')
+        """
+        kwargs = {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": text
+        }
+        if parse_mode:
+            kwargs["parse_mode"] = parse_mode
+        await bot.edit_message_text(**kwargs)
     
     async def _update_progress_with_percentage(
         self,
@@ -49,7 +62,8 @@ class IngestionTask:
         message_id: int,
         current: int,
         total: int,
-        prefix: str = "Загрузка данных..."
+        prefix: str = "Загрузка данных...",
+        extra_info: str = ""
     ) -> None:
         """
         Update progress with percentage and progress bar.
@@ -61,23 +75,44 @@ class IngestionTask:
             current: Current progress value
             total: Total value
             prefix: Prefix text for progress message
+            extra_info: Optional extra information to append
         """
         progress_pct = (current / total * 100) if total > 0 else 0
         progress_bar = '▓' * int(progress_pct / 5) + '░' * (20 - int(progress_pct / 5))
         text = f"{prefix}\n\nПрогресс: {current:,}/{total:,} ({progress_pct:.1f}%)\n\n{progress_bar}"
+        if extra_info:
+            text += f"\n\n{extra_info}"
+        await self._update_progress(bot, chat_id, message_id, text)
+    
+    async def _update_progress_simple(self, bot: Bot, chat_id: int, message_id: int, 
+                                     stage: str, details: str = "") -> None:
+        """
+        Update progress with simple stage message.
+        
+        Args:
+            bot: Telegram bot instance
+            chat_id: Chat ID for updates
+            message_id: Message ID to edit
+            stage: Stage description
+            details: Optional details to append
+        """
+        text = f"Загрузка данных...\n\n{stage}"
+        if details:
+            text += f"\n\n{details}"
         await self._update_progress(bot, chat_id, message_id, text)
     
     async def _parse_file(self, pipeline, bot: Bot, chat_id: int, message_id: int) -> Tuple[List, int]:
         """Parse file and return messages."""
-        await self._update_progress(bot, chat_id, message_id, "Начинаю загрузку данных...\n\nЧтение файла...")
+        await self._update_progress_simple(bot, chat_id, message_id, "Чтение файла...")
         
         syslog2(LOG_NOTICE, "parsing file", path=str(self.file_path))
         messages = pipeline.parser.parse_file(str(self.file_path))
         self.total = len(messages)
         
-        await self._update_progress(
+        await self._update_progress_simple(
             bot, chat_id, message_id,
-            f"Загрузка данных...\n\nНайдено сообщений: {self.total:,}\nСоздание чанков..."
+            f"Найдено сообщений: {self.total:,}",
+            "Создание чанков..."
         )
         
         return messages, self.total
@@ -87,9 +122,10 @@ class IngestionTask:
         chunks = pipeline.chunker.chunk_messages(messages)
         chunk_count = len(chunks)
         
-        await self._update_progress(
+        await self._update_progress_simple(
             bot, chat_id, message_id,
-            f"Загрузка данных...\n\nСообщений: {self.total:,}\nЧанков: {chunk_count:,}\n\nСохранение в базу данных..."
+            f"Сообщений: {self.total:,}\nЧанков: {chunk_count:,}",
+            "Сохранение в базу данных..."
         )
         
         return chunks, chunk_count
@@ -148,10 +184,7 @@ class IngestionTask:
         finally:
             session.close()
         
-        await self._update_progress(
-            bot, chat_id, message_id,
-            f"Загрузка данных...\n\nДанные сохранены в БД\n\nСоздание векторных эмбеддингов..."
-        )
+        await self._update_progress_simple(bot, chat_id, message_id, "Данные сохранены в БД", "Создание векторных эмбеддингов...")
         
         return ids, documents, metadatas
     
@@ -203,10 +236,7 @@ class IngestionTask:
             # Step 3: Clear if requested
             if self.clear_existing:
                 pipeline._clear_data()
-                await self._update_progress(
-                    bot, chat_id, message_id,
-                    f"Загрузка данных...\n\nСтарые данные очищены\n\nСохранение новых данных..."
-                )
+                await self._update_progress_simple(bot, chat_id, message_id, "Старые данные очищены", "Сохранение новых данных...")
             
             # Step 4: Persist to SQLite
             ids, documents, metadatas = await self._persist_sql(pipeline, chunks, bot, chat_id, message_id)

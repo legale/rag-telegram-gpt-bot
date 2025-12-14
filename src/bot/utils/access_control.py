@@ -10,7 +10,7 @@ Provides centralized access control logic including:
 
 import logging
 from typing import Optional
-from src.core.syslog2 import *
+from src.lib.syslog2 import *
 
 
 class AccessControlService:

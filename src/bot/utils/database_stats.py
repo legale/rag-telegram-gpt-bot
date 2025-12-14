@@ -12,7 +12,7 @@ import sqlite3
 import logging
 from pathlib import Path
 from typing import Optional, Tuple, Dict, Any
-from src.core.syslog2 import *
+from src.lib.syslog2 import *
 
 
 class DatabaseStatsService:

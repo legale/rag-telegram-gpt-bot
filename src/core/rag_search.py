@@ -4,7 +4,7 @@ from typing import List, Dict, Optional, Tuple, Any
 from src.storage.db import Database, ChunkModel, MessageModel, TopicL1Model, TopicL2Model
 from src.storage.vector_store import VectorStore
 from src.core.embedding import EmbeddingClient
-from src.core.syslog2 import *
+from src.lib.syslog2 import *
 
 
 class RAGSearch:
@@ -158,4 +158,7 @@ class RAGSearch:
                 return [message]
         
         return []
+
+
+
 

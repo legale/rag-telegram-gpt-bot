@@ -25,7 +25,7 @@ from datetime import datetime
 import os
 import sys
 import logging
-from src.core.syslog2 import *
+from src.lib.syslog2 import *
 
 # Suppress Telethon debug logging messages
 logging.getLogger('telethon').setLevel(logging.WARNING)

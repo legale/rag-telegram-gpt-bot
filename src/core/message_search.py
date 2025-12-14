@@ -8,7 +8,7 @@ from src.core.retrieval import RetrievalService
 from src.storage.db import Database, MessageModel
 from src.bot.utils import build_message_link
 from src.bot.utils.telegram_common import split_message_if_needed, MAX_TG_CONTENT_LEN
-from src.core.syslog2 import *
+from src.lib.syslog2 import *
 
 
 def _convert_similarity_to_distance(score: float) -> float:
@@ -278,6 +278,75 @@ def _apply_threshold_filter(
     return filtered
 
 
+def _parse_msg_id(msg_id_str: str) -> int:
+    """
+    Parse message ID from composite format string.
+    
+    Args:
+        msg_id_str: Message ID string in format "{chat_id}_{msg_id}" or just "{msg_id}"
+        
+    Returns:
+        Numeric message ID (or hash-based fallback if parsing fails)
+    """
+    try:
+        # try to extract numeric part
+        if "_" in msg_id_str:
+            return int(msg_id_str.split("_", 1)[1])
+        else:
+            return int(msg_id_str)
+    except (ValueError, IndexError):
+        # fallback: use hash of string as id
+        return hash(msg_id_str) % (10 ** 9)  # 9-digit number
+
+
+def _format_message_parts(msg: MessageModel, msg_id: int, distance: float, chunk_id: str, 
+                         msg_idx: int, debug_rag: bool) -> List[Dict]:
+    """
+    Format message data into HTML parts.
+    
+    Args:
+        msg: MessageModel instance
+        msg_id: Parsed numeric message ID
+        distance: Distance value for this message
+        chunk_id: Chunk ID for logging
+        msg_idx: Message index in chunk for logging
+        debug_rag: Enable detailed RAG debug logging
+        
+    Returns:
+        List of message part dictionaries
+    """
+    snippet = (msg.text or "")[:64]
+    if debug_rag:
+        syslog2(
+            LOG_DEBUG,
+            "msg_search contents message",
+            chunk_id=chunk_id,
+            msg_idx=msg_idx,
+            msg_id_str=msg.msg_id,
+            msg_id=msg_id,
+            sender=msg.from_id or "Unknown",
+            ts=msg.ts.isoformat() if msg.ts else "",
+            text_snippet=snippet,
+            distance=distance,
+        )
+    
+    # prepare message data
+    msg_data = {
+        "text": msg.text or "",
+        "date": msg.ts.isoformat() if msg.ts else "",
+        "sender": msg.from_id or "Unknown",
+        "sender_id": None,  # from_id is string, not numeric user_id
+        "distance": distance,
+    }
+    
+    # split message into parts if needed
+    parts = split_message_if_needed(msg_data, msg_id, MAX_TG_CONTENT_LEN)
+    # propagate distance into each part for caller
+    for part in parts:
+        part["distance"] = distance
+    return parts
+
+
 def _prepare_message_parts(
     db: Database,
     results: List[Dict],
@@ -326,48 +395,8 @@ def _prepare_message_parts(
         
         # process each message
         for msg_idx, msg in enumerate(messages):
-            # extract message id from composite format if needed
-            # msg_id format: "{chat_id}_{msg_id}" or just "{msg_id}"
-            msg_id_str = msg.msg_id
-            try:
-                # try to extract numeric part
-                if "_" in msg_id_str:
-                    msg_id = int(msg_id_str.split("_", 1)[1])
-                else:
-                    msg_id = int(msg_id_str)
-            except (ValueError, IndexError):
-                # fallback: use hash of string as id
-                msg_id = hash(msg_id_str) % (10 ** 9)  # 9-digit number
-            
-            snippet = (msg.text or "")[:64]
-            if debug_rag:
-                syslog2(
-                    LOG_DEBUG,
-                    "msg_search contents message",
-                    chunk_id=chunk_id,
-                    msg_idx=msg_idx,
-                    msg_id_str=msg_id_str,
-                    msg_id=msg_id,
-                    sender=msg.from_id or "Unknown",
-                    ts=msg.ts.isoformat() if msg.ts else "",
-                    text_snippet=snippet,
-                    distance=distance,
-                )
-            
-            # prepare message data
-            msg_data = {
-                "text": msg.text or "",
-                "date": msg.ts.isoformat() if msg.ts else "",
-                "sender": msg.from_id or "Unknown",
-                "sender_id": None,  # from_id is string, not numeric user_id
-                "distance": distance,
-            }
-            
-            # split message into parts if needed
-            parts = split_message_if_needed(msg_data, msg_id, MAX_TG_CONTENT_LEN)
-            # propagate distance into each part for caller
-            for part in parts:
-                part["distance"] = distance
+            msg_id = _parse_msg_id(msg.msg_id)
+            parts = _format_message_parts(msg, msg_id, distance, chunk_id, msg_idx, debug_rag)
             all_message_parts.append(parts)
     
     return all_message_parts
