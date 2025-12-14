@@ -176,8 +176,11 @@ src/
 *   **Files**: `src/core/dispatcher.py`, `src/core/use_cases/commands.py`, `src/app/main_cli.py`. ✅
 *   **Action**: Создан CommandDispatcher, handlers для команд, обновлен cli.py для использования dispatcher. ✅
 
-### Шаг 6: Ingestion Pipeline Migration
+### Шаг 6: Ingestion Pipeline Migration (частично) ✅
 Разбить `IngestionPipeline` на Use Cases.
+*   **Files**: `src/core/use_cases/ingest/*.py`. ✅
+*   **Action**: Созданы use cases для основных этапов (IngestMessages, ProcessChunks, GenerateEmbeddings, SyncToVectorStore, PipelineOrchestrator). ✅
+*   **Note**: Полная миграция требует расширения ChunkStore интерфейса для запросов chunks без embeddings. Clustering stages (4-9) остаются в IngestionPipeline. ✅
 *   **Files**: `src/core/use_cases/ingest.py`.
 
 ### Шаг 7: Telegram Bot Migration
@@ -226,7 +229,11 @@ src/
 ### Non-Critical
 
 7.  **Refactor Ingestion to Use Cases**
-    *   [ ] Split `IngestionPipeline` into Use Cases in `src/core/use_cases/ingest/`
+    *   [x] Split `IngestionPipeline` into Use Cases in `src/core/use_cases/ingest/`
+    *   [x] Created IngestMessages, ProcessChunks, GenerateEmbeddings, SyncToVectorStore use cases
+    *   [x] Created PipelineOrchestrator to coordinate use cases
+    *   [ ] Full migration requires extending ChunkStore interface (deferred)
+    *   [ ] Clustering stages (4-9) remain in IngestionPipeline (deferred)
 
 8.  **Expand Tests Coverage**
     *   [ ] Add contract tests for Adapters
