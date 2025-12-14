@@ -1,6 +1,6 @@
 
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, Mock
 import os
 import shutil
 from src.core.embedding import LocalEmbeddingClient, LOG_WARNING, LOG_INFO, LOG_ERR
@@ -51,7 +51,7 @@ class TestLocalEmbeddingClient(unittest.TestCase):
 
     def test_get_embedding(self):
         # Mock the model behavior
-        mock_model = MagicMock()
+        mock_model = Mock()
         mock_model.encode.return_value = [[0.1, 0.2, 0.3]]
         self.client._model = mock_model
         

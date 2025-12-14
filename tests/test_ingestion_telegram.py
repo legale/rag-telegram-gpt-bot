@@ -1,14 +1,14 @@
 
 import pytest
-from unittest.mock import MagicMock, patch, mock_open
+from unittest.mock import Mock, patch, mock_open
 from datetime import datetime
 import sys
 import io
 
 # Mock telethon before importing the module
-sys.modules['telethon'] = MagicMock()
-sys.modules['telethon.sync'] = MagicMock()
-sys.modules['telethon.tl.types'] = MagicMock()
+sys.modules['telethon'] = Mock()
+sys.modules['telethon.sync'] = Mock()
+sys.modules['telethon.tl.types'] = Mock()
 
 from src.ingestion.telegram import TelegramFetcher, json_serial
 
@@ -31,11 +31,11 @@ class TestTelegramFetcher:
 
     def test_find_chat_by_id(self, fetcher):
         # Setup mock dialogs
-        mock_dialog1 = MagicMock()
+        mock_dialog1 = Mock()
         mock_dialog1.id = 111
         mock_dialog1.name = "Chat One"
         
-        mock_dialog2 = MagicMock()
+        mock_dialog2 = Mock()
         mock_dialog2.id = 222
         mock_dialog2.name = "Chat Two"
 
@@ -51,11 +51,11 @@ class TestTelegramFetcher:
 
     def test_find_chat_by_name(self, fetcher):
         # Setup mock dialogs
-        mock_dialog1 = MagicMock()
+        mock_dialog1 = Mock()
         mock_dialog1.id = 111
         mock_dialog1.name = "Chat One"
         
-        mock_dialog2 = MagicMock()
+        mock_dialog2 = Mock()
         mock_dialog2.id = 222
         mock_dialog2.name = "Chat Two"
 
@@ -72,11 +72,11 @@ class TestTelegramFetcher:
 
     def test_list_channels(self, fetcher, capsys):
         # Setup mock dialogs
-        mock_dialog1 = MagicMock()
+        mock_dialog1 = Mock()
         mock_dialog1.id = 111
         mock_dialog1.name = "Chat One"
         
-        mock_dialog2 = MagicMock()
+        mock_dialog2 = Mock()
         mock_dialog2.id = 222
         mock_dialog2.name = "Chat Two"
 
@@ -98,19 +98,19 @@ class TestTelegramFetcher:
 
     def test_list_members_success(self, fetcher, capsys):
         # Mock _find_chat
-        mock_chat = MagicMock()
+        mock_chat = Mock()
         mock_chat.id = 123
         mock_chat.name = "Test Chat"
-        fetcher._find_chat = MagicMock(return_value=mock_chat)
+        fetcher._find_chat = Mock(return_value=mock_chat)
 
         # Mock participants
-        user1 = MagicMock()
+        user1 = Mock()
         user1.id = 1
         user1.first_name = "John"
         user1.last_name = "Doe"
         user1.username = "johndoe"
 
-        user2 = MagicMock()
+        user2 = Mock()
         user2.id = 2
         user2.first_name = "Jane"
         user2.last_name = None
@@ -134,16 +134,16 @@ class TestTelegramFetcher:
         fetcher.client.iter_participants.assert_called_with(mock_chat)
 
     def test_list_members_chat_not_found(self, fetcher, capsys):
-        fetcher._find_chat = MagicMock(return_value=None)
+        fetcher._find_chat = Mock(return_value=None)
         fetcher.list_members("Unknown")
         # Function uses syslog2, not print, so no stdout output expected
         # Just verify it doesn't crash
         assert True
 
     def test_list_members_exception(self, fetcher, capsys):
-        mock_chat = MagicMock()
+        mock_chat = Mock()
         mock_chat.name = "Test"
-        fetcher._find_chat = MagicMock(return_value=mock_chat)
+        fetcher._find_chat = Mock(return_value=mock_chat)
         fetcher.client.iter_participants.side_effect = Exception("API Error")
 
         fetcher.list_members("Test")
@@ -161,20 +161,20 @@ class TestTelegramFetcher:
 
     def test_dump_chat_success(self, fetcher, capsys):
         # Mock chat
-        mock_chat = MagicMock()
+        mock_chat = Mock()
         mock_chat.id = 123
         mock_chat.name = "Test Chat"
-        fetcher._find_chat = MagicMock(return_value=mock_chat)
+        fetcher._find_chat = Mock(return_value=mock_chat)
 
         # Mock messages
-        msg1 = MagicMock()
+        msg1 = Mock()
         msg1.id = 1
         msg1.date = datetime(2023, 1, 1, 10, 0)
         msg1.text = "Hello"
         msg1.sender.first_name = "User"
         msg1.sender.last_name = "One"
         
-        msg2 = MagicMock()
+        msg2 = Mock()
         msg2.id = 2
         msg2.date = datetime(2023, 1, 1, 10, 5)
         msg2.text = "World"
@@ -208,7 +208,7 @@ class TestTelegramFetcher:
         assert mock_file.called
 
     def test_dump_chat_chat_not_found(self, fetcher, capsys):
-        fetcher._find_chat = MagicMock(return_value=None)
+        fetcher._find_chat = Mock(return_value=None)
         fetcher.dump_chat("Unknown")
         # Function uses syslog2, not print, so no stdout output expected
         # Just verify it doesn't crash and returns early

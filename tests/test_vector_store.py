@@ -3,11 +3,11 @@ import pytest
 from src.storage.vector_store import VectorStore
 import shutil
 import os
-from unittest.mock import MagicMock, patch
+from unittest.mock import Mock, patch
 
 @pytest.fixture
 def mock_embedding_client():
-    client = MagicMock()
+    client = Mock()
     client.get_embeddings.return_value = [[0.1, 0.2, 0.3]]
     return client
 

@@ -10,7 +10,7 @@ Tests cover:
 """
 
 import pytest
-from unittest.mock import MagicMock, Mock, patch, AsyncMock
+from unittest.mock import Mock, patch, AsyncMock
 from telegram import Update, Message, Chat, User
 from src.bot.tgbot import MessageHandler, is_bot_mentioned
 
@@ -693,8 +693,8 @@ class TestHandleMessage:
         mock_deps['admin'].set_admin.return_value = True
         
         # Create MessageHandler mock response
-        from unittest.mock import MagicMock
-        handler_mock = MagicMock()
+        from unittest.mock import Mock
+        handler_mock = Mock()
         handler_mock.handle_admin_set_command = AsyncMock(return_value="Вы успешно назначены администратором!")
         
         with patch("src.bot.tgbot.MessageHandler", return_value=handler_mock):

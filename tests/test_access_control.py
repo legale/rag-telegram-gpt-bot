@@ -11,7 +11,7 @@ Tests cover:
 """
 
 import pytest
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock
 from src.bot.utils.access_control import AccessControlService
 
 

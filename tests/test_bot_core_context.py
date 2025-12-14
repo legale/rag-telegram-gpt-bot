@@ -3,7 +3,7 @@ Tests for LegaleBot context management functionality.
 """
 
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 from src.bot.core import LegaleBot
 from src.core.syslog2 import LOG_WARNING
 
@@ -19,7 +19,7 @@ def mock_dependencies():
          patch('src.bot.core.PromptEngine') as mock_pe:
         
         # Setup LLM client mock for token counting
-        mock_llm_instance = MagicMock()
+        mock_llm_instance = Mock()
         mock_llm_instance.count_tokens.return_value = 100
         mock_llm.return_value = mock_llm_instance
         

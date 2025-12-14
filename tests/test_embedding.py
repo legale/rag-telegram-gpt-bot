@@ -1,6 +1,6 @@
 
 import pytest
-from unittest.mock import MagicMock, patch, mock_open
+from unittest.mock import Mock, patch, mock_open
 from src.core.embedding import EmbeddingClient, LocalEmbeddingClient, OpenRouterEmbeddingFunction, get_embedding_function
 import os
 import json
@@ -25,8 +25,8 @@ def test_init_defaults(mock_openai):
         mock_openai.assert_called_with(api_key="sk-env", base_url="https://env.com")
 
 def test_get_embeddings(client, mock_openai):
-    mock_resp = MagicMock()
-    mock_resp.data = [MagicMock(embedding=[0.1, 0.2]), MagicMock(embedding=[0.3, 0.4])]
+    mock_resp = Mock()
+    mock_resp.data = [Mock(embedding=[0.1, 0.2]), Mock(embedding=[0.3, 0.4])]
     client.client.embeddings.create.return_value = mock_resp
     
     embs = client.get_embeddings(["hello", "world"])
@@ -128,7 +128,7 @@ def test_get_embedding_function():
 def mock_sentence_transformer():
     """Mock SentenceTransformer for LocalEmbeddingClient tests."""
     with patch('src.core.embedding.SentenceTransformer') as mock_st:
-        mock_model = MagicMock()
+        mock_model = Mock()
         # Mock encode to return numpy-like array
         mock_model.encode.return_value = [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
         mock_st.return_value = mock_model

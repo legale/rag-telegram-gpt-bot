@@ -3,7 +3,7 @@ Tests for legacy table migration (drop_legacy_tables).
 """
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import Mock, patch
 from sqlalchemy import create_engine, text
 from src.storage.migrations.drop_legacy_tables import drop_legacy_tables
 
@@ -58,14 +58,14 @@ def test_drop_legacy_tables_error_handling(tmp_path):
     
     # Mock execute to raise error
     with patch('src.storage.migrations.drop_legacy_tables.create_engine') as mock_engine:
-        mock_conn = MagicMock()
-        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
-        mock_conn.__exit__ = MagicMock(return_value=False)
+        mock_conn = Mock()
+        mock_conn.__enter__ = Mock(return_value=mock_conn)
+        mock_conn.__exit__ = Mock(return_value=False)
         mock_conn.execute.side_effect = Exception("Database error")
-        mock_conn.commit = MagicMock()
-        mock_conn.rollback = MagicMock()
+        mock_conn.commit = Mock()
+        mock_conn.rollback = Mock()
         
-        mock_eng = MagicMock()
+        mock_eng = Mock()
         mock_eng.connect.return_value = mock_conn
         mock_engine.return_value = mock_eng
         

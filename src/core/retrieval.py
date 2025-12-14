@@ -6,7 +6,19 @@ from sqlalchemy.orm import joinedload
 from src.storage.vector_store import VectorStore
 from src.storage.db import Database, ChunkModel, TopicL1Model, TopicL2Model, MessageModel
 from src.core.embedding import EmbeddingClient
+from src.core.llm import LLMClient
+from src.core.distance_utils import distance_to_similarity, similarity_to_distance
+from src.core.chunk_utils import build_chunk_dict_from_model
 from src.core.syslog2 import *
+
+# Rephrasing prompt template
+REPHRASING_PROMPT_TEMPLATE = """пользователь просит: {query}
+
+твоя задача выполнить rephrasing для повышения точности эмбединга запроса для поиска в локальной истории чата:
+
+верни json вида:
+
+{{"raw_query": "text", "rephrased_rag_query": "text"}}"""
 
 
 class RetrievalService:
@@ -58,68 +70,7 @@ class RetrievalService:
         self.topics_l2_collection = vector_store.get_topics_l2_collection()
         self.topics_l1_collection = vector_store.get_topics_l1_collection()
 
-    def _convert_distance_to_similarity(self, distance: float) -> float:
-        """
-        Convert distance to similarity score.
-        
-        Args:
-            distance: Distance value from vector search
-            
-        Returns:
-            Similarity score (0.0-1.0)
-        """
-        if distance <= 1.0:
-            return 1.0 - distance
-        elif distance <= 2.0:
-            return 1.0 - (distance / 2.0)
-        else:
-            return max(0.0, 1.0 - distance)
     
-    def _build_chunk_dict(
-        self, 
-        chunk: ChunkModel, 
-        similarity: float, 
-        distance: Optional[float] = None, 
-        source: str = "vector"
-    ) -> Dict:
-        """
-        Build chunk dictionary with metadata and topics.
-        
-        Args:
-            chunk: ChunkModel instance
-            similarity: Similarity score (0.0-1.0)
-            distance: Original distance value (optional)
-            source: Source of the chunk ("vector", "two_stage", "topic_l1", "topic_l2")
-            
-        Returns:
-            Dictionary with chunk data
-        """
-        meta = {}
-        if chunk.metadata_json:
-            try:
-                meta = json.loads(chunk.metadata_json)
-            except json.JSONDecodeError:
-                pass
-        
-        if chunk.topic_l1:
-            meta["topic_l1_id"] = chunk.topic_l1.id
-            meta["topic_l1_title"] = chunk.topic_l1.title
-        if chunk.topic_l2:
-            meta["topic_l2_id"] = chunk.topic_l2.id
-            meta["topic_l2_title"] = chunk.topic_l2.title
-        
-        result = {
-            "id": chunk.id,
-            "text": chunk.text,
-            "metadata": meta,
-            "score": similarity,
-            "source": source
-        }
-        
-        if distance is not None:
-            result["distance"] = distance
-        
-        return result
 
     def _debug_log_chunk_messages(self, session, chunk: ChunkModel):
         """log messages belonging to chunk for rag debug"""
@@ -245,8 +196,7 @@ class RetrievalService:
 
             return similarities[:n_topics]
         except Exception as e:
-            if self.log_level <= LOG_WARNING:
-                syslog2(LOG_WARNING, "failed to find similar topics", topic_type=topic_type, error=str(e))
+            syslog2(LOG_WARNING, "failed to find similar topics", topic_type=topic_type, error=str(e))
             return []
 
     def _retrieve_chunks_from_topics(
@@ -284,8 +234,8 @@ class RetrievalService:
                         continue
                     seen_chunk_ids.add(chunk.id)
                     
-                    # Use _build_chunk_dict to avoid duplicating metadata parsing logic
-                    chunk_dict = self._build_chunk_dict(
+                    # Use build_chunk_dict_from_model to avoid duplicating metadata parsing logic
+                    chunk_dict = build_chunk_dict_from_model(
                         chunk,
                         similarity=0.8,  # Topic-based chunks get high score
                         source="topic_l1"
@@ -305,8 +255,8 @@ class RetrievalService:
                         continue
                     seen_chunk_ids.add(chunk.id)
                     
-                    # Use _build_chunk_dict to avoid duplicating metadata parsing logic
-                    chunk_dict = self._build_chunk_dict(
+                    # Use build_chunk_dict_from_model to avoid duplicating metadata parsing logic
+                    chunk_dict = build_chunk_dict_from_model(
                         chunk,
                         similarity=0.75,  # L2 topics slightly lower than L1
                         source="topic_l2"
@@ -337,8 +287,7 @@ class RetrievalService:
                 include=["metadatas", "distances"]
             )
         except Exception as e:
-            if self.log_level <= LOG_INFO or self.debug_rag:
-                syslog2(LOG_WARNING, "failed to query l2 topics, falling back to direct search", error=str(e))
+            syslog2(LOG_WARNING, "failed to query l2 topics, falling back to direct search", error=str(e))
             return []
         
         if not l2_results or not l2_results.get("ids") or not l2_results["ids"][0]:
@@ -358,7 +307,7 @@ class RetrievalService:
                 distance = l2_distances[idx] if idx < len(l2_distances) else 0.0
                 # Always log L2 topic distance (not just in debug mode)
                 syslog2(
-                    LOG_ALERT,
+                    LOG_DEBUG,
                     "rag l2 topic match distance",
                     idx=idx,
                     topic_l2_id=l2_id,
@@ -445,6 +394,42 @@ class RetrievalService:
         
         return None
     
+    def _compute_similarities_for_chunks(
+        self,
+        query_embedding: List[float],
+        chunk_ids: List[str],
+        chunk_embeddings: List[List[float]]
+    ) -> Tuple[List[Tuple[str, float]], List[Tuple[str, float]]]:
+        """
+        Compute cosine similarities for chunks.
+        
+        Args:
+            query_embedding: Query embedding vector
+            chunk_ids: List of chunk IDs
+            chunk_embeddings: List of chunk embedding vectors
+            
+        Returns:
+            Tuple of (similarities, distances) where each is a list of (chunk_id, value) tuples
+        """
+        query_vec = np.array(query_embedding)
+        similarities = []
+        distances = []
+        
+        for i, chunk_id in enumerate(chunk_ids):
+            if i < len(chunk_embeddings):
+                chunk_vec = np.array(chunk_embeddings[i])
+                dot_product = np.dot(query_vec, chunk_vec)
+                norm_query = np.linalg.norm(query_vec)
+                norm_chunk = np.linalg.norm(chunk_vec)
+                
+                if norm_query > 0 and norm_chunk > 0:
+                    similarity = float(dot_product / (norm_query * norm_chunk))
+                    distance = similarity_to_distance(similarity)
+                    similarities.append((chunk_id, similarity))
+                    distances.append((chunk_id, distance))
+        
+        return similarities, distances
+    
     def _fallback_sqlite_search(
         self,
         query_embedding: List[float],
@@ -488,31 +473,21 @@ class RetrievalService:
             if not chunk_embeddings:
                 return []
             
-            query_vec = np.array(query_embedding)
-            similarities = []
-            original_distances = []
+            # Compute similarities using helper
+            similarities, original_distances = self._compute_similarities_for_chunks(
+                query_embedding, chunk_ids_with_emb, chunk_embeddings
+            )
             
-            for i, chunk_id in enumerate(chunk_ids_with_emb):
-                if i < len(chunk_embeddings):
-                    chunk_vec = np.array(chunk_embeddings[i])
-                    dot_product = np.dot(query_vec, chunk_vec)
-                    norm_query = np.linalg.norm(query_vec)
-                    norm_chunk = np.linalg.norm(chunk_vec)
-                    
-                    if norm_query > 0 and norm_chunk > 0:
-                        similarity = dot_product / (norm_query * norm_chunk)
-                        distance = 1.0 - similarity  # Convert similarity to distance
-                        similarities.append((chunk_id, float(similarity)))
-                        original_distances.append((chunk_id, float(distance)))
-                        
-                        # Always log distance for SQLite fallback chunks
-                        syslog2(
-                            LOG_ALERT,
-                            "rag two_stage chunk sqlite distance",
-                            chunk_id=chunk_id,
-                            similarity=similarity,
-                            distance=distance,
-                        )
+            # Log distances for SQLite fallback chunks
+            for chunk_id, similarity in similarities:
+                distance = similarity_to_distance(similarity)
+                syslog2(
+                    LOG_ALERT,
+                    "rag two_stage chunk sqlite distance",
+                    chunk_id=chunk_id,
+                    similarity=similarity,
+                    distance=distance,
+                )
             
             similarities.sort(key=lambda x: x[1], reverse=True)
             top_chunk_ids = [cid for cid, _ in similarities[:n_results]]
@@ -537,8 +512,7 @@ class RetrievalService:
             return res
             
         except Exception as e:
-            if self.log_level <= LOG_INFO or self.debug_rag:
-                syslog2(LOG_WARNING, "failed to get chunk embeddings for two_stage_search", error=str(e))
+            syslog2(LOG_WARNING, "failed to get chunk embeddings for two_stage_search", error=str(e))
             return []
     
     def _two_stage_search(
@@ -556,6 +530,7 @@ class RetrievalService:
         Returns:
             List of chunk dictionaries with text and metadata
         """
+        syslog2(LOG_INFO, "two_stage_search start", query_embedding=query_embedding, n_results=n_results)
         # Step 1: Query L2 topics
         l2_ids = self._query_l2_topics(query_embedding)
         if not l2_ids:
@@ -569,6 +544,35 @@ class RetrievalService:
         # Step 3: Fallback to SQLite search
         return self._fallback_sqlite_search(query_embedding, l2_ids, n_results)
 
+    def _log_chunk_distances(self, chunk_id: str, distance: float, similarity: float, idx: int = 0, metadata: Optional[Dict] = None):
+        """
+        Log chunk distance and similarity information.
+        
+        Args:
+            chunk_id: Chunk ID
+            distance: Distance value
+            similarity: Similarity value
+            idx: Index in results (for logging)
+            metadata: Optional metadata dictionary (for debug logging)
+        """
+        syslog2(
+            LOG_DEBUG,
+            "rag process_chunk_result distance",
+            idx=idx,
+            chunk_id=chunk_id,
+            distance=distance,
+            similarity=similarity,
+        )
+        
+        if self.debug_rag and metadata:
+            syslog2(
+                LOG_DEBUG,
+                "rag process_chunk_result details",
+                idx=idx,
+                chunk_id=chunk_id,
+                metadata=metadata,
+            )
+    
     def _process_chunk_results(self, chunk_results: Dict, query_embedding: List[float]) -> List[Dict]:
         """Process chunk results from chroma query."""
         if not chunk_results or not chunk_results.get("ids") or not chunk_results["ids"][0]:
@@ -583,28 +587,12 @@ class RetrievalService:
         for i, chunk_id in enumerate(ids):
             distance = distances[i] if i < len(distances) else 0
             original_distances.append((chunk_id, float(distance)))
-            similarity = self._convert_distance_to_similarity(distance)
+            similarity = distance_to_similarity(distance)
             similarities.append((chunk_id, similarity))
             
-            # Always log distance for processed chunk results
-            syslog2(
-                LOG_ALERT,
-                "rag process_chunk_result distance",
-                idx=i,
-                chunk_id=chunk_id,
-                distance=distance,
-                similarity=similarity,
-            )
-            
-            if self.debug_rag:
-                metadata = metadatas[i] if i < len(metadatas) else {}
-                syslog2(
-                    LOG_DEBUG,
-                    "rag process_chunk_result details",
-                    idx=i,
-                    chunk_id=chunk_id,
-                    metadata=metadata,
-                )
+            # Log distance and similarity
+            metadata = metadatas[i] if i < len(metadatas) else {}
+            self._log_chunk_distances(chunk_id, distance, similarity, idx=i, metadata=metadata if self.debug_rag else None)
         
         return self._get_chunks_by_ids(ids, similarities, original_distances)
 
@@ -630,7 +618,7 @@ class RetrievalService:
 
                 if self.debug_rag:
                     # Build chunk dict first to get metadata with topics
-                    temp_dict = self._build_chunk_dict(
+                    temp_dict = build_chunk_dict_from_model(
                         chunk,
                         similarity,
                         distance=original_distance,
@@ -649,7 +637,7 @@ class RetrievalService:
                     )
                     self._debug_log_chunk_messages(session, chunk)
                 
-                result_item = self._build_chunk_dict(
+                result_item = build_chunk_dict_from_model(
                     chunk, 
                     similarity, 
                     distance=original_distance, 
@@ -777,9 +765,41 @@ class RetrievalService:
         
         return query_emb
     
-    def _select_search_mode(self, query_emb: List[float], n_results: int) -> List[Dict]:
+    def _execute_two_stage_search(self, query_emb: List[float], n_results: int) -> Optional[List[Dict]]:
         """
-        Select search mode (two_stage or direct) and execute search.
+        Execute two-stage search mode.
+        
+        Args:
+            query_emb: Query embedding vector
+            n_results: Number of results to return
+            
+        Returns:
+            List of chunk dictionaries if successful, None if no results found
+        """
+        syslog2(LOG_DEBUG, "using two_stage search mode")
+        
+        two_stage_results = self._two_stage_search(query_emb, n_results=self.chunk_top_k)
+        
+        if two_stage_results:
+            if self.debug_rag:
+                syslog2(LOG_DEBUG, "two_stage search returned results", count=len(two_stage_results))
+                for idx, item in enumerate(two_stage_results[:n_results]):
+                    syslog2(
+                        LOG_DEBUG,
+                        "rag result two_stage top",
+                        idx=idx,
+                        chunk_id=item["id"],
+                        score=item.get("score", 0.0),
+                        source=item.get("source", ""),
+                    )
+            return two_stage_results[:n_results]
+        else:
+            syslog2(LOG_DEBUG, "two_stage search found nothing, falling back to direct search")
+            return None
+    
+    def _execute_direct_search(self, query_emb: List[float], n_results: int) -> List[Dict]:
+        """
+        Execute direct search mode.
         
         Args:
             query_emb: Query embedding vector
@@ -788,30 +808,6 @@ class RetrievalService:
         Returns:
             List of chunk dictionaries
         """
-        if self.search_mode == "two_stage":
-            if self.log_level <= LOG_INFO or self.debug_rag:
-                syslog2(LOG_DEBUG, "using two_stage search mode")
-            
-            two_stage_results = self._two_stage_search(query_emb, n_results=self.chunk_top_k)
-            
-            if two_stage_results:
-                if self.debug_rag:
-                    syslog2(LOG_DEBUG, "two_stage search returned results", count=len(two_stage_results))
-                    for idx, item in enumerate(two_stage_results[:n_results]):
-                        syslog2(
-                            LOG_DEBUG,
-                            "rag result two_stage top",
-                            idx=idx,
-                            chunk_id=item["id"],
-                            score=item.get("score", 0.0),
-                            source=item.get("source", ""),
-                        )
-                return two_stage_results[:n_results]
-            else:
-                if self.log_level <= LOG_INFO or self.debug_rag:
-                    syslog2(LOG_DEBUG, "two_stage search found nothing, falling back to direct search")
-        
-        # Direct search fallback or default mode
         if self.debug_rag:
             collection_count = self.vector_store.collection.count()
             syslog2(LOG_DEBUG, "searching vector store", 
@@ -848,10 +844,9 @@ class RetrievalService:
             try:
                 for i, chunk_id in enumerate(ids):
                     distance = distances[i] if i < len(distances) else 0
-                    similarity = self._convert_distance_to_similarity(distance)
+                    similarity = distance_to_similarity(distance)
                     
-                    if self.log_level <= LOG_DEBUG or self.debug_rag:
-                        syslog2(LOG_DEBUG, "chunk similarity", chunk_id=chunk_id, distance=distance, similarity=similarity)
+                    syslog2(LOG_DEBUG, "chunk similarity", chunk_id=chunk_id, distance=distance, similarity=similarity)
                     
                     db_chunk = session.query(ChunkModel)\
                         .options(joinedload(ChunkModel.topic_l1), joinedload(ChunkModel.topic_l2))\
@@ -877,12 +872,31 @@ class RetrievalService:
                             self._debug_log_chunk_messages(session, db_chunk)
                         
                         vector_chunks.append(
-                            self._build_chunk_dict(db_chunk, similarity, distance=distance, source="vector")
+                            build_chunk_dict_from_model(db_chunk, similarity, distance=distance, source="vector")
                         )
             finally:
                 session.close()
         
         return vector_chunks
+    
+    def _select_search_mode(self, query_emb: List[float], n_results: int) -> List[Dict]:
+        """
+        Select search mode (two_stage or direct) and execute search.
+        
+        Args:
+            query_emb: Query embedding vector
+            n_results: Number of results to return
+            
+        Returns:
+            List of chunk dictionaries
+        """
+        if self.search_mode == "two_stage":
+            two_stage_results = self._execute_two_stage_search(query_emb, n_results)
+            if two_stage_results is not None:
+                return two_stage_results
+        
+        # Direct search fallback or default mode
+        return self._execute_direct_search(query_emb, n_results)
     
     def _merge_retrieval_results(
         self, 
@@ -949,78 +963,588 @@ class RetrievalService:
         
         return final_chunks[:n_results]
     
+    def _get_chunks_from_direct_query(self, query_emb: List[float], n_results: int, source: str = "direct") -> List[Dict]:
+        """
+        Get full chunk data from direct vector search.
+        
+        Args:
+            query_emb: Query embedding vector
+            n_results: Number of results to return
+            source: Source identifier for chunks
+            
+        Returns:
+            List of chunk dictionaries with id, text, metadata, distance, source
+        """
+        syslog2(LOG_INFO, "direct chunk query start",  n_results=n_results, source=source)
+        vector_results = self._direct_chunk_query(query_emb, n_results)
+        
+        if not vector_results.get("ids") or not vector_results["ids"][0]:
+            return []
+        
+        ids = vector_results["ids"][0]
+        distances = vector_results.get("distances", [[]])[0] if vector_results.get("distances") else []
+        
+        if self.debug_rag:
+            syslog2(LOG_DEBUG, "direct query results", ids_count=len(ids), distances_count=len(distances))
+        
+        chunks: List[Dict] = []
+        session = self.db.get_session()
+        
+        try:
+            for i, chunk_id in enumerate(ids):
+                distance = float(distances[i]) if i < len(distances) else float('inf')
+                
+                db_chunk = session.query(ChunkModel)\
+                    .options(joinedload(ChunkModel.topic_l1), joinedload(ChunkModel.topic_l2))\
+                    .filter_by(id=chunk_id).first()
+                
+                if db_chunk:
+                    # Build chunk dict with distance
+                    chunk_dict = build_chunk_dict_from_model(
+                        db_chunk,
+                        similarity=distance_to_similarity(distance),
+                        distance=distance,
+                        source=source
+                    )
+                    # Ensure distance is in the result
+                    chunk_dict["distance"] = distance
+                    chunks.append(chunk_dict)
+        finally:
+            session.close()
+        
+        return chunks
+    
+    def _search_with_rephrased_query(self, raw_query: str, rephrased_query: str, n_results: int) -> Tuple[List[Dict], List[Dict]]:
+        """
+        Search chunks using both raw and rephrased queries.
+        
+        Args:
+            raw_query: Original query string
+            rephrased_query: Rephrased query string
+            n_results: Number of results to return per query
+            
+        Returns:
+            Tuple of (rephrased_results, raw_results) lists
+        """
+        rephrased_results: List[Dict] = []
+        try:
+            rephrased_emb = self._compute_query_embedding(rephrased_query)
+            if rephrased_emb:
+                rephrased_results = self._get_chunks_from_direct_query(
+                    rephrased_emb, 
+                    n_results * 2, 
+                    source="rephrased"
+                )
+        except Exception as e:
+            syslog2(LOG_WARNING, "rephrased query search failed", error=str(e))
+        
+        if self.debug_rag:
+            syslog2(LOG_DEBUG, "rephrased query search results", count=len(rephrased_results))
+        
+        raw_results: List[Dict] = []
+        try:
+            raw_emb = self._compute_query_embedding(raw_query)
+            if raw_emb:
+                raw_results = self._get_chunks_from_direct_query(
+                    raw_emb,
+                    n_results * 2,
+                    source="raw"
+                )
+        except Exception as e:
+            syslog2(LOG_WARNING, "raw query search failed", error=str(e))
+        
+        if self.debug_rag:
+            syslog2(LOG_DEBUG, "raw query search results", count=len(raw_results))
+        
+        return rephrased_results, raw_results
+    
+    def _merge_search_results_by_distance(self, *result_lists: List[Dict]) -> List[Dict]:
+        """
+        Merge multiple result lists, removing duplicates and keeping the best distance.
+        
+        Args:
+            *result_lists: Variable number of result lists to merge
+            
+        Returns:
+            Merged list of results with duplicates removed (keeping best distance)
+        """
+        all_chunks: Dict[str, Dict] = {}
+        
+        for item in [item for result_list in result_lists for item in result_list]:
+            chunk_id = item.get("id")
+            if not chunk_id:
+                continue
+            
+            distance = float(item.get("distance", float('inf')))
+            
+            if chunk_id not in all_chunks:
+                all_chunks[chunk_id] = item
+            else:
+                # Keep result with smaller distance
+                existing_distance = float(all_chunks[chunk_id].get("distance", float('inf')))
+                if distance < existing_distance:
+                    all_chunks[chunk_id] = item
+        
+        merged_results = list(all_chunks.values())
+        
+        if self.debug_rag:
+            syslog2(LOG_DEBUG, "merged results after merging", count=len(merged_results))
+        
+        return merged_results
+    
+    def _convert_to_distance_format(self, item: Dict) -> float:
+        """
+        Convert item to distance format. Extract distance from item or convert from score.
+        
+        Args:
+            item: Dictionary with 'distance' or 'score' field
+            
+        Returns:
+            Distance value (float)
+        """
+        if "distance" in item:
+            return float(item["distance"])
+        elif "score" in item:
+            # Convert similarity score to distance
+            score = float(item.get("score", 0.0))
+            return 1.0 - score
+        else:
+            # No distance or score available, set to infinity
+            return float('inf')
+    
+    def _convert_results_to_distance_format(self, results: List[Dict], source_prefix: str = "") -> List[Dict]:
+        """
+        Convert results to format with distance field, preserving other fields.
+        
+        Args:
+            results: List of dictionaries (may have 'distance' or 'score' field)
+            source_prefix: Optional prefix for source field
+            
+        Returns:
+            List of dictionaries with distance field (and other fields preserved)
+        """
+        converted = []
+        for item in results:
+            distance = self._convert_to_distance_format(item)
+            
+            converted_item = {
+                "id": item.get("id"),
+                "distance": distance,
+                "text": item.get("text", ""),
+                "metadata": item.get("metadata", {}),
+                "source": f"{source_prefix}{item.get('source', 'unknown')}".lstrip("_") if source_prefix else item.get("source", "unknown")
+            }
+            
+            # Preserve score if it exists
+            if "score" in item:
+                converted_item["score"] = item["score"]
+            
+            converted.append(converted_item)
+        
+        return converted
+    
+    def _apply_distance_threshold(self, results: List[Dict], threshold: Optional[float]) -> List[Dict]:
+        """
+        Filter results by distance threshold.
+        
+        Args:
+            results: List of result dictionaries
+            threshold: Maximum distance threshold (None = no filtering)
+            
+        Returns:
+            Filtered list of results
+        """
+        if threshold is None:
+            return results
+        
+        original_count = len(results)
+        filtered = [
+            item for item in results 
+            if self._convert_to_distance_format(item) <= threshold
+        ]
+        
+        if self.debug_rag:
+            syslog2(LOG_DEBUG, "threshold filtering", 
+                   threshold=threshold,
+                   original_count=original_count,
+                   filtered_count=len(filtered))
+        
+        return filtered
+    
+    def _apply_rag_ntop_limit(self, results: List[Dict]) -> List[Dict]:
+        """
+        Apply rag_ntop limit to results.
+        
+        Args:
+            results: List of result dictionaries
+            
+        Returns:
+            Limited list of results (if rag_ntop > 0)
+        """
+        if self.rag_ntop > 0:
+            original_count = len(results)
+            limited = results[:self.rag_ntop]
+            if self.debug_rag:
+                syslog2(LOG_DEBUG, "rag ntop limit applied", 
+                       original_count=original_count, 
+                       limited_count=len(limited), 
+                       rag_ntop=self.rag_ntop)
+            return limited
+        return results
+    
+    def _apply_post_search_filters(
+        self, 
+        results: List[Dict], 
+        distance_threshold: Optional[float] = None,
+        convert_to_distance: bool = False,
+        source_prefix: str = ""
+    ) -> List[Dict]:
+        """
+        Apply post-search filters: convert to distance format, sort, filter by threshold, apply rag_ntop.
+        
+        Args:
+            results: List of result dictionaries
+            distance_threshold: Maximum distance threshold (None = no filtering)
+            convert_to_distance: If True, convert results to distance format
+            source_prefix: Optional prefix for source field when converting
+            
+        Returns:
+            Filtered and sorted list of results
+        """
+        # Convert to distance format if needed
+        if convert_to_distance:
+            results = self._convert_results_to_distance_format(results, source_prefix=source_prefix)
+        
+        # Sort by distance (ascending)
+        results.sort(key=lambda x: self._convert_to_distance_format(x))
+        
+        # Filter by distance threshold
+        if distance_threshold is not None:
+            results = self._apply_distance_threshold(results, distance_threshold)
+        
+        # Apply rag_ntop limit
+        results = self._apply_rag_ntop_limit(results)
+        
+        return results
+    
+    def _execute_rephrased_search(self, query: str, llm_client: LLMClient, n_results: int) -> List[Dict]:
+        """
+        Execute search with query rephrasing.
+        
+        Args:
+            query: Original query string
+            llm_client: LLMClient for rephrasing
+            n_results: Number of results to return
+            
+        Returns:
+            List of merged search results
+        """
+        # Step 1: Rephrase query
+        rephrased = self._rephrase_query_for_rag(query, llm_client)
+        raw_query = rephrased["raw_query"]
+        rephrased_rag_query = rephrased["rephrased_rag_query"]
+        
+        if self.debug_rag:
+            syslog2(LOG_DEBUG, "rephrasing result", raw_query=raw_query, rephrased_rag_query=rephrased_rag_query)
+        
+        # Step 2-3: Search using both queries
+        rephrased_results, raw_results = self._search_with_rephrased_query(
+            raw_query, rephrased_rag_query, n_results
+        )
+        
+        # Step 4: Merge results
+        return self._merge_search_results_by_distance(rephrased_results, raw_results)
+    
+    def _execute_direct_search(self, query: str, n_results: int) -> List[Dict]:
+        """
+        Execute direct search without rephrasing.
+        
+        Args:
+            query: Query string
+            n_results: Number of results to return
+            
+        Returns:
+            List of search results
+        """
+        query_emb = self._compute_query_embedding(query)
+        if not query_emb:
+            return []
+        
+        return self._get_chunks_from_direct_query(query_emb, n_results * 2, source="direct")
+    
     def retrieve(
         self, 
         query: str, 
         n_results: int = 5, 
         score_threshold: float = 0.5,
-        use_topics: Optional[bool] = None
+        use_topics: Optional[bool] = None,
+        llm_client: Optional[LLMClient] = None
     ) -> List[Dict]:
         """
-        Retrieve relevant chunks for a given query using hybrid vector + topic search.
+        Retrieve relevant chunks for a given query using direct vector search.
+        
+        If llm_client is provided, uses query rephrasing: searches with both
+        rephrased and original queries, then merges and sorts results by distance.
         
         Args:
             query: User query string.
-            n_results: Number of results to return.
-            score_threshold: Minimum similarity score for vector search.
-            use_topics: Override use_topic_retrieval setting (None = use instance setting)
+            n_results: Number of results to return (before filtering).
+            score_threshold: Minimum similarity score for vector search (deprecated, kept for compatibility).
+            use_topics: Override use_topic_retrieval setting (deprecated, kept for compatibility).
+            llm_client: Optional LLMClient for query rephrasing. If provided, uses rephrasing logic.
                              
         Returns:
-            List of dictionaries containing chunk text and metadata.
+            List of dictionaries containing chunk text, metadata, and distance.
+            Results are sorted by distance (ascending) and limited by rag_ntop if set.
         """
-        use_topics = use_topics if use_topics is not None else self.use_topic_retrieval
+        syslog2(LOG_INFO, "retrieval query", query=query, n_results=n_results, has_llm_client=llm_client is not None)
         
-        if self.log_level <= LOG_INFO or self.debug_rag:
-            syslog2(LOG_DEBUG, "retrieval query", query=query, use_topics=use_topics, mode=self.search_mode, n_results=n_results)
+        # Execute search (with or without rephrasing)
+        if llm_client is not None:
+            merged_results = self._execute_rephrased_search(query, llm_client, n_results)
+        else:
+            merged_results = self._execute_direct_search(query, n_results)
         
-        # Step 1: Compute query embedding
-        query_emb = self._compute_query_embedding(query)
-        if not query_emb:
-            return []
+        # Step 5-6: Apply post-search filters (sort, rag_ntop limit)
+        merged_results = self._apply_post_search_filters(merged_results)
         
-        # Step 2: Select search mode and get vector chunks
-        vector_chunks = self._select_search_mode(query_emb, n_results)
+        syslog2(LOG_DEBUG, "retrieval complete", final_count=len(merged_results))
         
-        # Step 3: Get topic-based chunks if enabled
-        topic_chunks: List[Dict] = []
-        if use_topics:
-            if self.debug_rag:
-                syslog2(LOG_DEBUG, "searching topics")
+        return merged_results
+    
+    def _rephrase_query_for_rag(self, query: str, llm_client: LLMClient) -> Dict[str, str]:
+        """
+        Rephrase query using LLM to improve embedding accuracy for RAG search.
+        
+        Args:
+            query: Original user query
+            llm_client: LLMClient instance for rephrasing
             
-            similar_l1 = self._find_similar_topics(
-                query_emb, 
-                topic_type="l1", 
-                n_topics=2,
-                similarity_threshold=0.5
-            )
-            similar_l2 = self._find_similar_topics(
-                query_emb,
-                topic_type="l2",
-                n_topics=1,
-                similarity_threshold=0.5
-            )
+        Returns:
+            Dictionary with 'raw_query' and 'rephrased_rag_query' keys
+        """
+        syslog2(LOG_DEBUG, "rephrasing query start", query=query)
+        
+        try:
+            # Format prompt
+            prompt = REPHRASING_PROMPT_TEMPLATE.format(query=query)
             
-            if similar_l1 or similar_l2:
-                topic_ids_l1 = [tid for tid, _ in similar_l1]
-                topic_ids_l2 = [tid for tid, _ in similar_l2]
-                
-                if self.debug_rag:
-                    syslog2(LOG_DEBUG, "found similar topics", l1_count=len(topic_ids_l1), l2_count=len(topic_ids_l2))
-                
-                topic_chunks = self._retrieve_chunks_from_topics(
-                    topic_ids_l1=topic_ids_l1,
-                    topic_ids_l2=topic_ids_l2,
-                    max_chunks_per_topic=3
-                )
+            # Call LLM
+            messages = [
+                {"role": "user", "content": prompt}
+            ]
+            
+            # Log LLM input at LOG_INFO level
+            syslog2(LOG_INFO, "llm rephrasing input", 
+                   messages=messages,
+                   temperature=0.3,
+                   max_tokens=200)
+            
+            response = llm_client.complete(messages, temperature=0.3, max_tokens=200)
+            
+            # Log LLM output at LOG_INFO level
+            syslog2(LOG_INFO, "llm rephrasing output", response=response)
+            
+            
+            # Parse JSON response
+            # Try to extract JSON from response (might have markdown code blocks)
+            response_clean = response.strip()
+            if response_clean.startswith("```"):
+                # Remove markdown code blocks
+                lines = response_clean.split("\n")
+                json_start = None
+                json_end = None
+                for i, line in enumerate(lines):
+                    if line.strip().startswith("```"):
+                        if json_start is None:
+                            json_start = i + 1
+                        else:
+                            json_end = i
+                            break
+                if json_start is not None and json_end is not None:
+                    response_clean = "\n".join(lines[json_start:json_end])
+            
+            # Try to find JSON object in response
+            json_start = response_clean.find("{")
+            json_end = response_clean.rfind("}")
+            if json_start != -1 and json_end != -1 and json_end > json_start:
+                response_clean = response_clean[json_start:json_end + 1]
+            
+            parsed = json.loads(response_clean)
+            
+            raw_query = parsed.get("raw_query", query)
+            rephrased_rag_query = parsed.get("rephrased_rag_query", query)
+            
+            syslog2(LOG_DEBUG, "rephrasing query success", 
+                   raw_query=raw_query, 
+                   rephrased_rag_query=rephrased_rag_query)
+            
+            return {
+                "raw_query": raw_query,
+                "rephrased_rag_query": rephrased_rag_query
+            }
+            
+        except json.JSONDecodeError as e:
+            syslog2(LOG_WARNING, "rephrasing json parse failed", error=str(e), response=response if 'response' in locals() else "N/A")
+            # Fallback: use original query for both
+            return {
+                "raw_query": query,
+                "rephrased_rag_query": query
+            }
+        except Exception as e:
+            syslog2(LOG_WARNING, "rephrasing failed", error=str(e))
+            # Fallback: use original query for both
+            return {
+                "raw_query": query,
+                "rephrased_rag_query": query
+            }
+    
+    def _convert_retrieve_results_to_distance_format(self, retrieve_results: List[Dict]) -> List[Dict]:
+        """
+        Convert retrieve() results to format with distance field.
         
-        # Step 4: Merge results
-        merged_results = self._merge_retrieval_results(vector_chunks, topic_chunks, n_results)
+        Args:
+            retrieve_results: List of dictionaries from retrieve() method
+            
+        Returns:
+            List of dictionaries with distance field (and other fields preserved)
+        """
+        return self._convert_results_to_distance_format(retrieve_results)
+    
+    def search_chunks_rephrased(
+        self,
+        query: str,
+        llm_client: LLMClient,
+        n_results: int = 5,
+        cosine_distance_thr: Optional[float] = None,
+        use_topics: Optional[bool] = None
+    ) -> List[Dict]:
+        """
+        Search chunks using rephrased query for improved embedding accuracy.
         
-        # Step 5: Apply ntop limit if rag_ntop > 0
-        if self.rag_ntop > 0:
-            original_count = len(merged_results)
-            merged_results = merged_results[:self.rag_ntop]
-            if self.debug_rag:
-                syslog2(LOG_DEBUG, "rag ntop limit applied", original_count=original_count, limited_count=len(merged_results), rag_ntop=self.rag_ntop)
+        This method:
+        1. Rephrases the query using LLM
+        2. Performs search using rephrased query
+        3. Performs search using raw query (via retrieve())
+        4. Merges results, removes duplicates, sorts by distance
+        5. Filters by cosine_distance_thr
+        6. Applies rag_ntop limit
+        
+        Args:
+            query: Original user query
+            llm_client: LLMClient instance for rephrasing
+            n_results: Number of results to return (before filtering)
+            cosine_distance_thr: Maximum distance threshold (None = no filtering)
+            use_topics: Override use_topic_retrieval setting (None = use instance setting)
+            
+        Returns:
+            List of chunk dictionaries with id, text, metadata, distance, source
+            Sorted by distance (ascending)
+        """
+        syslog2(LOG_DEBUG, "search_chunks_rephrased start", 
+               query=query, 
+               n_results=n_results,
+               cosine_distance_thr=cosine_distance_thr)
+        
+        # Step 1: Rephrase query
+        rephrased = self._rephrase_query_for_rag(query, llm_client)
+        raw_query = rephrased["raw_query"]
+        rephrased_rag_query = rephrased["rephrased_rag_query"]
+        
+        # Step 2: Search using rephrased query
+        rephrased_results: List[Dict] = []
+        try:
+            # Compute embedding for rephrased query
+            rephrased_emb = self._compute_query_embedding(rephrased_rag_query)
+            if rephrased_emb:
+                # Get vector chunks using rephrased query
+                use_topics_local = use_topics if use_topics is not None else self.use_topic_retrieval
+                vector_chunks = self._select_search_mode(rephrased_emb, n_results * 2)
+                
+                # Get topic-based chunks if enabled
+                topic_chunks: List[Dict] = []
+                if use_topics_local:
+                    similar_l1 = self._find_similar_topics(
+                        rephrased_emb,
+                        topic_type="l1",
+                        n_topics=2,
+                        similarity_threshold=0.5
+                    )
+                    similar_l2 = self._find_similar_topics(
+                        rephrased_emb,
+                        topic_type="l2",
+                        n_topics=1,
+                        similarity_threshold=0.5
+                    )
+                    
+                    if similar_l1 or similar_l2:
+                        topic_ids_l1 = [tid for tid, _ in similar_l1]
+                        topic_ids_l2 = [tid for tid, _ in similar_l2]
+                        topic_chunks = self._retrieve_chunks_from_topics(
+                            topic_ids_l1=topic_ids_l1,
+                            topic_ids_l2=topic_ids_l2,
+                            max_chunks_per_topic=3
+                        )
+                
+                # Merge results
+                merged_rephrased = self._merge_retrieval_results(vector_chunks, topic_chunks, n_results * 2)
+                
+                # Convert to distance format
+                rephrased_results = self._convert_results_to_distance_format(merged_rephrased, source_prefix="rephrased_")
+        except Exception as e:
+            syslog2(LOG_WARNING, "rephrased query search failed", error=str(e))
+        
+        if self.debug_rag:
+            syslog2(LOG_DEBUG, "rephrased query search results", count=len(rephrased_results))
+        
+        # Step 3: Search using raw query via retrieve()
+        raw_results: List[Dict] = []
+        try:
+            retrieve_results = self.retrieve(
+                raw_query,
+                n_results=n_results * 2,
+                use_topics=use_topics
+            )
+            raw_results = self._convert_retrieve_results_to_distance_format(retrieve_results)
+        except Exception as e:
+            syslog2(LOG_WARNING, "raw query search failed", error=str(e))
+        
+        if self.debug_rag:
+            syslog2(LOG_DEBUG, "raw query search results", count=len(raw_results))
+        
+        # Step 4: Merge results, remove duplicates, keep best distance
+        all_chunks: Dict[str, Dict] = {}
+        
+        for item in rephrased_results + raw_results:
+            chunk_id = item.get("id")
+            if not chunk_id:
+                continue
+            
+            distance = float(item.get("distance", float('inf')))
+            
+            if chunk_id not in all_chunks:
+                all_chunks[chunk_id] = item
+            else:
+                # Keep result with smaller distance
+                existing_distance = float(all_chunks[chunk_id].get("distance", float('inf')))
+                if distance < existing_distance:
+                    all_chunks[chunk_id] = item
+        
+        merged_results = list(all_chunks.values())
+        
+        if self.debug_rag:
+            syslog2(LOG_DEBUG, "merged results", count=len(merged_results))
+        
+        # Step 5-7: Apply post-search filters (sort, threshold, rag_ntop limit)
+        merged_results = self._apply_post_search_filters(
+            merged_results,
+            distance_threshold=cosine_distance_thr,
+            convert_to_distance=False  # Already in distance format
+        )
+        
+        syslog2(LOG_DEBUG, "search_chunks_rephrased complete", 
+               final_count=len(merged_results),
+               rephrased_count=len(rephrased_results),
+               raw_count=len(raw_results))
         
         return merged_results

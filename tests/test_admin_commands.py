@@ -2,25 +2,25 @@
 Tests for Admin Commands.
 """
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import Mock, AsyncMock, patch
 from src.bot.admin_commands import SettingsCommands, ControlCommands, HelpCommands, ProfileCommands, StatsCommands, IngestCommands
 
 @pytest.fixture
 def mock_context():
     # Helper to create update/context/manager mocks
-    update = MagicMock()
+    update = Mock()
     update.message.chat_id = 123
     update.message.from_user.id = 1
     update.message.reply_text = AsyncMock()
     
-    context = MagicMock()
+    context = Mock()
     
-    admin_manager = MagicMock()
-    admin_manager.config = MagicMock()
+    admin_manager = Mock()
+    admin_manager.config = Mock()
     admin_manager.config.allowed_chats = []
     admin_manager.config.response_frequency = 1
     
-    profile_manager = MagicMock()
+    profile_manager = Mock()
     
     return update, context, admin_manager, profile_manager
 
@@ -131,22 +131,22 @@ class TestProfileCommands:
         update, context, admin_manager, pm = mock_context
         
         # Mock profiles directory structure
-        p1 = MagicMock()
+        p1 = Mock()
         p1.name = "default"
         p1.is_dir.return_value = True
         
         # Mock p1 / "legale_bot.db"
-        db_mock1 = MagicMock()
+        db_mock1 = Mock()
         db_mock1.exists.return_value = True
         db_mock1.stat.return_value.st_size = 5000000 # 5 MB
         p1.__truediv__.return_value = db_mock1
         
-        p2 = MagicMock()
+        p2 = Mock()
         p2.name = "test_profile"
         p2.is_dir.return_value = True
         
         # Mock p2 / "legale_bot.db" (not exists)
-        db_mock2 = MagicMock()
+        db_mock2 = Mock()
         db_mock2.exists.return_value = False
         p2.__truediv__.return_value = db_mock2
         
@@ -228,10 +228,10 @@ class TestProfileCommands:
         pm.get_current_profile.return_value = "active"
         
         # Mock profile dir and db
-        profile_dir = MagicMock()
+        profile_dir = Mock()
         profile_dir.exists.return_value = True
         
-        db_mock = MagicMock()
+        db_mock = Mock()
         db_mock.exists.return_value = True
         db_mock.stat.return_value.st_size = 1024 * 1024 * 10 # 10 MB
         profile_dir.__truediv__.return_value = db_mock
@@ -260,16 +260,16 @@ class TestStatsCommands:
         
         # Mock paths
         pm.get_current_profile.return_value = "test_prof"
-        db_path = MagicMock()
+        db_path = Mock()
         db_path.exists.return_value = False # Simple case without DB
         
-        profile_dir = MagicMock()
+        profile_dir = Mock()
         profile_dir.__str__.return_value = '/tmp/profile' 
         
         pm.get_profile_paths.return_value = {
             'profile_dir': profile_dir,
             'db_path': db_path,
-            'vector_db_path': MagicMock()
+            'vector_db_path': Mock()
         }
         
         # Mock psutil
@@ -295,9 +295,9 @@ class TestStatsCommands:
         update, context, admin_manager, pm = mock_context
         
         pm.get_profile_paths.return_value = {
-            'db_path': MagicMock(),
-            'vector_db_path': MagicMock(),
-            'profile_dir': MagicMock()
+            'db_path': Mock(),
+            'vector_db_path': Mock(),
+            'profile_dir': Mock()
         }
         pm.get_profile_paths.return_value['db_path'].exists.return_value = True
         pm.get_profile_paths.return_value['vector_db_path'].exists.return_value = True
@@ -321,7 +321,7 @@ class TestIngestCommands:
     async def test_ingest_status_no_task(self, mock_context):
         update, context, admin_manager, pm = mock_context
         
-        tm = MagicMock()
+        tm = Mock()
         tm.get_current_task.return_value = None
         
         ingest = IngestCommands(pm, tm)
@@ -333,12 +333,12 @@ class TestIngestCommands:
     async def test_ingest_status_running(self, mock_context):
         update, context, admin_manager, pm = mock_context
         
-        task = MagicMock()
+        task = Mock()
         task.status = "running"
         task.progress = 50
         task.total = 100
         
-        tm = MagicMock()
+        tm = Mock()
         tm.get_current_task.return_value = task
         
         ingest = IngestCommands(pm, tm)
@@ -351,13 +351,13 @@ class TestIngestCommands:
     async def test_handle_file_upload_success(self, mock_context):
         update, context, admin_manager, pm = mock_context
         # Setup update with document
-        update.message.document = MagicMock()
+        update.message.document = Mock()
         update.message.document.file_name = "chat_export.json"
         update.message.document.file_size = 1024
         update.message.document.file_id = "file123"
         
-        tm = MagicMock()
-        task = MagicMock()
+        tm = Mock()
+        task = Mock()
         tm.start_ingestion.return_value = task
         
         ingest = IngestCommands(pm, tm)
@@ -365,7 +365,7 @@ class TestIngestCommands:
         ingest.waiting_for_file[1] = True
         
         # Mock file download
-        file_mock = MagicMock()
+        file_mock = Mock()
         file_mock.download_to_drive = AsyncMock()
         context.bot.get_file = AsyncMock(return_value=file_mock)
         
@@ -393,10 +393,12 @@ class TestIngestCommands:
     @pytest.mark.asyncio
     async def test_handle_file_upload_not_waiting(self, mock_context):
         update, context, admin_manager, pm = mock_context
-        tm = MagicMock()
+        tm = Mock()
         ingest = IngestCommands(pm, tm)
         
-        # User not in dict
+        # User not in dict - should return None early
+        # Need to set document to avoid AttributeError
+        update.message.document = Mock()
         res = await ingest.handle_file_upload(update, context, admin_manager)
         assert res is None
 
@@ -426,7 +428,7 @@ class TestProfileCommands:
         (profile_dir / "admin.json").write_text('{"user_id": 1}')
         
         # Mock db_stats
-        db_stats = MagicMock()
+        db_stats = Mock()
         db_stats.get_database_stats.return_value = {
             'exists': True,
             'size_mb': 0.001,
@@ -438,11 +440,11 @@ class TestProfileCommands:
         }
         
         # Mock formatter
-        formatter = MagicMock()
+        formatter = Mock()
         formatter.format_number.return_value = "100"
         
         # Mock validator
-        validator = MagicMock()
+        validator = Mock()
         validator.validate_profile_exists.return_value = (True, None)
         
         profile_cmd = ProfileCommands(pm)
@@ -478,12 +480,12 @@ class TestProfileCommands:
         profile_dir = tmp_path / "test_profile"
         profile_dir.mkdir()
         
-        db_stats = MagicMock()
+        db_stats = Mock()
         db_stats.get_database_stats.return_value = {'exists': False}
         db_stats.get_vector_store_stats.return_value = {'exists': False}
         
-        formatter = MagicMock()
-        validator = MagicMock()
+        formatter = Mock()
+        validator = Mock()
         validator.validate_profile_exists.return_value = (True, None)
         
         profile_cmd = ProfileCommands(pm)
@@ -532,10 +534,10 @@ class TestStatsCommands:
                 'profile_dir': profile_dir
             }
         
-        formatter = MagicMock()
+        formatter = Mock()
         formatter.format_info_message.return_value = "Info message"
         
-        validator = MagicMock()
+        validator = Mock()
         validator.validate_log_lines.return_value = (True, 50, None)
         
         stats_cmd = StatsCommands(pm)
@@ -566,7 +568,7 @@ class TestStatsCommands:
                 'profile_dir': profile_dir
             }
         
-        formatter = MagicMock()
+        formatter = Mock()
         formatter.format_info_message.return_value = "Log file not found"
         
         stats_cmd = StatsCommands(pm)
@@ -595,8 +597,8 @@ class TestStatsCommands:
                 'profile_dir': profile_dir
             }
         
-        formatter = MagicMock()
-        validator = MagicMock()
+        formatter = Mock()
+        validator = Mock()
         validator.validate_log_lines.return_value = (True, 50, None)  # Default
         
         stats_cmd = StatsCommands(pm)
@@ -629,8 +631,8 @@ class TestStatsCommands:
                 'profile_dir': profile_dir
             }
         
-        formatter = MagicMock()
-        validator = MagicMock()
+        formatter = Mock()
+        validator = Mock()
         validator.validate_log_lines.return_value = (True, 100, None)
         
         stats_cmd = StatsCommands(pm)
@@ -650,7 +652,7 @@ class TestStatsCommands:
         """Test show_logs with invalid lines parameter."""
         update, context, admin_manager, pm = mock_context
         
-        validator = MagicMock()
+        validator = Mock()
         validator.validate_log_lines.return_value = (False, None, "Invalid lines parameter")
         
         stats_cmd = StatsCommands(pm)

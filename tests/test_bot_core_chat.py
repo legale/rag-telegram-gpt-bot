@@ -3,7 +3,7 @@ Tests for LegaleBot chat flow functionality.
 """
 
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 from src.bot.core import LegaleBot
 from src.core.syslog2 import LOG_WARNING, LOG_INFO
 
@@ -19,16 +19,16 @@ def mock_dependencies():
          patch('src.bot.core.PromptEngine') as mock_pe:
         
         # Setup mocks
-        mock_llm_instance = MagicMock()
+        mock_llm_instance = Mock()
         mock_llm_instance.count_tokens.return_value = 100
         mock_llm_instance.complete.return_value = "Test response"
         mock_llm.return_value = mock_llm_instance
         
-        mock_rs_instance = MagicMock()
+        mock_rs_instance = Mock()
         mock_rs_instance.retrieve.return_value = ["Context chunk 1", "Context chunk 2"]
         mock_rs.return_value = mock_rs_instance
         
-        mock_pe_instance = MagicMock()
+        mock_pe_instance = Mock()
         mock_pe_instance.construct_prompt.return_value = "System prompt with context"
         mock_pe.return_value = mock_pe_instance
         

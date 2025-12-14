@@ -1,12 +1,12 @@
 
 import pytest
-from unittest.mock import MagicMock, patch, ANY
+from unittest.mock import Mock, patch, ANY
 import os
 import shutil
 import uuid
 from datetime import datetime
 from pathlib import Path
-from src.ingestion.pipeline import IngestionPipeline
+from src.ingestion.pipeline import IngestionPipeline, ConfigurationError, IngestionPipelineError
 from src.storage.db import ChunkModel
 
 @pytest.fixture
@@ -21,7 +21,7 @@ def mock_profile_dir(tmp_path):
 @pytest.fixture
 def mock_dependencies():
     # Create a proper mock embedding client with all needed methods
-    mock_embedding_client = MagicMock()
+    mock_embedding_client = Mock()
     mock_embedding_client.get_embeddings_batched.return_value = [[0.1] * 384]  # Default dimension
     mock_embedding_client.get_dimension.return_value = 384
     mock_embedding_client.get_embeddings.return_value = [[0.1] * 384]
@@ -82,7 +82,7 @@ def test_run_success(pipeline, mock_dependencies):
     # Create a mock file content
     import tempfile
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, dir='/tmp') as f:
-        f.write('{"messages": [{"id": "1", "text": "Hello", "date": "2023-01-01T10:00:00"}]}')
+        f.write('[{"id": "1", "text": "Hello", "date": "2023-01-01T10:00:00", "sender": "User", "content": "Hello"}]')
         temp_file = f.name
     
     try:
@@ -95,22 +95,39 @@ def test_run_success(pipeline, mock_dependencies):
         pipeline.db.add_chunks_batch.return_value = 1    # Returns count of inserted chunks
         
         # Mock database queries
-        mock_session = MagicMock()
+        mock_session = Mock()
         pipeline.db.get_session.return_value = mock_session
         
+        # Mock MessageModel query for parse_and_store_chunks
+        from src.storage.db import MessageModel
+        mock_message_model = Mock()
+        mock_message_model.msg_id = "chat_1"
+        mock_message_model.ts = datetime.now()
+        
         # Mock chunk model query results  
-        mock_chunk_model = MagicMock()
+        mock_chunk_model = Mock()
         mock_chunk_model.id = str(uuid.uuid4())
         mock_chunk_model.text = "chunk text"
         mock_chunk_model.metadata_json = '{"message_count": 1}'
         
-        # Setup query chain
-        mock_query = MagicMock()
-        mock_query.all.return_value = [mock_chunk_model]
-        mock_query.filter.return_value = mock_query
-        mock_query.offset.return_value = mock_query
-        mock_query.limit.return_value = mock_query
-        mock_session.query.return_value = mock_query
+        # Setup query chain - need separate queries for MessageModel and ChunkModel
+        mock_message_query = Mock()
+        mock_message_query.order_by.return_value = mock_message_query
+        mock_message_query.all.return_value = [mock_message_model]
+        
+        mock_chunk_query = Mock()
+        mock_chunk_query.all.return_value = [mock_chunk_model]
+        mock_chunk_query.filter.return_value = mock_chunk_query
+        mock_chunk_query.offset.return_value = mock_chunk_query
+        mock_chunk_query.limit.return_value = mock_chunk_query
+        mock_chunk_query.yield_per.return_value = []  # Empty list for yield_per (no chunks to embed)
+        
+        # Make session.query return different queries based on model
+        def query_side_effect(model):
+            if model == MessageModel:
+                return mock_message_query
+            return mock_chunk_query
+        mock_session.query.side_effect = query_side_effect
         
         # Get the mocked embedding client instance
         mock_embedder_instance = mock_dependencies['embedding_client_instance']
@@ -133,7 +150,7 @@ def test_run_db_error(pipeline, mock_dependencies):
     import os
     # Create a mock file
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, dir='/tmp') as f:
-        f.write('{"messages": [{"id": "1", "text": "Hello", "date": "2023-01-01T10:00:00"}]}')
+        f.write('[{"id": "1", "text": "Hello", "date": "2023-01-01T10:00:00", "sender": "User", "content": "Hello"}]')
         temp_file = f.name
     
     try:
@@ -154,25 +171,42 @@ def test_run_no_chunks_generated(pipeline, mock_dependencies):
     import os
     # Create an empty file that will produce no chunks
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, dir='/tmp') as f:
-        f.write('{"messages": []}')  # Empty messages
+        f.write('[]')  # Empty messages list
         temp_file = f.name
     
     try:
-        # Mock database - return 0 for empty messages
-        pipeline.db.add_messages_batch.return_value = 0
-        pipeline.db.add_chunks_batch.return_value = 0
+        # Mock database - return 1 message but 0 chunks (no chunks generated)
+        pipeline.db.add_messages_batch.return_value = 1  # At least one message saved
+        pipeline.db.add_chunks_batch.return_value = 0    # But no chunks generated
         
         # Mock database queries
-        mock_session = MagicMock()
+        mock_session = Mock()
         pipeline.db.get_session.return_value = mock_session
         
-        # Mock query chain returning empty
-        mock_query = MagicMock()
-        mock_query.all.return_value = []
-        mock_query.filter.return_value = mock_query
-        mock_query.offset.return_value = mock_query
-        mock_query.limit.return_value = mock_query
-        mock_session.query.return_value = mock_query
+        # Mock MessageModel query for parse_and_store_chunks
+        # Return one message so chunks can be processed (but no chunks will be generated)
+        from src.storage.db import MessageModel
+        mock_message_model = Mock()
+        mock_message_model.msg_id = "chat_1"
+        mock_message_model.ts = datetime.now()
+        mock_message_query = Mock()
+        mock_message_query.order_by.return_value = mock_message_query
+        mock_message_query.all.return_value = [mock_message_model]  # One message exists
+        
+        # Mock query chain returning empty for chunks
+        mock_chunk_query = Mock()
+        mock_chunk_query.all.return_value = []
+        mock_chunk_query.filter.return_value = mock_chunk_query
+        mock_chunk_query.offset.return_value = mock_chunk_query
+        mock_chunk_query.limit.return_value = mock_chunk_query
+        mock_chunk_query.yield_per.return_value = []
+        
+        # Make session.query return different queries based on model
+        def query_side_effect(model):
+            if model == MessageModel:
+                return mock_message_query
+            return mock_chunk_query
+        mock_session.query.side_effect = query_side_effect
         
         # Mock vector store
         pipeline.vector_store.get_all_embeddings.return_value = {"ids": []}
@@ -205,9 +239,9 @@ def test_clear_stage1(pipeline):
 def test_clear_stage2(pipeline):
     """Test clearing stage2 (embeddings)."""
     # Mock session.query().update() to return 15
-    mock_session = MagicMock()
-    mock_query = MagicMock()
-    mock_update = MagicMock()
+    mock_session = Mock()
+    mock_query = Mock()
+    mock_update = Mock()
     mock_update.return_value = 15
     mock_query.update.return_value = mock_update()
     mock_session.query.return_value = mock_query
@@ -219,11 +253,15 @@ def test_clear_stage2(pipeline):
 
 def test_clear_stage3(pipeline):
     """Test clearing stage3 (vector_db chunks)."""
-    pipeline.vector_store.count.return_value = 10
-    pipeline.vector_store.clear.return_value = 3
+    # Mock collection.count() method - called twice (before and after)
+    mock_collection = Mock()
+    mock_collection.count.side_effect = [10, 7]  # before, after
+    mock_collection.get.return_value = {"ids": ["chunk1", "chunk2", "chunk3"]}
+    mock_collection.delete.return_value = None
+    pipeline.vector_store.collection = mock_collection
     result = pipeline.clear_stage3()
-    assert result == 3
-    pipeline.vector_store.clear.assert_called_once()
+    assert result == 3  # 10 - 7 (after delete)
+    mock_collection.delete.assert_called_once()
 
 def test_clear_stage4(pipeline):
     """Test clearing stage4 (topics_l1 and assignments)."""
@@ -237,7 +275,7 @@ def test_clear_stage4(pipeline):
 def test_clear_stage5(pipeline):
     """Test clearing stage5 (vector_db topics_l1)."""
     # Mock topics_l1_collection.count() and delete()
-    mock_collection = MagicMock()
+    mock_collection = Mock()
     mock_collection.count.side_effect = [10, 7]  # before, after
     mock_collection.get.return_value = {"ids": ["l1-1", "l1-2", "l1-3"]}
     pipeline.vector_store.topics_l1_collection = mock_collection
@@ -256,25 +294,30 @@ def test_clear_all(pipeline):
     pipeline.db.clear_chunk_topic_l2_assignments.return_value = 6
     pipeline.db.clear_topics_l2.return_value = 7
     
-    # Mock vector store methods
-    pipeline.vector_store.count.return_value = 3
-    pipeline.vector_store.clear.return_value = 3
+    # Mock vector store collection
+    mock_collection = Mock()
+    mock_collection.count.side_effect = [10, 7]  # before, after
+    mock_collection.get.return_value = {"ids": ["chunk1", "chunk2", "chunk3"]}
+    mock_collection.delete.return_value = None
+    pipeline.vector_store.collection = mock_collection
     
     # Mock topics collections for stage5 and stage7
-    mock_l1_collection = MagicMock()
+    mock_l1_collection = Mock()
     mock_l1_collection.count.side_effect = [10, 7]
     mock_l1_collection.get.return_value = {"ids": ["l1-1", "l1-2", "l1-3"]}
+    mock_l1_collection.delete.return_value = None
     pipeline.vector_store.topics_l1_collection = mock_l1_collection
     
-    mock_l2_collection = MagicMock()
+    mock_l2_collection = Mock()
     mock_l2_collection.count.side_effect = [5, 2]
     mock_l2_collection.get.return_value = {"ids": ["l2-1", "l2-2", "l2-3"]}
+    mock_l2_collection.delete.return_value = None
     pipeline.vector_store.topics_l2_collection = mock_l2_collection
     
     # Mock session.query().update() for stage8 and stage9
-    mock_session = MagicMock()
-    mock_query = MagicMock()
-    mock_update = MagicMock()
+    mock_session = Mock()
+    mock_query = Mock()
+    mock_update = Mock()
     mock_update.return_value = 8
     mock_query.update.return_value = mock_update()
     mock_session.query.return_value = mock_query
@@ -286,7 +329,7 @@ def test_clear_all(pipeline):
     pipeline.db.clear_topics_l2.assert_called_once()
     pipeline.db.clear_chunk_topic_l2_assignments.assert_called_once()
     pipeline.db.clear_topics_l1.assert_called_once()
-    pipeline.vector_store.clear.assert_called_once()
+    mock_collection.delete.assert_called()  # Called for stage3
     pipeline.db.clear.assert_called_once()
     pipeline.db.clear_messages.assert_called_once()
 
@@ -295,7 +338,7 @@ def test_run_stage0(pipeline, mock_dependencies):
     import tempfile
     import os
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, dir='/tmp') as f:
-        f.write('{"messages": [{"id": "1", "text": "Hello", "date": "2023-01-01T10:00:00"}]}')
+        f.write('[{"id": "1", "text": "Hello", "date": "2023-01-01T10:00:00", "sender": "User", "content": "Hello"}]')
         temp_file = f.name
     
     try:
@@ -322,7 +365,7 @@ def test_run_stage1_with_chunk_size(pipeline):
 def test_run_stage1_from_config(pipeline, mock_profile_dir):
     """Test run_stage1 (chunk_size comes from config internally)."""
     with patch('src.bot.config.BotConfig') as MockConfig:
-        mock_config = MagicMock()
+        mock_config = Mock()
         mock_config.chunk_size = 15
         MockConfig.return_value = mock_config
         
@@ -345,7 +388,7 @@ def test_parse_and_store_messages_empty_file(pipeline):
     import tempfile
     import os
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, dir='/tmp') as f:
-        f.write('{"messages": []}')
+        f.write('[]')
         temp_file = f.name
     
     try:
@@ -367,11 +410,11 @@ def test_parse_and_store_messages_db_error(pipeline):
     import tempfile
     import os
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, dir='/tmp') as f:
-        f.write('{"messages": [{"id": "1", "text": "Hello", "date": "2023-01-01T10:00:00"}]}')
+        f.write('[{"id": "1", "text": "Hello", "date": "2023-01-01T10:00:00", "sender": "User", "content": "Hello"}]')
         temp_file = f.name
     
     try:
-        pipeline.parser.parse_file.return_value = [MagicMock(id="1", timestamp=datetime.now(), sender="User", content="Hello")]
+        pipeline.parser.parse_file.return_value = [Mock(id="1", timestamp=datetime.now(), sender="User", content="Hello")]
         pipeline.db.add_messages_batch.side_effect = Exception("DB error")
         
         with pytest.raises(Exception, match="DB error"):
@@ -382,11 +425,11 @@ def test_parse_and_store_messages_db_error(pipeline):
 
 def test_parse_and_store_chunks_no_messages(pipeline):
     """Test parse_and_store_chunks when no messages in database."""
-    mock_session = MagicMock()
+    mock_session = Mock()
     mock_session.query.return_value.order_by.return_value.all.return_value = []
     pipeline.db.get_session.return_value = mock_session
     
-    with pytest.raises(SystemExit):
+    with pytest.raises(IngestionPipelineError):
         pipeline.parse_and_store_chunks()
 
 def test_parse_and_store_chunks_success(pipeline):
@@ -394,23 +437,23 @@ def test_parse_and_store_chunks_success(pipeline):
     from src.storage.db import MessageModel
     from datetime import datetime
     
-    mock_msg = MagicMock(spec=MessageModel)
+    mock_msg = Mock(spec=MessageModel)
     mock_msg.msg_id = "chat1_1"
     mock_msg.chat_id = "chat1"
     mock_msg.ts = datetime.now()
     mock_msg.from_id = "User1"
     mock_msg.text = "Test message"
     
-    mock_session = MagicMock()
-    mock_query = MagicMock()
+    mock_session = Mock()
+    mock_query = Mock()
     mock_query.order_by.return_value.all.return_value = [mock_msg]
     mock_session.query.return_value = mock_query
     pipeline.db.get_session.return_value = mock_session
     
     # Mock chunker
-    mock_chunk = MagicMock()
+    mock_chunk = Mock()
     mock_chunk.text = "chunk text"
-    mock_metadata = MagicMock()
+    mock_metadata = Mock()
     mock_metadata.message_count = 1
     mock_metadata.ts_from = datetime.now()
     mock_metadata.ts_to = datetime.now()
@@ -442,21 +485,21 @@ def test_generate_embeddings_with_chunks(pipeline, mock_dependencies):
     """Test generate_embeddings with chunks that need embedding."""
     from src.storage.db import ChunkModel
     
-    mock_chunk = MagicMock(spec=ChunkModel)
+    mock_chunk = Mock(spec=ChunkModel)
     mock_chunk.id = "chunk1"
     mock_chunk.text = "test text"
     mock_chunk.metadata_json = None
     mock_chunk.topic_l1_id = None
     mock_chunk.topic_l2_id = None
     
-    mock_session = MagicMock()
+    mock_session = Mock()
     # Mock count queries
-    mock_filter_query = MagicMock()
+    mock_filter_query = Mock()
     mock_filter_query.count.return_value = 1
     mock_filter_query.yield_per.return_value = [mock_chunk]  # yield_per returns iterable
     
     # Mock query chain
-    mock_query = MagicMock()
+    mock_query = Mock()
     mock_query.filter.return_value = mock_filter_query
     mock_query.count.return_value = 1
     mock_session.query.return_value = mock_query
@@ -477,27 +520,27 @@ def test_generate_embeddings_dimension_mismatch(pipeline, mock_dependencies):
     """Test generate_embeddings handles dimension mismatch."""
     from src.storage.db import ChunkModel
     
-    mock_chunk = MagicMock(spec=ChunkModel)
+    mock_chunk = Mock(spec=ChunkModel)
     mock_chunk.id = "chunk1"
     mock_chunk.text = "test text"
     mock_chunk.metadata_json = None
     mock_chunk.topic_l1_id = None
     mock_chunk.topic_l2_id = None
     
-    mock_session = MagicMock()
+    mock_session = Mock()
     # Mock count queries
-    mock_count_query = MagicMock()
+    mock_count_query = Mock()
     mock_count_query.count.return_value = 1  # total_to_embed
-    mock_total_query = MagicMock()
+    mock_total_query = Mock()
     mock_total_query.count.return_value = 1  # total_chunks
     
     # Mock filter query for chunks to embed
-    mock_filter_query = MagicMock()
+    mock_filter_query = Mock()
     mock_filter_query.count.return_value = 1
     mock_filter_query.yield_per.return_value = [mock_chunk]  # yield_per returns iterable
     
     # Mock query chain
-    mock_query = MagicMock()
+    mock_query = Mock()
     mock_query.filter.return_value = mock_filter_query
     mock_query.count.return_value = 1
     mock_session.query.return_value = mock_query
@@ -515,7 +558,7 @@ def test_generate_embeddings_dimension_mismatch(pipeline, mock_dependencies):
     mock_embedder.get_dimension.return_value = 384
     
     # Mock recreate collection
-    pipeline.vector_store._recreate_collection_with_dimension = MagicMock(return_value=MagicMock())
+    pipeline.vector_store._recreate_collection_with_dimension = Mock(return_value=Mock())
     
     pipeline.generate_embeddings()
     
@@ -526,12 +569,15 @@ def test_generate_embeddings_all_chunks_have_embeddings(pipeline):
     """Test generate_embeddings when all chunks already have embeddings."""
     from src.storage.db import ChunkModel
     
-    mock_chunk = MagicMock(spec=ChunkModel)
+    mock_chunk = Mock(spec=ChunkModel)
     mock_chunk.id = "chunk1"
     
-    mock_session = MagicMock()
-    mock_query = MagicMock()
+    mock_session = Mock()
+    mock_query = Mock()
     mock_query.all.return_value = [mock_chunk]
+    mock_query.filter.return_value = mock_query
+    mock_query.yield_per.return_value = []  # Empty - no chunks to embed
+    mock_query.count.return_value = 0
     mock_session.query.return_value = mock_query
     pipeline.db.get_session.return_value = mock_session
     
@@ -547,21 +593,21 @@ def test_generate_embeddings_with_custom_model(pipeline, mock_dependencies):
     """Test generate_embeddings with custom model parameter."""
     from src.storage.db import ChunkModel
     
-    mock_chunk = MagicMock(spec=ChunkModel)
+    mock_chunk = Mock(spec=ChunkModel)
     mock_chunk.id = "chunk1"
     mock_chunk.text = "test text"
     mock_chunk.metadata_json = None
     mock_chunk.topic_l1_id = None
     mock_chunk.topic_l2_id = None
     
-    mock_session = MagicMock()
+    mock_session = Mock()
     # Mock count queries
-    mock_filter_query = MagicMock()
+    mock_filter_query = Mock()
     mock_filter_query.count.return_value = 1
     mock_filter_query.yield_per.return_value = [mock_chunk]  # yield_per returns iterable
     
     # Mock query chain
-    mock_query = MagicMock()
+    mock_query = Mock()
     mock_query.filter.return_value = mock_filter_query
     mock_query.count.return_value = 1
     mock_session.query.return_value = mock_query
@@ -572,7 +618,7 @@ def test_generate_embeddings_with_custom_model(pipeline, mock_dependencies):
     
     # Mock create_embedding_client for custom model - patch at the import location in pipeline
     with patch('src.core.embedding.create_embedding_client') as mock_create:
-        custom_embedder = MagicMock()
+        custom_embedder = Mock()
         custom_embedder.get_embeddings.return_value = [[0.2] * 256]
         custom_embedder.get_dimension.return_value = 256
         mock_create.return_value = custom_embedder
@@ -585,7 +631,7 @@ def test_generate_embeddings_with_custom_model(pipeline, mock_dependencies):
 def test_run_stage1_missing_profile_dir(pipeline):
     """Test run_stage1 raises error when profile_dir is missing."""
     pipeline.profile_dir = None
-    with pytest.raises(SystemExit):
+    with pytest.raises(ConfigurationError):
         pipeline.run_stage1()
 
 def test_parse_and_store_chunks_with_error(pipeline):
@@ -593,23 +639,23 @@ def test_parse_and_store_chunks_with_error(pipeline):
     from src.storage.db import MessageModel
     from datetime import datetime
     
-    mock_msg = MagicMock(spec=MessageModel)
+    mock_msg = Mock(spec=MessageModel)
     mock_msg.msg_id = "chat1_1"
     mock_msg.chat_id = "chat1"
     mock_msg.ts = datetime.now()
     mock_msg.from_id = "User1"
     mock_msg.text = "Test message"
     
-    mock_session = MagicMock()
-    mock_query = MagicMock()
+    mock_session = Mock()
+    mock_query = Mock()
     mock_query.order_by.return_value.all.return_value = [mock_msg]
     mock_session.query.return_value = mock_query
     mock_session.add_all.side_effect = Exception("DB error")
     pipeline.db.get_session.return_value = mock_session
     
-    mock_chunk = MagicMock()
+    mock_chunk = Mock()
     mock_chunk.text = "chunk text"
-    mock_metadata = MagicMock()
+    mock_metadata = Mock()
     mock_metadata.message_count = 1
     mock_metadata.ts_from = datetime.now()
     mock_metadata.ts_to = datetime.now()
@@ -628,7 +674,7 @@ def test_run_all_stages(pipeline, mock_dependencies):
     import tempfile
     import os
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, dir='/tmp') as f:
-        f.write('{"messages": [{"id": "1", "text": "Hello", "date": "2023-01-01T10:00:00"}]}')
+        f.write('[{"id": "1", "text": "Hello", "date": "2023-01-01T10:00:00", "sender": "User", "content": "Hello"}]')
         temp_file = f.name
     
     try:
@@ -642,20 +688,20 @@ def test_run_all_stages(pipeline, mock_dependencies):
         # Mock clustering methods - patch at import location
         with patch('src.ai.clustering.TopicClusterer') as MockClusterer, \
              patch('src.core.llm.LLMClient') as MockLLM:
-            mock_clusterer = MagicMock()
+            mock_clusterer = Mock()
             mock_clusterer.perform_l1_clustering.return_value = {}
             mock_clusterer.perform_l2_clustering.return_value = None
             mock_clusterer.name_topics.return_value = None
             mock_clusterer.assign_l1_topics_to_chunks.return_value = None
             MockClusterer.return_value = mock_clusterer
-            MockLLM.return_value = MagicMock()
+            MockLLM.return_value = Mock()
             
             pipeline.db.get_all_topics_l1.return_value = []
             
             # This will call all stages, but may fail on some - that's OK for coverage
             try:
                 pipeline.run_all(temp_file, chunk_size=6)
-            except (SystemExit, AttributeError, KeyError, RuntimeError):
+            except (ConfigurationError, IngestionPipelineError, AttributeError, KeyError, RuntimeError):
                 # Some stages may fail due to missing mocks, but coverage is improved
                 pass
     finally:
@@ -682,21 +728,21 @@ def test_list_topics_no_topics(pipeline, capsys):
 
 def test_list_topics_l2_with_l1_children(pipeline, capsys):
     """Test list_topics with L2 topics and their L1 children."""
-    from unittest.mock import MagicMock
+    from unittest.mock import Mock
     
     # Create mock L2 topic
-    l2_topic = MagicMock()
+    l2_topic = Mock()
     l2_topic.id = 1
     l2_topic.title = "L2 Topic Title"
     
     # Create mock L1 topics
-    l1_topic1 = MagicMock()
+    l1_topic1 = Mock()
     l1_topic1.id = 10
     l1_topic1.title = "L1 Topic 1"
     l1_topic1.parent_l2_id = 1
     l1_topic1.chunk_count = 5
     
-    l1_topic2 = MagicMock()
+    l1_topic2 = Mock()
     l1_topic2.id = 11
     l1_topic2.title = "L1 Topic 2"
     l1_topic2.parent_l2_id = 1
@@ -717,9 +763,9 @@ def test_list_topics_l2_with_l1_children(pipeline, capsys):
 
 def test_list_topics_orphaned_l1(pipeline, capsys):
     """Test list_topics with orphaned L1 topics (no parent L2)."""
-    from unittest.mock import MagicMock
+    from unittest.mock import Mock
     
-    l1_topic = MagicMock()
+    l1_topic = Mock()
     l1_topic.id = 20
     l1_topic.title = "Orphaned L1"
     l1_topic.parent_l2_id = None
@@ -738,9 +784,9 @@ def test_list_topics_orphaned_l1(pipeline, capsys):
 
 def test_list_topics_l1_only_no_l2(pipeline, capsys):
     """Test list_topics when only L1 topics exist (no L2)."""
-    from unittest.mock import MagicMock
+    from unittest.mock import Mock
     
-    l1_topic = MagicMock()
+    l1_topic = Mock()
     l1_topic.id = 30
     l1_topic.title = "L1 Only Topic"
     l1_topic.chunk_count = 10
@@ -767,20 +813,20 @@ def test_list_topics_error_handling(pipeline, capsys):
 
 def test_show_topic_l2(pipeline, capsys):
     """Test show_topic for L2 topic."""
-    from unittest.mock import MagicMock
+    from unittest.mock import Mock
     
-    l2_topic = MagicMock()
+    l2_topic = Mock()
     l2_topic.id = 1
     l2_topic.title = "L2 Super Topic"
     l2_topic.descr = "L2 Description"
     l2_topic.chunk_count = 15
     
-    l1_subtopic1 = MagicMock()
+    l1_subtopic1 = Mock()
     l1_subtopic1.id = 10
     l1_subtopic1.title = "L1 Subtopic 1"
     l1_subtopic1.chunk_count = 8
     
-    l1_subtopic2 = MagicMock()
+    l1_subtopic2 = Mock()
     l1_subtopic2.id = 11
     l1_subtopic2.title = "L1 Subtopic 2"
     l1_subtopic2.chunk_count = 7
@@ -802,10 +848,10 @@ def test_show_topic_l2(pipeline, capsys):
 
 def test_show_topic_l1(pipeline, capsys):
     """Test show_topic for L1 topic."""
-    from unittest.mock import MagicMock
+    from unittest.mock import Mock
     from datetime import datetime
     
-    l1_topic = MagicMock()
+    l1_topic = Mock()
     l1_topic.id = 20
     l1_topic.title = "L1 Topic"
     l1_topic.descr = "L1 Description"
@@ -815,9 +861,9 @@ def test_show_topic_l1(pipeline, capsys):
     l1_topic.ts_from = datetime(2025, 1, 1, 10, 0, 0)
     l1_topic.ts_to = datetime(2025, 1, 1, 12, 0, 0)
     
-    chunk1 = MagicMock()
+    chunk1 = Mock()
     chunk1.text = "Sample chunk text 1"
-    chunk2 = MagicMock()
+    chunk2 = Mock()
     chunk2.text = "Sample chunk text 2"
     
     pipeline.db.get_all_topics_l2.return_value = []
@@ -858,12 +904,12 @@ def test_show_topic_error_handling(pipeline, capsys):
 
 def test_run_stage4_with_stage3_assignments(pipeline, mock_dependencies):
     """Test run_stage4 performs clustering and stores assignments."""
-    from unittest.mock import MagicMock, patch
+    from unittest.mock import Mock, patch
     
     # Mock TopicClusterer
-    mock_clusterer = MagicMock()
+    mock_clusterer = Mock()
     mock_clusterer.perform_l1_clustering.return_value = {1: ["chunk1", "chunk2"], 2: ["chunk3"]}
-    mock_clusterer.assign_l1_topics_to_chunks = MagicMock()
+    mock_clusterer.assign_l1_topics_to_chunks = Mock()
     
     with patch('src.ai.clustering.TopicClusterer', return_value=mock_clusterer):
         pipeline.run_stage4()
@@ -879,25 +925,25 @@ def test_run_stage4_with_stage3_assignments(pipeline, mock_dependencies):
 
 def test_run_stage4_restore_from_db(pipeline, mock_dependencies):
     """Test run_stage4 restoring assignments from database."""
-    from unittest.mock import MagicMock, patch
+    from unittest.mock import Mock, patch
     import json
     import numpy as np
     
     # Mock L1 topics with centroids
-    l1_topic1 = MagicMock()
+    l1_topic1 = Mock()
     l1_topic1.id = 1
     l1_topic1.center_vec = json.dumps([0.1, 0.2, 0.3])
     
-    l1_topic2 = MagicMock()
+    l1_topic2 = Mock()
     l1_topic2.id = 2
     l1_topic2.center_vec = json.dumps([0.4, 0.5, 0.6])
     
     pipeline.db.get_all_topics_l1.return_value = [l1_topic1, l1_topic2]
     
     # Mock session - chunks not assigned
-    mock_session = MagicMock()
-    mock_query = MagicMock()
-    mock_filter = MagicMock()
+    mock_session = Mock()
+    mock_query = Mock()
+    mock_filter = Mock()
     mock_filter.count.return_value = 0  # No chunks with topics
     mock_query.filter.return_value = mock_filter
     mock_session.query.return_value = mock_query
@@ -911,9 +957,9 @@ def test_run_stage4_restore_from_db(pipeline, mock_dependencies):
     }
     
     # Mock TopicClusterer
-    mock_clusterer = MagicMock()
+    mock_clusterer = Mock()
     mock_clusterer.perform_l1_clustering.return_value = {1: ["chunk1"], 2: ["chunk2"]}
-    mock_clusterer.assign_l1_topics_to_chunks = MagicMock()
+    mock_clusterer.assign_l1_topics_to_chunks = Mock()
     
     with patch('src.ai.clustering.TopicClusterer', return_value=mock_clusterer):
         with patch('src.ingestion.pipeline.tqdm', side_effect=ImportError):  # Skip tqdm
@@ -927,26 +973,26 @@ def test_run_stage4_restore_from_db(pipeline, mock_dependencies):
 
 def test_run_stage4_chunks_already_assigned(pipeline, mock_dependencies):
     """Test run_stage4 when chunks already have topic_l1_id."""
-    from unittest.mock import MagicMock, patch
+    from unittest.mock import Mock, patch
     
     # Mock L1 topics
-    l1_topic = MagicMock()
+    l1_topic = Mock()
     l1_topic.id = 1
     pipeline.db.get_all_topics_l1.return_value = [l1_topic]
     
     # Mock session - chunks already assigned
-    mock_session = MagicMock()
-    mock_query = MagicMock()
-    mock_filter = MagicMock()
+    mock_session = Mock()
+    mock_query = Mock()
+    mock_filter = Mock()
     mock_filter.count.return_value = 5  # Chunks already have topics
     mock_query.filter.return_value = mock_filter
     mock_session.query.return_value = mock_query
     pipeline.db.get_session.return_value = mock_session
     
     # Mock TopicClusterer
-    mock_clusterer = MagicMock()
+    mock_clusterer = Mock()
     mock_clusterer.perform_l1_clustering.return_value = {}
-    mock_clusterer.assign_l1_topics_to_chunks = MagicMock()
+    mock_clusterer.assign_l1_topics_to_chunks = Mock()
     
     with patch('src.ai.clustering.TopicClusterer', return_value=mock_clusterer):
         pipeline.run_stage4()
@@ -958,12 +1004,12 @@ def test_run_stage4_chunks_already_assigned(pipeline, mock_dependencies):
 
 def test_run_stage4_no_topics_error(pipeline, mock_dependencies):
     """Test run_stage4 when no topics_l1 found (clustering handles this internally)."""
-    from unittest.mock import MagicMock, patch
+    from unittest.mock import Mock, patch
     
     # Mock TopicClusterer to return empty assignments
-    mock_clusterer = MagicMock()
+    mock_clusterer = Mock()
     mock_clusterer.perform_l1_clustering.return_value = {}
-    mock_clusterer.assign_l1_topics_to_chunks = MagicMock()
+    mock_clusterer.assign_l1_topics_to_chunks = Mock()
     
     with patch('src.ai.clustering.TopicClusterer', return_value=mock_clusterer):
         pipeline.run_stage4()
@@ -974,12 +1020,12 @@ def test_run_stage4_no_topics_error(pipeline, mock_dependencies):
 
 def test_run_stage4_no_centroids_error(pipeline, mock_dependencies):
     """Test run_stage4 when no topic centroids found (clustering handles this internally)."""
-    from unittest.mock import MagicMock, patch
+    from unittest.mock import Mock, patch
     
     # Mock TopicClusterer to return empty assignments
-    mock_clusterer = MagicMock()
+    mock_clusterer = Mock()
     mock_clusterer.perform_l1_clustering.return_value = {}
-    mock_clusterer.assign_l1_topics_to_chunks = MagicMock()
+    mock_clusterer.assign_l1_topics_to_chunks = Mock()
     
     with patch('src.ai.clustering.TopicClusterer', return_value=mock_clusterer):
         pipeline.run_stage4()
@@ -990,12 +1036,12 @@ def test_run_stage4_no_centroids_error(pipeline, mock_dependencies):
 
 def test_run_stage4_no_embeddings_error(pipeline, mock_dependencies):
     """Test run_stage4 when no chunks with embeddings found (clustering handles this internally)."""
-    from unittest.mock import MagicMock, patch
+    from unittest.mock import Mock, patch
     
     # Mock TopicClusterer to return empty assignments
-    mock_clusterer = MagicMock()
+    mock_clusterer = Mock()
     mock_clusterer.perform_l1_clustering.return_value = {}
-    mock_clusterer.assign_l1_topics_to_chunks = MagicMock()
+    mock_clusterer.assign_l1_topics_to_chunks = Mock()
     
     with patch('src.ai.clustering.TopicClusterer', return_value=mock_clusterer):
         pipeline.run_stage4()

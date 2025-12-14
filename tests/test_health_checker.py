@@ -1,6 +1,6 @@
 """Tests for health checker utilities."""
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, Mock
 from pathlib import Path
 from src.bot.utils.health_checker import HealthChecker
 

@@ -2,13 +2,13 @@
 Tests for Admin Tasks.
 """
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import Mock, AsyncMock, patch
 from pathlib import Path
 from src.bot.admin_tasks import TaskManager, IngestionTask
 
 @pytest.fixture
 def mock_deps():
-    profile_manager = MagicMock()
+    profile_manager = Mock()
     profile_manager.get_profile_paths.return_value = {
         'db_url': 'sqlite:///test.db',
         'vector_db_path': '/tmp/vec'
@@ -18,7 +18,7 @@ def mock_deps():
 def test_task_manager_start(mock_deps):
     tm = TaskManager()
     
-    file_path = MagicMock()
+    file_path = Mock()
     task = tm.start_ingestion(file_path, mock_deps)
     
     assert task.status == "pending"
@@ -26,12 +26,12 @@ def test_task_manager_start(mock_deps):
 
 @pytest.mark.asyncio
 async def test_ingestion_task_run_success(mock_deps):
-    file_path = MagicMock()
+    file_path = Mock()
     file_path.exists.return_value = True # For cleanup
     
     task = IngestionTask(file_path, mock_deps)
     
-    bot = MagicMock()
+    bot = Mock()
     bot.edit_message_text = AsyncMock()
     
     chat_id = 123
@@ -47,13 +47,13 @@ async def test_ingestion_task_run_success(mock_deps):
         pipeline.parser.parse_file.return_value = [{"text": "msg1"}, {"text": "msg2"}]
         
         # Mock chunker
-        chunk1 = MagicMock()
+        chunk1 = Mock()
         chunk1.text = "chunk1"
         chunk1.metadata = {"meta": "data"}
         pipeline.chunker.chunk_messages.return_value = [chunk1]
         
         # Mock session
-        session = MagicMock()
+        session = Mock()
         pipeline.db.get_session.return_value = session
         
         # Run task
@@ -85,12 +85,12 @@ async def test_ingestion_task_run_success(mock_deps):
 
 @pytest.mark.asyncio
 async def test_ingestion_task_run_failure(mock_deps):
-    file_path = MagicMock()
+    file_path = Mock()
     file_path.exists.return_value = True
     
     task = IngestionTask(file_path, mock_deps)
     
-    bot = MagicMock()
+    bot = Mock()
     bot.edit_message_text = AsyncMock()
     
     with patch('src.ingestion.pipeline.IngestionPipeline', side_effect=Exception("Pipeline Error")):

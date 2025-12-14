@@ -1,7 +1,7 @@
 
 import pytest
 from sqlalchemy.exc import DatabaseError
-from unittest.mock import MagicMock, patch
+from unittest.mock import Mock, patch
 from datetime import datetime
 from src.storage.db import Database, ChunkModel, MessageModel
 
@@ -58,7 +58,7 @@ def test_clear_error(tmp_path):
     db = Database(db_url=f"sqlite:///{db_path}")
     
     with patch.object(db, 'get_session') as mock_get_session:
-        mock_session = MagicMock()
+        mock_session = Mock()
         mock_get_session.return_value = mock_session
         
         # Simulate query().delete() works but commit() fails

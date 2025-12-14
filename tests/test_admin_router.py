@@ -2,7 +2,7 @@
 Tests for Admin Router.
 """
 import pytest
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import Mock, AsyncMock
 from src.bot.admin_router import AdminCommandRouter
 
 @pytest.fixture
@@ -12,12 +12,12 @@ def mock_router():
 
 @pytest.mark.asyncio
 async def test_route_unauthorized(mock_router):
-    update = MagicMock()
+    update = Mock()
     update.message.from_user.id = 1
     update.message.text = "/admin"
-    context = MagicMock()
+    context = Mock()
     
-    admin_manager = MagicMock()
+    admin_manager = Mock()
     admin_manager.is_admin.return_value = False
     
     res = await mock_router.route(update, context, admin_manager)
@@ -25,12 +25,12 @@ async def test_route_unauthorized(mock_router):
 
 @pytest.mark.asyncio
 async def test_route_main_menu(mock_router):
-    update = MagicMock()
+    update = Mock()
     update.message.from_user.id = 1
     update.message.text = "/admin"
-    context = MagicMock()
+    context = Mock()
     
-    admin_manager = MagicMock()
+    admin_manager = Mock()
     admin_manager.is_admin.return_value = True
     
     res = await mock_router.route(update, context, admin_manager)
@@ -38,12 +38,12 @@ async def test_route_main_menu(mock_router):
 
 @pytest.mark.asyncio
 async def test_route_command(mock_router):
-    update = MagicMock()
+    update = Mock()
     update.message.from_user.id = 1
     update.message.text = "/admin test"
-    context = MagicMock()
+    context = Mock()
     
-    admin_manager = MagicMock()
+    admin_manager = Mock()
     admin_manager.is_admin.return_value = True
     
     handler = AsyncMock(return_value="OK")
@@ -55,12 +55,12 @@ async def test_route_command(mock_router):
 
 @pytest.mark.asyncio
 async def test_route_subcommand(mock_router):
-    update = MagicMock()
+    update = Mock()
     update.message.from_user.id = 1
     update.message.text = "/admin sub cmd arg1"
-    context = MagicMock()
+    context = Mock()
     
-    admin_manager = MagicMock()
+    admin_manager = Mock()
     admin_manager.is_admin.return_value = True
     
     handler = AsyncMock(return_value="OK Sub")
@@ -72,11 +72,11 @@ async def test_route_subcommand(mock_router):
 
 @pytest.mark.asyncio
 async def test_route_unknown(mock_router):
-    update = MagicMock()
+    update = Mock()
     update.message.from_user.id = 1
     update.message.text = "/admin unknown"
-    context = MagicMock()
-    admin_manager = MagicMock()
+    context = Mock()
+    admin_manager = Mock()
     admin_manager.is_admin.return_value = True
     
     res = await mock_router.route(update, context, admin_manager)
@@ -84,11 +84,11 @@ async def test_route_unknown(mock_router):
 
 @pytest.mark.asyncio
 async def test_route_missing_subcommand(mock_router):
-    update = MagicMock()
+    update = Mock()
     update.message.from_user.id = 1
     update.message.text = "/admin sub"
-    context = MagicMock()
-    admin_manager = MagicMock()
+    context = Mock()
+    admin_manager = Mock()
     admin_manager.is_admin.return_value = True
     
     handler = AsyncMock()
@@ -99,11 +99,11 @@ async def test_route_missing_subcommand(mock_router):
 
 @pytest.mark.asyncio
 async def test_route_direct_args(mock_router):
-    update = MagicMock()
+    update = Mock()
     update.message.from_user.id = 1
     update.message.text = "/admin direct arg1 arg2"
-    context = MagicMock()
-    admin_manager = MagicMock()
+    context = Mock()
+    admin_manager = Mock()
     admin_manager.is_admin.return_value = True
     
     handler = AsyncMock(return_value="OK Direct")

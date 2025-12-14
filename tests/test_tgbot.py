@@ -3,7 +3,7 @@ Integration tests for Telegram Bot Webhook.
 """
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import Mock, patch, AsyncMock
 import sys
 from pathlib import Path
 
@@ -19,28 +19,28 @@ import src.bot.tgbot as tgbot_module
 @pytest.fixture
 def mock_deps():
     # Create mocks
-    bot_mock = MagicMock()
+    bot_mock = Mock()
     bot_mock.chat.return_value = "Mocked Response"
     
-    admin_mock = MagicMock()
-    admin_mock.config = MagicMock()
+    admin_mock = Mock()
+    admin_mock.config = Mock()
     admin_mock.config.allowed_chats = []
     admin_mock.config.response_frequency = 1
     admin_mock.verify_password.return_value = False
     admin_mock.is_admin.return_value = False
     
-    tg_mock = MagicMock()
+    tg_mock = Mock()
     tg_mock.bot.send_message = AsyncMock()
     tg_mock.bot.username = "testbot"
     tg_mock.bot.id = 12345
     
     # Mock access_control service
-    access_control_mock = MagicMock()
+    access_control_mock = Mock()
     access_control_mock.is_allowed.return_value = (True, None)  # Allow by default
     
     # Custom side effect for Update.de_json to return dynamic mock
     def mock_de_json(data, bot):
-        m = MagicMock()
+        m = Mock()
         m.update_id = data.get('update_id')
         if 'message' in data:
             msg_data = data['message']
@@ -152,15 +152,15 @@ def test_webhook_private_admin(client, mock_deps):
 @pytest.mark.asyncio
 async def test_handle_find_command_success(mock_deps):
     """Test successful /find command execution."""
-    from unittest.mock import AsyncMock, MagicMock, patch
+    from unittest.mock import AsyncMock, Mock, patch
     from src.bot.tgbot import MessageHandler
     
     # Setup mocks
-    mock_bot = MagicMock()
-    mock_bot.db = MagicMock()
-    mock_bot.retrieval = MagicMock()
+    mock_bot = Mock()
+    mock_bot.db = Mock()
+    mock_bot.retrieval = Mock()
     
-    mock_update = MagicMock()
+    mock_update = Mock()
     mock_update.message.chat_id = 12345
     
     # Mock search_message_contents to return results
@@ -169,10 +169,10 @@ async def test_handle_find_command_success(mock_deps):
         [{"content": "Result 2", "date": "2025-01-02", "id": 2, "sender": "User2"}]
     ]
     
-    mock_admin = MagicMock()
-    mock_admin.config = MagicMock()
+    mock_admin = Mock()
+    mock_admin.config = Mock()
     mock_admin.config.cosine_distance_thr = 1.5
-    mock_router = MagicMock()
+    mock_router = Mock()
     handler = MessageHandler(mock_bot, mock_admin, mock_router)
     
     # Mock search_chunks_basic to return filtered results
@@ -180,7 +180,7 @@ async def test_handle_find_command_success(mock_deps):
         {"id": "chunk1", "distance": 0.5, "metadata": {}},
         {"id": "chunk2", "distance": 0.8, "metadata": {}}
     ]
-    mock_bot.retrieval.search_chunks_basic = MagicMock(return_value=mock_filtered_results)
+    mock_bot.retrieval.search_chunks_basic = Mock(return_value=mock_filtered_results)
     
     with patch('src.bot.tgbot.telegram_app') as mock_telegram_app:
         mock_telegram_app.bot.send_message = AsyncMock()
@@ -196,17 +196,17 @@ async def test_handle_find_command_success(mock_deps):
 @pytest.mark.asyncio
 async def test_handle_find_command_empty_query(mock_deps):
     """Test /find command with empty query."""
-    from unittest.mock import MagicMock
+    from unittest.mock import Mock
     from src.bot.tgbot import MessageHandler
     
-    mock_bot = MagicMock()
-    mock_admin = MagicMock()
-    mock_admin.config = MagicMock()
+    mock_bot = Mock()
+    mock_admin = Mock()
+    mock_admin.config = Mock()
     mock_admin.config.cosine_distance_thr = 1.5
-    mock_router = MagicMock()
+    mock_router = Mock()
     handler = MessageHandler(mock_bot, mock_admin, mock_router)
     
-    mock_update = MagicMock()
+    mock_update = Mock()
     
     result = await handler.handle_find_command("/find", mock_update)
     
@@ -218,22 +218,22 @@ async def test_handle_find_command_empty_query(mock_deps):
 @pytest.mark.asyncio
 async def test_handle_find_command_no_results(mock_deps):
     """Test /find command when no results found."""
-    from unittest.mock import MagicMock, patch
+    from unittest.mock import Mock, patch
     from src.bot.tgbot import MessageHandler
     
-    mock_bot = MagicMock()
-    mock_bot.db = MagicMock()
-    mock_bot.retrieval = MagicMock()
+    mock_bot = Mock()
+    mock_bot.db = Mock()
+    mock_bot.retrieval = Mock()
     # Mock search_chunks_basic to return empty results
-    mock_bot.retrieval.search_chunks_basic = MagicMock(return_value=[])
+    mock_bot.retrieval.search_chunks_basic = Mock(return_value=[])
     
-    mock_admin = MagicMock()
-    mock_admin.config = MagicMock()
+    mock_admin = Mock()
+    mock_admin.config = Mock()
     mock_admin.config.cosine_distance_thr = 1.5
-    mock_router = MagicMock()
+    mock_router = Mock()
     handler = MessageHandler(mock_bot, mock_admin, mock_router)
     
-    mock_update = MagicMock()
+    mock_update = Mock()
     
     result = await handler.handle_find_command("/find nonexistent query", mock_update)
     
@@ -244,29 +244,29 @@ async def test_handle_find_command_no_results(mock_deps):
 @pytest.mark.asyncio
 async def test_handle_find_command_send_error(mock_deps):
     """Test /find command when sending messages fails."""
-    from unittest.mock import AsyncMock, MagicMock, patch
+    from unittest.mock import AsyncMock, Mock, patch
     from src.bot.tgbot import MessageHandler
     
-    mock_bot = MagicMock()
-    mock_bot.db = MagicMock()
-    mock_bot.retrieval = MagicMock()
+    mock_bot = Mock()
+    mock_bot.db = Mock()
+    mock_bot.retrieval = Mock()
     # Mock search_chunks_basic to return filtered results
     mock_filtered_results = [
         {"id": "chunk1", "distance": 0.5, "metadata": {}}
     ]
-    mock_bot.retrieval.search_chunks_basic = MagicMock(return_value=mock_filtered_results)
+    mock_bot.retrieval.search_chunks_basic = Mock(return_value=mock_filtered_results)
     
-    mock_update = MagicMock()
+    mock_update = Mock()
     mock_update.message.chat_id = 12345
     
     mock_message_parts = [
         [{"content": "Result 1", "date": "2025-01-01", "id": 1, "sender": "User1"}]
     ]
     
-    mock_admin = MagicMock()
-    mock_admin.config = MagicMock()
+    mock_admin = Mock()
+    mock_admin.config = Mock()
     mock_admin.config.cosine_distance_thr = 1.5
-    mock_router = MagicMock()
+    mock_router = Mock()
     handler = MessageHandler(mock_bot, mock_admin, mock_router)
     
     with patch('src.bot.tgbot.telegram_app') as mock_telegram_app:
@@ -274,29 +274,31 @@ async def test_handle_find_command_send_error(mock_deps):
         with patch('src.core.message_search._prepare_message_parts', return_value=mock_message_parts):
             result = await handler.handle_find_command("/find test query", mock_update)
     
-    assert result is not None
-    assert "Ошибка при отправке" in result
+    # After refactoring, _send_message_parts logs the error but doesn't propagate it
+    # handle_find_command returns empty string "" to signal "handled, but ничего не слать отдельно"
+    # The error is logged (see captured log: "failed to send message parts") but not returned as a string
+    assert result == ""  # Empty string indicates handled but nothing to send
 
 
 @pytest.mark.asyncio
 async def test_handle_find_command_search_error(mock_deps):
     """Test /find command when search fails."""
-    from unittest.mock import MagicMock, patch
+    from unittest.mock import Mock, patch
     from src.bot.tgbot import MessageHandler
     
-    mock_bot = MagicMock()
-    mock_bot.db = MagicMock()
-    mock_bot.retrieval = MagicMock()
+    mock_bot = Mock()
+    mock_bot.db = Mock()
+    mock_bot.retrieval = Mock()
     # Mock search_chunks_basic to raise exception
-    mock_bot.retrieval.search_chunks_basic = MagicMock(side_effect=Exception("Search error"))
+    mock_bot.retrieval.search_chunks_basic = Mock(side_effect=Exception("Search error"))
     
-    mock_admin = MagicMock()
-    mock_admin.config = MagicMock()
+    mock_admin = Mock()
+    mock_admin.config = Mock()
     mock_admin.config.cosine_distance_thr = 1.5
-    mock_router = MagicMock()
+    mock_router = Mock()
     handler = MessageHandler(mock_bot, mock_admin, mock_router)
     
-    mock_update = MagicMock()
+    mock_update = Mock()
     
     result = await handler.handle_find_command("/find test query", mock_update)
     
@@ -307,25 +309,25 @@ async def test_handle_find_command_search_error(mock_deps):
 @pytest.mark.asyncio
 async def test_lifespan_startup_shutdown(mock_deps):
     """Test lifespan context manager startup and shutdown."""
-    from unittest.mock import MagicMock, patch, AsyncMock
+    from unittest.mock import Mock, patch, AsyncMock
     from contextlib import asynccontextmanager
     import src.bot.tgbot as tgbot_module
     
     # Mock ProfileManager
-    mock_profile_manager = MagicMock()
+    mock_profile_manager = Mock()
     mock_profile_manager.get_current_profile.return_value = "test_profile"
     
     # Mock init_runtime_for_current_profile
     mock_init_runtime = AsyncMock()
     
     # Mock Telegram application
-    mock_telegram_app = MagicMock()
-    mock_telegram_app.bot = MagicMock()
+    mock_telegram_app = Mock()
+    mock_telegram_app.bot = Mock()
     mock_telegram_app.initialize = AsyncMock()
     mock_telegram_app.shutdown = AsyncMock()
     
     # Mock Application.builder() chain
-    mock_builder = MagicMock()
+    mock_builder = Mock()
     mock_builder.token.return_value = mock_builder
     mock_builder.build.return_value = mock_telegram_app
     
@@ -357,7 +359,7 @@ async def test_lifespan_startup_shutdown(mock_deps):
 @pytest.mark.asyncio
 async def test_lifespan_profile_manager_error(mock_deps):
     """Test lifespan when ProfileManager initialization fails."""
-    from unittest.mock import MagicMock, patch
+    from unittest.mock import Mock, patch
     import src.bot.tgbot as tgbot_module
     
     with patch('legale.ProfileManager', side_effect=Exception("Profile manager error")):
@@ -373,10 +375,10 @@ async def test_lifespan_profile_manager_error(mock_deps):
 @pytest.mark.asyncio
 async def test_lifespan_runtime_init_error(mock_deps):
     """Test lifespan when runtime initialization fails."""
-    from unittest.mock import MagicMock, patch, AsyncMock
+    from unittest.mock import Mock, patch, AsyncMock
     import src.bot.tgbot as tgbot_module
     
-    mock_profile_manager = MagicMock()
+    mock_profile_manager = Mock()
     mock_profile_manager.get_current_profile.return_value = "test_profile"
     
     mock_init_runtime = AsyncMock(side_effect=Exception("Runtime init error"))

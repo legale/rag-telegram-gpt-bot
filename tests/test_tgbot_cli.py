@@ -1,6 +1,6 @@
 
 import pytest
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import Mock, patch, AsyncMock
 import sys
 import os
 from src.bot.tgbot import register_webhook, delete_webhook, main, init_runtime_for_current_profile, run_server, run_daemon
@@ -103,8 +103,15 @@ class TestTgBotCLI:
 
     def test_run_daemon(self):
         # Mock sys.exit to prevent actual exit during signal handling in daemon context
-        # Mock daemon module
-        with patch.dict(sys.modules, {'daemon': MagicMock(), 'daemon.pidfile': MagicMock()}), \
+        # Mock daemon module with context manager support
+        mock_daemon = Mock()
+        mock_daemon_context = Mock()
+        mock_daemon_context.__enter__ = Mock(return_value=None)
+        mock_daemon_context.__exit__ = Mock(return_value=False)
+        mock_daemon.DaemonContext = Mock(return_value=mock_daemon_context)
+        mock_daemon.pidfile = Mock()
+        
+        with patch.dict(sys.modules, {'daemon': mock_daemon, 'daemon.pidfile': mock_daemon.pidfile}), \
              patch('uvicorn.run') as mock_uvicorn:
             
             run_daemon()
@@ -116,7 +123,7 @@ class TestTgBotCLI:
 @pytest.mark.asyncio
 async def test_init_runtime_for_current_profile():
     # Setup mocks
-    mock_pm = MagicMock()
+    mock_pm = Mock()
     mock_pm.get_profile_paths.return_value = {
         "db_url": "sqlite:///test.db",
         "vector_db_path": "vec_path",

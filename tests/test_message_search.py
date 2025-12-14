@@ -3,7 +3,7 @@ Tests for message search functionality.
 """
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import Mock, patch
 from datetime import datetime
 from src.core.message_search import search_message_links, search_message_contents
 from src.core.retrieval import RetrievalService
@@ -13,14 +13,14 @@ from src.storage.db import Database, MessageModel
 @pytest.fixture
 def mock_retrieval():
     """Create a mock RetrievalService."""
-    retrieval = MagicMock(spec=RetrievalService)
+    retrieval = Mock(spec=RetrievalService)
     return retrieval
 
 
 @pytest.fixture
 def mock_db():
     """Create a mock Database."""
-    db = MagicMock(spec=Database)
+    db = Mock(spec=Database)
     return db
 
 
@@ -147,13 +147,13 @@ def test_search_message_contents_success(mock_retrieval, mock_db):
     ]
     
     # Mock messages from database
-    msg1 = MagicMock(spec=MessageModel)
+    msg1 = Mock(spec=MessageModel)
     msg1.msg_id = "123456_100"
     msg1.text = "Test message 1"
     msg1.ts = datetime(2025, 12, 9, 0, 49, 22)
     msg1.from_id = "User1"
     
-    msg2 = MagicMock(spec=MessageModel)
+    msg2 = Mock(spec=MessageModel)
     msg2.msg_id = "123456_200"
     msg2.text = "Test message 2"
     msg2.ts = datetime(2025, 12, 9, 0, 50, 0)
@@ -206,7 +206,7 @@ def test_search_message_contents_missing_chunk_id(mock_retrieval, mock_db):
         {"id": "chunk2", "score": 0.8},
     ]
     
-    msg = MagicMock(spec=MessageModel)
+    msg = Mock(spec=MessageModel)
     msg.msg_id = "123456_100"
     msg.text = "Test message"
     msg.ts = datetime(2025, 12, 9, 0, 49, 22)
@@ -228,7 +228,7 @@ def test_search_message_contents_no_messages_in_chunk(mock_retrieval, mock_db):
         {"id": "chunk2", "score": 0.8},
     ]
     
-    msg = MagicMock(spec=MessageModel)
+    msg = Mock(spec=MessageModel)
     msg.msg_id = "123456_100"
     msg.text = "Test message"
     msg.ts = datetime(2025, 12, 9, 0, 49, 22)
@@ -253,13 +253,13 @@ def test_search_message_contents_multiple_messages_in_chunk(mock_retrieval, mock
         {"id": "chunk1", "score": 0.9},
     ]
     
-    msg1 = MagicMock(spec=MessageModel)
+    msg1 = Mock(spec=MessageModel)
     msg1.msg_id = "123456_100"
     msg1.text = "Message 1"
     msg1.ts = datetime(2025, 12, 9, 0, 49, 22)
     msg1.from_id = "User1"
     
-    msg2 = MagicMock(spec=MessageModel)
+    msg2 = Mock(spec=MessageModel)
     msg2.msg_id = "123456_101"
     msg2.text = "Message 2"
     msg2.ts = datetime(2025, 12, 9, 0, 49, 30)
