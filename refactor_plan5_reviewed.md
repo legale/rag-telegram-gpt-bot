@@ -171,9 +171,10 @@ src/
 *   **Action**: Создан bootstrap для DI, адаптер Embedder, обновлен tgbot.py для использования HybridSearch. ✅
 *   **Verification**: Команда `/find` должна работать идентично. (Ready for testing)
 
-### Шаг 5: Dispatcher & CLI
+### Шаг 5: Dispatcher & CLI ✅
 Создать `CommandDispatcher` и перевести CLI.
-*   **Files**: `src/core/dispatcher.py`, `src/app/main_cli.py`.
+*   **Files**: `src/core/dispatcher.py`, `src/core/use_cases/commands.py`, `src/app/main_cli.py`. ✅
+*   **Action**: Создан CommandDispatcher, handlers для команд, обновлен cli.py для использования dispatcher. ✅
 
 ### Шаг 6: Ingestion Pipeline Migration
 Разбить `IngestionPipeline` на Use Cases.
@@ -211,12 +212,13 @@ src/
     *   [x] Create `src/core/use_cases/search.py` (`HybridSearch` class)
     *   [ ] Write unit tests with Fake adapters (deferred to later)
 
-4.  **Implement Command Dispatcher**
-    *   [ ] Create `src/core/dispatcher.py` implementation
+4.  **Implement Command Dispatcher** ✅
+    *   [x] Create `src/core/dispatcher.py` implementation
+    *   [x] Create command handlers in `src/core/use_cases/commands.py`
 
-5.  **Refactor CLI to use Dispatcher**
-    *   [ ] Create `src/app/main_cli.py`
-    *   [ ] Wire up in `legale.py` (CLI entry point)
+5.  **Refactor CLI to use Dispatcher** ✅
+    *   [x] Create `src/app/main_cli.py`
+    *   [x] Wire up in `src/bot/cli.py` (CLI now uses dispatcher)
 
 6.  **Refactor Telegram Bot**
     *   [ ] Update `src/bot/tgbot.py` to use `Dispatcher`
