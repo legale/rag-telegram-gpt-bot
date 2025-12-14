@@ -230,7 +230,9 @@ src/
     *   [x] Created dispatcher in init_runtime_for_current_profile
     *   [x] Updated MessageHandler.route_command to use CommandDispatcher
     *   [x] Basic commands (start, help, reset, tokens, model, find) now use dispatcher
-    *   [ ] Admin commands still use old handlers (deferred)
+    *   [x] Admin commands migrated to dispatcher with async handlers
+    *   [x] Extended CommandDispatcher with AsyncCommandHandler support
+    *   [x] Created AdminSetCommandHandler, AdminGetCommandHandler, AdminCommandHandler
 
 ### Non-Critical
 
