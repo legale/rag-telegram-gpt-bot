@@ -724,7 +724,13 @@ async def init_runtime_for_current_profile(args: Optional[SimpleNamespace] = Non
 
     # Step 6: Create command dispatcher
     from src.app.main_cli import create_dispatcher
-    command_dispatcher = create_dispatcher(bot_instance, admin_manager_local, debug_rag)
+    command_dispatcher = create_dispatcher(
+        bot_instance,
+        admin_manager_local,
+        admin_router_local,
+        debug_rag
+    )
+    syslog2(LOG_NOTICE, "command dispatcher initialized with admin handlers")
 
     # только после успешного создания всех локальных объектов – публикуем их в глобальные
     admin_manager = admin_manager_local
