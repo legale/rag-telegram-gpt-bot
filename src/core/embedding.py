@@ -493,6 +493,41 @@ def get_embedding_function(
     return None
 
 
+def _create_local_client(model: Optional[str] = None):
+    """
+    Create local embedding client.
+    
+    Args:
+        model: Model name (defaults to environment variable or default)
+    
+    Returns:
+        LocalEmbeddingClient instance
+    
+    Raises:
+        ImportError: If sentence-transformers is not installed
+        SystemExit: If import fails
+    """
+    local_model = model or os.getenv("EMBEDDING_MODEL", "paraphrase-multilingual-mpnet-base-v2")
+    try:
+        return LocalEmbeddingClient(model=local_model)
+    except ImportError:
+        import sys
+        syslog2(LOG_ERR, "sentence-transformers is not installed", instructions="pip install sentence-transformers")
+        sys.exit(1)
+
+def _create_api_client(model: Optional[str] = None):
+    """
+    Create API embedding client.
+    
+    Args:
+        model: Model name (defaults to environment variable or default)
+    
+    Returns:
+        EmbeddingClient instance
+    """
+    api_model = model or os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
+    return EmbeddingClient(model=api_model)
+
 def create_embedding_client(
     generator: Optional[str] = None,
     model: Optional[str] = None
@@ -513,18 +548,10 @@ def create_embedding_client(
     generator_lower = generator.lower()
     
     if generator_lower in ["openrouter", "openai", "current"]:
-        api_model = model or os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
-        return EmbeddingClient(model=api_model)
+        return _create_api_client(model)
     elif generator_lower == "local":
-        local_model = model or os.getenv("EMBEDDING_MODEL", "paraphrase-multilingual-mpnet-base-v2")
-        try:
-            return LocalEmbeddingClient(model=local_model)
-        except ImportError:
-            import sys
-            syslog2(LOG_ERR, "sentence-transformers is not installed", instructions="pip install sentence-transformers")
-            sys.exit(1)
+        return _create_local_client(model)
     else:
         # Default to openrouter for backward compatibility
-        api_model = model or os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
-        return EmbeddingClient(model=api_model)
+        return _create_api_client(model)
 

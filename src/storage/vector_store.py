@@ -269,3 +269,33 @@ class VectorStore:
             ids=[chunk_id],
             metadatas=[metadata]
         )
+    
+    def recreate_collection(self, collection_name: Optional[str] = None) -> None:
+        """
+        Recreate collection by deleting and recreating it.
+        Useful when collection dimension needs to change or collection needs to be reset.
+        
+        Args:
+            collection_name: Collection name to recreate (default: main collection)
+        """
+        target_collection_name = collection_name if collection_name is not None else self.collection_name
+        
+        # Delete old collection if it exists
+        try:
+            self.client.delete_collection(name=target_collection_name)
+            syslog2(LOG_DEBUG, "collection deleted", name=target_collection_name)
+        except Exception as e:
+            syslog2(LOG_DEBUG, "error deleting collection (may not exist)", name=target_collection_name, error=str(e))
+        
+        # Create new collection
+        new_collection = self.client.get_or_create_collection(
+            name=target_collection_name,
+            embedding_function=None,  # embeddings always provided explicitly
+            metadata={"hnsw:space": "cosine"}  # Use cosine similarity instead of L2
+        )
+        
+        # Update self.collection if it's the main collection
+        if collection_name is None or collection_name == self.collection_name:
+            self.collection = new_collection
+        
+        syslog2(LOG_NOTICE, "collection recreated", name=target_collection_name)
