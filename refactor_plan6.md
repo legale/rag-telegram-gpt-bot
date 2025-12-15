@@ -192,7 +192,7 @@
 
 - [x] file=src/core/distance_utils.py func=similarity_to_distance добавить обратную функцию distance_to_similarity для консистентности
 
-- [ ] file=src/bot/utils/telegram_common.py func=split_message_if_needed упростить: вынести проверку необходимости split в _needs_splitting(), разбиение сообщения в _split_message()
+- [x] file=src/bot/utils/telegram_common.py func=split_message_if_needed упростить: вынести проверку необходимости split в _needs_splitting(), разбиение сообщения в _split_message()
 
 - [ ] file=src/bot/utils/telegram_links.py func=build_message_link упростить: вынести построение link для username в _build_link_with_username(), построение link без username в _build_link_without_username()
 

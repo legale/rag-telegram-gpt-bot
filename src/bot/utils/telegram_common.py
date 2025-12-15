@@ -44,56 +44,44 @@ def format_message_html(msg_data: Dict, message_id: int) -> str:
     return "\n".join(parts)
 
 
-def split_message_if_needed(msg_data: Dict, message_id: int, max_len: int = MAX_TG_CONTENT_LEN) -> List[Dict]:
+def _needs_splitting(full_content: str, max_len: int) -> bool:
     """
-    Split message into parts if it exceeds maximum length.
+    Check if message needs to be split.
+    
+    Args:
+        full_content: Full formatted message content
+        max_len: Maximum content length
+        
+    Returns:
+        True if message needs splitting, False otherwise
+    """
+    return len(full_content) > max_len
+
+
+def _split_message(
+    msg_data: Dict,
+    message_id: int,
+    escaped_text: str,
+    base_prefix: str,
+    part_prefix_template: str,
+    available_content_len: int,
+    max_len: int
+) -> List[Dict]:
+    """
+    Split message text into multiple parts.
     
     Args:
         msg_data: Dictionary with keys: text, date, sender, sender_id (optional)
         message_id: Message ID
-        max_len: Maximum content length (default: MAX_TG_CONTENT_LEN)
+        escaped_text: HTML-escaped text content
+        base_prefix: Base prefix HTML for each part
+        part_prefix_template: Template for part number prefix
+        available_content_len: Available length for content in each part
+        max_len: Maximum content length
         
     Returns:
-        List of dictionaries, each representing a message part:
-        - Simple message: [{"id": id, "date": date, "sender": sender, "content": content}]
-        - Multipart: [{"id": id, "date": date, "sender": sender, "part": 1, "content": content}, ...]
+        List of dictionaries representing message parts
     """
-    # Format full message HTML
-    full_content = format_message_html(msg_data, message_id)
-    
-    # Calculate prefix size (id, date, sender lines + part line if multipart)
-    # Approximate: "id: X\n" + "date: Y\n" + "sender: Z\n" + "part: N\n" (if multipart)
-    base_prefix = f"<code>id: {message_id}</code>\n<code>date: {msg_data.get('date', '')}</code>\n<code>sender: {html.escape(msg_data.get('sender', 'Unknown'))}</code>\n"
-    part_prefix_template = f"<code>part: {{}}</code>\n"
-    
-    if len(full_content) <= max_len:
-        # Single message, no splitting needed
-        return [{
-            "id": message_id,
-            "date": msg_data.get("date", ""),
-            "sender": msg_data.get("sender", "Unknown"),
-            "content": full_content
-        }]
-    
-    # Need to split - calculate available space for content
-    # We need to account for prefix in each part
-    base_prefix_len = len(base_prefix)
-    part_prefix_len = len(part_prefix_template.format(1))
-    available_content_len = max_len - base_prefix_len - part_prefix_len - len("<pre></pre>")
-    
-    if available_content_len <= 0:
-        # Even prefix is too long, return as-is (will be truncated by Telegram)
-        return [{
-            "id": message_id,
-            "date": msg_data.get("date", ""),
-            "sender": msg_data.get("sender", "Unknown"),
-            "content": full_content[:max_len]
-        }]
-    
-    # Split text content
-    text = msg_data.get("text", "")
-    escaped_text = html.escape(text)
-    
     parts = []
     part_num = 1
     text_pos = 0
@@ -136,4 +124,61 @@ def split_message_if_needed(msg_data: Dict, message_id: int, max_len: int = MAX_
         part_num += 1
     
     return parts
+
+
+def split_message_if_needed(msg_data: Dict, message_id: int, max_len: int = MAX_TG_CONTENT_LEN) -> List[Dict]:
+    """
+    Split message into parts if it exceeds maximum length.
+    
+    Args:
+        msg_data: Dictionary with keys: text, date, sender, sender_id (optional)
+        message_id: Message ID
+        max_len: Maximum content length (default: MAX_TG_CONTENT_LEN)
+        
+    Returns:
+        List of dictionaries, each representing a message part:
+        - Simple message: [{"id": id, "date": date, "sender": sender, "content": content}]
+        - Multipart: [{"id": id, "date": date, "sender": sender, "part": 1, "content": content}, ...]
+    """
+    # Format full message HTML
+    full_content = format_message_html(msg_data, message_id)
+    
+    # Calculate prefix size (id, date, sender lines + part line if multipart)
+    # Approximate: "id: X\n" + "date: Y\n" + "sender: Z\n" + "part: N\n" (if multipart)
+    base_prefix = f"<code>id: {message_id}</code>\n<code>date: {msg_data.get('date', '')}</code>\n<code>sender: {html.escape(msg_data.get('sender', 'Unknown'))}</code>\n"
+    part_prefix_template = f"<code>part: {{}}</code>\n"
+    
+    if not _needs_splitting(full_content, max_len):
+        # Single message, no splitting needed
+        return [{
+            "id": message_id,
+            "date": msg_data.get("date", ""),
+            "sender": msg_data.get("sender", "Unknown"),
+            "content": full_content
+        }]
+    
+    # Need to split - calculate available space for content
+    # We need to account for prefix in each part
+    base_prefix_len = len(base_prefix)
+    part_prefix_len = len(part_prefix_template.format(1))
+    available_content_len = max_len - base_prefix_len - part_prefix_len - len("<pre></pre>")
+    
+    if available_content_len <= 0:
+        # Even prefix is too long, return as-is (will be truncated by Telegram)
+        return [{
+            "id": message_id,
+            "date": msg_data.get("date", ""),
+            "sender": msg_data.get("sender", "Unknown"),
+            "content": full_content[:max_len]
+        }]
+    
+    # Split text content
+    text = msg_data.get("text", "")
+    escaped_text = html.escape(text)
+    
+    return _split_message(
+        msg_data, message_id, escaped_text,
+        base_prefix, part_prefix_template,
+        available_content_len, max_len
+    )
 
