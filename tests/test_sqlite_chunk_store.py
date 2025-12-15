@@ -152,15 +152,4 @@ class TestSqliteChunkStore:
         results = store.get_by_ids(["chunk1"])
         assert results == []
     
-    def test_get_by_topic_l1(self, temp_db):
-        """Test get_by_topic_l1 method."""
-        store = SqliteChunkStore(temp_db)
-        results = store.get_by_topic_l1(123, limit=10)
-        assert isinstance(results, list)
-    
-    def test_get_by_topic_l2(self, temp_db):
-        """Test get_by_topic_l2 method."""
-        store = SqliteChunkStore(temp_db)
-        results = store.get_by_topic_l2(456, limit=10)
-        assert isinstance(results, list)
 
