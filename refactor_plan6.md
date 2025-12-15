@@ -80,7 +80,7 @@
 
 - [x] file=src/storage/db.py func=add_messages_batch уменьшить цикломатическую сложность: вынести проверку существующих msg_ids в _get_existing_msg_ids(), фильтрацию новых сообщений в _filter_new_messages()
 
-- [ ] file=src/bot/config.py func=_load упростить логику: вынести создание файла с defaults в _create_default_config(), загрузку существующего config в _load_existing_config(), добавление missing defaults в _add_missing_defaults()
+- [x] file=src/bot/config.py func=_load упростить логику: вынести создание файла с defaults в _create_default_config(), загрузку существующего config в _load_existing_config(), добавление missing defaults в _add_missing_defaults()
 
 - [ ] file=src/bot/admin_router.py func=_route_with_subcommand уменьшить цикломатическую сложность: вынести проверку доступа в _check_admin_access(), выполнение handler в _execute_handler_with_error_handling()
 
