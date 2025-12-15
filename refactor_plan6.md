@@ -126,7 +126,7 @@
 
 - [x] file=src/bot/admin.py func=set_admin упростить: вынести валидацию пароля в _validate_admin_password(), сохранение admin в _save_admin_info()
 
-- [ ] file=src/core/commands.py func=FindCommandHandler.handle уменьшить цикломатическую сложность: вынести парсинг аргументов в _parse_find_args(), создание retrieval service в _create_retrieval_service(), выполнение поиска в _execute_search()
+- [x] file=src/core/commands.py func=FindCommandHandler.handle уменьшить цикломатическую сложность: вынести парсинг аргументов в _parse_find_args(), создание retrieval service в _create_retrieval_service(), выполнение поиска в _execute_search()
 
 - [x] file=src/core/commands.py func=ModelCommandHandler.handle упростить: вынести переключение модели в _switch_model(), сохранение в config в _save_model_to_config()
 

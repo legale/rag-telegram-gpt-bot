@@ -108,6 +108,50 @@ class CommandDispatcher:
         normalized = command_name.lstrip("/").lower()
         self.async_handlers[normalized] = handler
 
+    def _normalize_command_name(self, command_name: str) -> str:
+        """
+        Normalize command name by removing leading slash and converting to lowercase.
+        
+        Args:
+            command_name: Raw command name
+            
+        Returns:
+            Normalized command name
+        """
+        return command_name.lstrip("/").lower()
+    
+    def _find_handler(self, command_name: str) -> Optional[CommandHandler]:
+        """
+        Find handler for normalized command name.
+        
+        Args:
+            command_name: Normalized command name
+            
+        Returns:
+            CommandHandler instance or None if not found
+        """
+        return self.handlers.get(command_name)
+    
+    def _execute_handler(self, handler: CommandHandler, context: CommandContext) -> CommandResult:
+        """
+        Execute handler and handle exceptions.
+        
+        Args:
+            handler: CommandHandler instance
+            context: Command context
+            
+        Returns:
+            CommandResult from handler or error result if exception occurred
+        """
+        try:
+            return handler.handle(context)
+        except Exception as e:
+            return CommandResult(
+                success=False,
+                message=f"Ошибка при выполнении команды: {e}",
+                error=str(e)
+            )
+    
     def dispatch(self, context: CommandContext) -> CommandResult:
         """
         Dispatch a command to its handler.
@@ -119,10 +163,10 @@ class CommandDispatcher:
             CommandResult from handler, or error result if command not found
         """
         # Normalize command name
-        command_name = context.command_name.lstrip("/").lower()
+        command_name = self._normalize_command_name(context.command_name)
 
         # Find handler
-        handler = self.handlers.get(command_name)
+        handler = self._find_handler(command_name)
 
         if not handler:
             return CommandResult(
@@ -131,15 +175,8 @@ class CommandDispatcher:
                 error=f"Command '{command_name}' not found"
             )
 
-        try:
-            # Execute handler
-            return handler.handle(context)
-        except Exception as e:
-            return CommandResult(
-                success=False,
-                message=f"Ошибка при выполнении команды: {e}",
-                error=str(e)
-            )
+        # Execute handler
+        return self._execute_handler(handler, context)
 
     async def dispatch_async(self, context: CommandContext) -> CommandResult:
         """
