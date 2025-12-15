@@ -38,7 +38,8 @@ class BotConfig:
             "chunk_token_max": 1024,
             "chunk_overlap_ratio": 0.30,
             "cosine_distance_thr": 4,
-            "rag_ntop": 20
+            "rag_ntop": 20,
+            "fts5_score_thr": 0.2
         }
         
         if not self.config_file.exists():
@@ -217,5 +218,16 @@ class BotConfig:
         if not isinstance(value, int) or value < 0:
             raise ValueError("rag_ntop must be a non-negative integer")
         self.data["rag_ntop"] = value
+        self.save()
+
+    @property
+    def fts5_score_thr(self) -> float:
+        return self.data.get("fts5_score_thr", 0.2)
+    
+    @fts5_score_thr.setter
+    def fts5_score_thr(self, value: float):
+        if not isinstance(value, (int, float)) or value < 0 or value > 1:
+            raise ValueError("fts5_score_thr must be a float between 0 and 1")
+        self.data["fts5_score_thr"] = float(value)
         self.save()
 

@@ -31,14 +31,13 @@ class LegaleBot:
         self.db = Database(db_url)
         self.log_level = log_level
         self.debug_rag = debug_rag
-        # Load profile config if available
+        # Load profile config - always create config (uses defaults from BotConfig if profile_dir not provided)
+        from src.bot.config import BotConfig
         embedding_client = None
-        config = None
         if profile_dir:
             profile_path = Path(profile_dir)
             if profile_path.exists():
                 try:
-                    from src.bot.config import BotConfig
                     config = BotConfig(profile_path)
                     embedding_client = create_embedding_client(
                         generator=config.embedding_generator,
@@ -47,11 +46,26 @@ class LegaleBot:
                 except Exception as e:
                     if self.log_level <= LOG_INFO:
                         syslog2(LOG_WARNING, "profile config load failed", error=str(e), action="using default embedding client")
+                    # Create config with defaults even if load failed
+                    config = BotConfig(profile_path)
+            else:
+                # Profile dir doesn't exist, create config with defaults
+                profile_path.mkdir(parents=True, exist_ok=True)
+                config = BotConfig(profile_path)
+        else:
+            # No profile_dir provided, use default profile path
+            default_profile_path = Path("profiles/default")
+            default_profile_path.mkdir(parents=True, exist_ok=True)
+            config = BotConfig(default_profile_path)
         
         # Use profile embedding client or create default
         if embedding_client is None:
-            embedding_client = EmbeddingClient()
+            embedding_client = create_embedding_client(
+                generator=config.embedding_generator,
+                model=config.embedding_model
+            )
         
+        self.config = config
         self.embedding_client = embedding_client
         self.vector_store = VectorStore(
             persist_directory=vector_db_path,
@@ -91,7 +105,6 @@ class LegaleBot:
             self.retrieval = self.retrieval_service
         elif retrieval_type == "legacy":
             # Use old RetrievalService
-            rag_ntop = config.rag_ntop if config else 0
             self.retrieval_service = create_retrieval_service(
                 db_url=db_url,
                 vector_db_path=vector_db_path,
@@ -100,13 +113,12 @@ class LegaleBot:
                 profile_dir=profile_dir,
                 log_level=log_level,
                 debug_rag=self.debug_rag,
-                rag_ntop=rag_ntop
+                rag_ntop=config.rag_ntop
             )
             self.retrieval = self.retrieval_service
         elif retrieval_type == "vector_only":
             # TODO: Implement vector-only mode
             # For now, use legacy but disable topic retrieval
-            rag_ntop = config.rag_ntop if config else 0
             self.retrieval_service = create_retrieval_service(
                 db_url=db_url,
                 vector_db_path=vector_db_path,
@@ -115,7 +127,7 @@ class LegaleBot:
                 profile_dir=profile_dir,
                 log_level=log_level,
                 debug_rag=self.debug_rag,
-                rag_ntop=rag_ntop,
+                rag_ntop=config.rag_ntop,
                 use_topic_retrieval=False
             )
             self.retrieval = self.retrieval_service
@@ -444,7 +456,7 @@ class LegaleBot:
 
         syslog2(LOG_NOTICE, "retrieving context", retrieval_type=self.retrieval_type)
         context_chunks = self.retrieval_service.retrieve(
-            user_input, n_results=n_results
+            user_input, n_results=n_results, score_threshold=self.config.fts5_score_thr
         )
 
         # системный промпт: контекст + история + инструкции, но без дублирования user_input
@@ -492,7 +504,7 @@ class LegaleBot:
         """
         # Retrieve context chunks
         context_chunks = self.retrieval_service.retrieve(
-            user_input, n_results=n_results
+            user_input, n_results=n_results, score_threshold=self.config.fts5_score_thr
         )
         
         # Build prompt and history using helper
