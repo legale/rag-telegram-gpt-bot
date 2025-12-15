@@ -202,7 +202,7 @@
 
 - [x] file=src/bot/utils/database_stats.py func=get_stats упростить: вынести получение stats из БД в _get_database_stats(), форматирование stats в _format_stats()
 
-- [ ] file=src/bot/utils/health_checker.py func=check_health упростить: вынести проверку БД в _check_database_health(), проверку vector store в _check_vector_store_health()
+- [x] file=src/bot/utils/health_checker.py func=check_health упростить: вынести проверку БД в _check_database_health(), проверку vector store в _check_vector_store_health()
 
 - [ ] file=src/bot/utils/response_formatter.py func=format_error_message упростить: вынести форматирование error message в _format_error(), добавление context в _add_context()
 
