@@ -174,7 +174,7 @@
 
 - [ ] file=src/bot/core.py func=_ensure_context_limit упростить: вынести проверку лимита токенов в _check_token_limit_exceeded(), сброс контекста в _reset_context_if_needed()
 
-- [ ] file=src/core/hybrid_retrieval.py func=retrieve упростить: вынести конвертацию SearchResult в dict в _convert_search_results_to_dicts(), фильтрацию по threshold в _filter_by_threshold()
+- [x] file=src/core/hybrid_retrieval.py func=retrieve упростить: вынести конвертацию SearchResult в dict в _convert_search_results_to_dicts(), фильтрацию по threshold в _filter_by_threshold()
 
 - [ ] file=src/core/hybrid_retrieval.py func=search_chunks_basic упростить: вынести конвертацию результатов в _convert_to_basic_format(), сортировку по distance в _sort_by_distance()
 
