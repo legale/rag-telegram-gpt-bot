@@ -190,7 +190,7 @@
 
 - [x] file=src/core/chunk_utils.py func=build_chunk_dict_from_domain_chunk упростить: вынести извлечение metadata в _extract_chunk_metadata(), создание dict в _create_chunk_dict()
 
-- [ ] file=src/core/distance_utils.py func=similarity_to_distance добавить обратную функцию distance_to_similarity для консистентности
+- [x] file=src/core/distance_utils.py func=similarity_to_distance добавить обратную функцию distance_to_similarity для консистентности
 
 - [ ] file=src/bot/utils/telegram_common.py func=split_message_if_needed упростить: вынести проверку необходимости split в _needs_splitting(), разбиение сообщения в _split_message()
 
