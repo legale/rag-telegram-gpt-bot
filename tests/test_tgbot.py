@@ -833,8 +833,10 @@ class TestUtilityFunctions:
         
         telegram_app = Mock()
         telegram_app.bot = Mock()
+        mock_ctx = Mock()
+        mock_ctx.telegram_app = telegram_app
         
-        with patch("src.bot.tgbot.telegram_app", telegram_app), \
+        with patch("src.bot.tgbot.get_runtime_context", return_value=mock_ctx), \
              patch("src.bot.tgbot.Update.de_json") as mock_de_json:
             
             mock_update = Mock()
@@ -863,9 +865,14 @@ class TestUtilityFunctions:
         
         ingest_commands = Mock()
         ingest_commands.handle_file_upload = AsyncMock(return_value="File uploaded")
+        admin_manager = Mock()
+        mock_ctx = Mock()
+        mock_ctx.ingest_commands = ingest_commands
+        mock_ctx.admin_manager = admin_manager
         
-        with patch("src.bot.tgbot.ingest_commands", ingest_commands), \
-             patch("src.bot.tgbot.admin_manager", Mock()):
+        with patch("src.bot.tgbot.get_runtime_context", return_value=mock_ctx), \
+             patch("src.bot.tgbot.process_document_update", new_callable=AsyncMock) as mock_process_doc:
+            mock_process_doc.return_value = "File uploaded"
             
             result = await _process_webhook_update(update)
             

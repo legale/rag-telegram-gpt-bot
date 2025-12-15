@@ -37,11 +37,21 @@ def json_serial(obj):
     raise TypeError ("Type %s not serializable" % type(obj))
 
 class TelegramFetcher:
-    def __init__(self, api_id: int, api_hash: str, session_name: str = "legale_bot_session"):
+    def __init__(self, api_id: int, api_hash: str, session_name: str = "legale_bot_session", timeout: int = 30):
+        """
+        Initialize TelegramFetcher.
+        
+        Args:
+            api_id: Telegram API ID
+            api_hash: Telegram API hash
+            session_name: Session file name
+            timeout: Timeout in seconds for API calls (default: 30)
+        """
         self.api_id = api_id
         self.api_hash = api_hash
         self.session_name = session_name
-        self.client = TelegramClient(session_name, api_id, api_hash)
+        self.timeout = timeout
+        self.client = TelegramClient(session_name, api_id, api_hash, timeout=timeout)
 
     def _find_chat(self, id_or_name):
         """Finds a chat by ID (int/str) or Title (str)."""

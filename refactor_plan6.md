@@ -34,9 +34,9 @@
 
 - [x] file=src/core/llm.py func=complete добавить явные таймауты для HTTP-запросов: использовать timeout параметр в OpenAI client (timeout=30.0)
 
-- [ ] file=src/core/embedding.py func=get_embeddings добавить явные таймауты для HTTP-запросов: использовать timeout параметр в OpenAI client (timeout=60.0 для batch)
+- [x] file=src/core/embedding.py func=get_embeddings добавить явные таймауты для HTTP-запросов: использовать timeout параметр в OpenAI client (timeout=60.0 для batch)
 
-- [ ] file=src/ingestion/telegram.py func=dump_chat добавить явные таймауты для Telethon API вызовов: использовать timeout параметр в client методах
+- [x] file=src/ingestion/telegram.py func=dump_chat добавить явные таймауты для Telethon API вызовов: использовать timeout параметр в client методах
 
 - [ ] file=src/bot/tgbot.py func=_process_webhook_update заменить широкий except Exception на специфичные исключения: обрабатывать ValueError, KeyError, AttributeError отдельно с соответствующими сообщениями
 

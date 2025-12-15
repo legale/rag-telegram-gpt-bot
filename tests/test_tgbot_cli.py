@@ -140,8 +140,10 @@ async def test_init_runtime_for_current_profile():
         "profile_dir": "prof_dir",
         "db_path": "db_path"
     }
+    mock_ctx = Mock()
+    mock_ctx.profile_manager = mock_pm
     
-    with patch("src.bot.tgbot.profile_manager", mock_pm), \
+    with patch("src.bot.tgbot.get_runtime_context", return_value=mock_ctx), \
          patch("src.bot.tgbot.LegaleBot") as MockBot, \
          patch("src.bot.tgbot.AdminManager") as MockAdmin, \
          patch("src.bot.tgbot.AdminCommandRouter") as MockRouter, \
@@ -151,7 +153,8 @@ async def test_init_runtime_for_current_profile():
          patch("src.bot.tgbot.StatsCommands"), \
          patch("src.bot.tgbot.ControlCommands"), \
          patch("src.bot.tgbot.SettingsCommands"), \
-         patch("src.bot.tgbot.HelpCommands"):
+         patch("src.bot.tgbot.HelpCommands"), \
+         patch("src.bot.tgbot._create_command_dispatcher"):
         
         # Mock AdminManager config
         mock_admin_instance = MockAdmin.return_value
@@ -171,6 +174,9 @@ async def test_init_runtime_for_current_profile():
 
 @pytest.mark.asyncio
 async def test_init_runtime_no_profile_manager():
-    with patch("src.bot.tgbot.profile_manager", None):
+    mock_ctx = Mock()
+    mock_ctx.profile_manager = None
+    
+    with patch("src.bot.tgbot.get_runtime_context", return_value=mock_ctx):
         with pytest.raises(RuntimeError, match="profile_manager is not initialized"):
             await init_runtime_for_current_profile()
