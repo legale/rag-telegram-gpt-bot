@@ -42,25 +42,79 @@ from src.lib.syslog2 import *
 # Load environment variables
 load_dotenv()
 
-# Global bot instance (loaded once)
-bot_instance: Optional[LegaleBot] = None
-telegram_app: Optional[Application] = None
-admin_manager: Optional[AdminManager] = None
-admin_router: Optional[AdminCommandRouter] = None
-profile_manager = None  # Will be initialized in lifespan
-task_manager: Optional[TaskManager] = None
-ingest_commands: Optional[IngestCommands] = None
-command_dispatcher = None  # CommandDispatcher instance
-
-# Access control and frequency controller
-access_control: Optional[AccessControlService] = None
-frequency_controller: FrequencyController = FrequencyController()
-
-# Debug RAG mode flag
-debug_rag_mode: bool = False
-
 # Logging setup
 logger = logging.getLogger("legale_tgbot")
+
+
+class RuntimeContext:
+    """Runtime context for storing bot state and dependencies."""
+    
+    def __init__(self):
+        self.bot_instance: Optional[LegaleBot] = None
+        self.telegram_app: Optional[Application] = None
+        self.admin_manager: Optional[AdminManager] = None
+        self.admin_router: Optional[AdminCommandRouter] = None
+        self.profile_manager = None  # Will be initialized in lifespan
+        self.task_manager: Optional[TaskManager] = None
+        self.ingest_commands: Optional[IngestCommands] = None
+        self.command_dispatcher = None  # CommandDispatcher instance
+        self.access_control: Optional[AccessControlService] = None
+        self.frequency_controller: FrequencyController = FrequencyController()
+        self.debug_rag_mode: bool = False
+
+
+# Global runtime context (replaces individual global variables)
+_runtime_context: Optional[RuntimeContext] = None
+
+
+def get_runtime_context() -> RuntimeContext:
+    """Get the global runtime context."""
+    global _runtime_context
+    if _runtime_context is None:
+        _runtime_context = RuntimeContext()
+    return _runtime_context
+
+
+# Backward compatibility: expose global variables as properties
+# These will be deprecated but kept for compatibility during transition
+def _get_bot_instance() -> Optional[LegaleBot]:
+    return get_runtime_context().bot_instance
+
+
+def _get_admin_manager() -> Optional[AdminManager]:
+    return get_runtime_context().admin_manager
+
+
+def _get_admin_router() -> Optional[AdminCommandRouter]:
+    return get_runtime_context().admin_router
+
+
+def _get_task_manager() -> Optional[TaskManager]:
+    return get_runtime_context().task_manager
+
+
+def _get_ingest_commands() -> Optional[IngestCommands]:
+    return get_runtime_context().ingest_commands
+
+
+def _get_command_dispatcher():
+    return get_runtime_context().command_dispatcher
+
+
+def _get_access_control() -> Optional[AccessControlService]:
+    return get_runtime_context().access_control
+
+
+def _get_frequency_controller() -> FrequencyController:
+    return get_runtime_context().frequency_controller
+
+
+def _get_debug_rag_mode() -> bool:
+    return get_runtime_context().debug_rag_mode
+
+
+def _set_debug_rag_mode(value: bool) -> None:
+    get_runtime_context().debug_rag_mode = value
 
 
 class MessageHandler:
@@ -236,8 +290,8 @@ class MessageHandler:
             # get db from bot instance
             db = self.bot.db
             
-            # Get debug_rag from global variable
-            global debug_rag_mode
+            # Get debug_rag from runtime context
+            debug_rag_mode = _get_debug_rag_mode()
             
             # Get profile paths for creating HybridSearch
             paths = _get_profile_paths()
@@ -334,7 +388,7 @@ class MessageHandler:
             text: User query text
             n_results: Number of chunks to show
         """
-        global debug_rag_mode
+        debug_rag_mode = _get_debug_rag_mode()
         if not debug_rag_mode:
             return
         
@@ -373,7 +427,7 @@ class MessageHandler:
             system_prompt_template = self._prepare_system_prompt()
             
             # Debug RAG mode - show retrieved chunks and prompts
-            global debug_rag_mode
+            debug_rag_mode = _get_debug_rag_mode()
             if debug_rag_mode and respond:
                 self._print_rag_debug_info(text, n_results=3)
             
@@ -416,7 +470,7 @@ class MessageHandler:
             command = "/admin_set"
         
         # Use CommandDispatcher if available
-        global command_dispatcher
+        command_dispatcher = _get_command_dispatcher()
         if command_dispatcher:
             from src.core.dispatcher import CommandContext
             message = update.message
@@ -520,10 +574,11 @@ def _get_profile_paths() -> Dict:
     Raises:
         RuntimeError: If profile_manager is not initialized
     """
-    if profile_manager is None:
+    ctx = get_runtime_context()
+    if ctx.profile_manager is None:
         raise RuntimeError("profile_manager is not initialized")
     
-    return profile_manager.get_profile_paths()
+    return ctx.profile_manager.get_profile_paths()
 
 
 def _create_admin_manager(profile_dir: str) -> AdminManager:
@@ -621,10 +676,11 @@ def _create_legale_bot(paths: Dict, model_name: str, log_level: int, debug_rag: 
         profile_dir=profile_dir,
         retrieval_type=retrieval_type
     )
+    ctx = get_runtime_context()
     syslog2(
         LOG_WARNING, 
         "bot core initialized", 
-        profile=profile_manager.get_current_profile(), 
+        profile=ctx.profile_manager.get_current_profile() if ctx.profile_manager else "unknown", 
         db_url=paths["db_url"], 
         vector=paths["vector_db_path"], 
         model=model_name
@@ -643,10 +699,11 @@ def _register_admin_commands(admin_router_local: AdminCommandRouter, bot_instanc
     Returns:
         Tuple of (task_manager, ingest_commands)
     """
+    ctx = get_runtime_context()
     task_manager_local = TaskManager()
 
     # profile commands
-    profile_commands = ProfileCommands(profile_manager)
+    profile_commands = ProfileCommands(ctx.profile_manager)
     _register_command_group(
         admin_router_local,
         "profile",
@@ -662,7 +719,7 @@ def _register_admin_commands(admin_router_local: AdminCommandRouter, bot_instanc
     )
 
     # ingest commands
-    ingest_commands_local = IngestCommands(profile_manager, task_manager_local)
+    ingest_commands_local = IngestCommands(ctx.profile_manager, task_manager_local)
     _register_command_group(
         admin_router_local,
         "ingest",
@@ -675,17 +732,17 @@ def _register_admin_commands(admin_router_local: AdminCommandRouter, bot_instanc
     )
 
     # stats commands
-    stats_commands = StatsCommands(profile_manager)
+    stats_commands = StatsCommands(ctx.profile_manager)
     admin_router_local.register("stats", stats_commands.show_stats)
     admin_router_local.register("health", stats_commands.health_check)
     admin_router_local.register("logs", stats_commands.show_logs)
 
     # control commands – сюда прокидываем колбэк hot-reload
-    control_commands = ControlCommands(profile_manager, reload_callback=reload_for_current_profile)
+    control_commands = ControlCommands(ctx.profile_manager, reload_callback=reload_for_current_profile)
     admin_router_local.register("restart", control_commands.restart_bot)
 
     # settings commands
-    settings_commands = SettingsCommands(profile_manager)
+    settings_commands = SettingsCommands(ctx.profile_manager)
     # Register manage_chats as direct handler so fallback passes subcommand in args
     admin_router_local.register("allowed", settings_commands.manage_chats)
     admin_router_local.register("allowed", settings_commands.lookup_chats, "lookup")
@@ -693,7 +750,7 @@ def _register_admin_commands(admin_router_local: AdminCommandRouter, bot_instanc
     admin_router_local.register("frequency", settings_commands.manage_frequency)
 
     # model commands
-    model_commands = ModelCommands(profile_manager, bot_instance_local)
+    model_commands = ModelCommands(ctx.profile_manager, bot_instance_local)
     _register_command_group(
         admin_router_local,
         "model",
@@ -706,7 +763,7 @@ def _register_admin_commands(admin_router_local: AdminCommandRouter, bot_instanc
     )
 
     # system prompt commands
-    system_prompt_commands = SystemPromptCommands(profile_manager)
+    system_prompt_commands = SystemPromptCommands(ctx.profile_manager)
     _register_command_group(
         admin_router_local,
         "system_prompt",
@@ -727,46 +784,111 @@ def _register_admin_commands(admin_router_local: AdminCommandRouter, bot_instanc
     return task_manager_local, ingest_commands_local
 
 
+def _create_bot_instance(paths: Dict, admin_manager_local: AdminManager, args: Optional[SimpleNamespace] = None) -> Tuple[LegaleBot, bool]:
+    """
+    Create LegaleBot instance.
+    
+    Args:
+        paths: Profile paths dictionary
+        admin_manager_local: AdminManager instance
+        args: Optional namespace with configuration overrides
+        
+    Returns:
+        Tuple of (Initialized LegaleBot instance, debug_rag flag)
+    """
+    # Get bot configuration
+    model_name, debug_rag, log_level, retrieval_type = _get_bot_configuration(admin_manager_local, args)
+    
+    # Create LegaleBot
+    profile_dir = paths["profile_dir"]
+    bot_instance_local = _create_legale_bot(paths, model_name, log_level, debug_rag, profile_dir, retrieval_type)
+    
+    return bot_instance_local, debug_rag
+
+
+def _create_admin_components(paths: Dict, bot_instance_local: LegaleBot) -> Tuple[AdminCommandRouter, TaskManager, IngestCommands]:
+    """
+    Create admin router, task manager and ingest commands.
+    
+    Args:
+        paths: Profile paths dictionary
+        bot_instance_local: LegaleBot instance
+        
+    Returns:
+        Tuple of (admin_router, task_manager, ingest_commands)
+    """
+    # Create admin router and register commands
+    admin_router_local = AdminCommandRouter()
+    task_manager_local, ingest_commands_local = _register_admin_commands(admin_router_local, bot_instance_local)
+    
+    return admin_router_local, task_manager_local, ingest_commands_local
+
+
+def _create_command_dispatcher(
+    bot_instance_local: LegaleBot,
+    admin_manager_local: AdminManager,
+    admin_router_local: AdminCommandRouter,
+    debug_rag: bool
+):
+    """
+    Create command dispatcher.
+    
+    Args:
+        bot_instance_local: LegaleBot instance
+        admin_manager_local: AdminManager instance
+        admin_router_local: AdminCommandRouter instance
+        debug_rag: Debug RAG flag
+        
+    Returns:
+        CommandDispatcher instance
+    """
+    from src.app.main_cli import create_dispatcher
+    command_dispatcher_local = create_dispatcher(
+        bot_instance_local,
+        admin_manager_local,
+        admin_router_local,
+        debug_rag
+    )
+    syslog2(LOG_NOTICE, "command dispatcher initialized with admin handlers")
+    return command_dispatcher_local
+
+
 # инициализация рантайма под текущий профиль
 async def init_runtime_for_current_profile(args: Optional[SimpleNamespace] = None):
     """
     создать/переинициализировать bot_instance, admin_manager, admin_router и связанные команды
     под текущий активный профиль profile_manager
     """
-    global bot_instance, admin_manager, admin_router, task_manager, ingest_commands, command_dispatcher
+    ctx = get_runtime_context()
 
     # Step 1: Get profile paths
     paths = _get_profile_paths()
 
-    # Step 2: Create admin manager
+    # Step 2: Create admin manager (needed for bot configuration)
     profile_dir = paths["profile_dir"]
     admin_manager_local = _create_admin_manager(profile_dir)
 
-    # Step 3: Get bot configuration
-    model_name, debug_rag, log_level, retrieval_type = _get_bot_configuration(admin_manager_local, args)
+    # Step 3: Create bot instance (also returns debug_rag flag)
+    bot_instance_local, debug_rag = _create_bot_instance(paths, admin_manager_local, args)
 
-    # Step 4: Create LegaleBot
-    bot_instance = _create_legale_bot(paths, model_name, log_level, debug_rag, profile_dir, retrieval_type)
+    # Step 4: Create admin components (router, task_manager, ingest_commands)
+    admin_router_local, task_manager_local, ingest_commands_local = _create_admin_components(paths, bot_instance_local)
 
-    # Step 5: Create admin router and register commands
-    admin_router_local = AdminCommandRouter()
-    task_manager_local, ingest_commands_local = _register_admin_commands(admin_router_local, bot_instance)
-
-    # Step 6: Create command dispatcher
-    from src.app.main_cli import create_dispatcher
-    command_dispatcher = create_dispatcher(
-        bot_instance,
+    # Step 5: Create command dispatcher
+    command_dispatcher_local = _create_command_dispatcher(
+        bot_instance_local,
         admin_manager_local,
         admin_router_local,
         debug_rag
     )
-    syslog2(LOG_NOTICE, "command dispatcher initialized with admin handlers")
 
-    # только после успешного создания всех локальных объектов – публикуем их в глобальные
-    admin_manager = admin_manager_local
-    admin_router = admin_router_local
-    task_manager = task_manager_local
-    ingest_commands = ingest_commands_local
+    # только после успешного создания всех локальных объектов – публикуем их в runtime context
+    ctx.bot_instance = bot_instance_local
+    ctx.admin_manager = admin_manager_local
+    ctx.admin_router = admin_router_local
+    ctx.task_manager = task_manager_local
+    ctx.ingest_commands = ingest_commands_local
+    ctx.command_dispatcher = command_dispatcher_local
 
     return paths
 
@@ -778,7 +900,8 @@ async def reload_for_current_profile(args: Optional[SimpleNamespace] = None):
     """
     syslog2(LOG_WARNING, "hot reload requested")
     paths = await init_runtime_for_current_profile(args)
-    syslog2(LOG_WARNING, "hot reload completed", profile=profile_manager.get_current_profile(), db=paths["db_path"], vector=paths["vector_db_path"])
+    ctx = get_runtime_context()
+    syslog2(LOG_WARNING, "hot reload completed", profile=ctx.profile_manager.get_current_profile() if ctx.profile_manager else "unknown", db=paths["db_path"], vector=paths["vector_db_path"])
     return paths
 
 
@@ -844,7 +967,7 @@ async def lifespan(app: FastAPI, args: Optional[SimpleNamespace] = None):
     Lifespan context manager for FastAPI.
     Loads bot instance on startup, cleans up on shutdown.
     """
-    global bot_instance, telegram_app, admin_manager, admin_router, profile_manager, task_manager, ingest_commands, access_control
+    ctx = get_runtime_context()
     
     syslog2(LOG_NOTICE, "daemon starting")
     
@@ -860,13 +983,13 @@ async def lifespan(app: FastAPI, args: Optional[SimpleNamespace] = None):
         from legale import ProfileManager
         
         # Create ProfileManager instance
-        profile_manager = ProfileManager(project_root)
+        ctx.profile_manager = ProfileManager(project_root)
         
         logger.info("Profile manager initialized")
-        syslog2(LOG_NOTICE, "profile manager initialized", profile=profile_manager.get_current_profile())
+        syslog2(LOG_NOTICE, "profile manager initialized", profile=ctx.profile_manager.get_current_profile())
     except Exception as e:
         syslog2(LOG_ERR, "profile manager init failed", error=str(e))
-        profile_manager = None
+        ctx.profile_manager = None
         raise RuntimeError("Profile manager initialization failed")
 
     # инициализация рантайма под активный профиль
@@ -882,13 +1005,13 @@ async def lifespan(app: FastAPI, args: Optional[SimpleNamespace] = None):
         syslog2(LOG_ERR, "telegram token missing")
         raise ValueError("TELEGRAM_BOT_TOKEN is required")
     
-    telegram_app = Application.builder().token(token).build()
-    await telegram_app.initialize()
+    ctx.telegram_app = Application.builder().token(token).build()
+    await ctx.telegram_app.initialize()
     syslog2(LOG_NOTICE, "telegram app initialized")
     
     # Initialize access control service
-    if admin_manager:
-        access_control = AccessControlService(admin_manager)
+    if ctx.admin_manager:
+        ctx.access_control = AccessControlService(ctx.admin_manager)
         syslog2(LOG_NOTICE, "access control initialized")
     else:
         syslog2(LOG_WARNING, "access control not initialized", reason="admin_manager is None")
@@ -897,8 +1020,8 @@ async def lifespan(app: FastAPI, args: Optional[SimpleNamespace] = None):
     
     # Cleanup
     syslog2(LOG_NOTICE, "shutting down")
-    if telegram_app:
-        await telegram_app.shutdown()
+    if ctx.telegram_app:
+        await ctx.telegram_app.shutdown()
     syslog2(LOG_NOTICE, "shutdown complete")
 
 
@@ -912,10 +1035,11 @@ async def process_document_update(update: Update) -> Optional[str]:
     Returns:
         Response text to send to user, or None if no response needed
     """
-    if not (update.message and update.message.document and ingest_commands):
+    ctx = get_runtime_context()
+    if not (update.message and update.message.document and ctx.ingest_commands):
         return None
     
-    return await ingest_commands.handle_file_upload(update, None, admin_manager)
+    return await ctx.ingest_commands.handle_file_upload(update, None, ctx.admin_manager)
 
 
 async def process_text_update(update: Update) -> None:
@@ -934,8 +1058,9 @@ async def process_text_update(update: Update) -> None:
         syslog2(LOG_ERR, "handle_message failed", error=str(e), update_id=update.update_id)
         # Try to send error message to user
         try:
+            ctx = get_runtime_context()
             if update.message:
-                await telegram_app.bot.send_message(
+                await ctx.telegram_app.bot.send_message(
                     chat_id=update.message.chat_id,
                     text="Произошла ошибка при обработке сообщения. Попробуйте позже."
                 )
@@ -955,12 +1080,105 @@ async def _parse_webhook_update(request: Request) -> Optional[Update]:
     """
     try:
         data = await request.json()
-        update = Update.de_json(data, telegram_app.bot)
+        ctx = get_runtime_context()
+        update = Update.de_json(data, ctx.telegram_app.bot)
         syslog2(LOG_DEBUG, "update received", update_id=update.update_id)
         return update
     except Exception as e:
         syslog2(LOG_ERR, "webhook parse failed", error=str(e))
         return None
+
+
+async def _handle_command(update: Update) -> None:
+    """
+    Handle command message.
+    
+    Args:
+        update: Telegram update object
+    """
+    message = update.message
+    text = message.text
+    chat_id = message.chat_id
+    user_id = message.from_user.id
+    is_private = (message.chat.type == "private")
+    
+    syslog2(LOG_NOTICE, "command received", chat_id=chat_id, user_id=user_id, command=text[:50])
+    
+    # Step 1: Handle public commands (bypass access control)
+    if await _handle_public_commands_step(message, text, chat_id):
+        return
+    
+    # Step 2: Check access
+    if not await _check_access_step(user_id, chat_id, is_private, True, text):
+        return
+    
+    # Step 3: Determine if bot should respond
+    respond, reason = await _determine_response_step(message, True, is_private, chat_id)
+    
+    # Step 4: Check if bot_instance is available
+    ctx = get_runtime_context()
+    if not ctx.bot_instance:
+        syslog2(LOG_ERR, "bot instance missing", action="drop_message")
+        return
+    
+    # Step 5: Route command to appropriate handler
+    handler = MessageHandler(ctx.bot_instance, ctx.admin_manager, ctx.admin_router)
+    response = await _process_command_message(text, update, handler, respond)
+    if response is None:
+        return  # Command was not recognized or ignored
+    
+    # Step 6: Send response if available
+    await _send_response_if_available(response, chat_id, True, respond)
+
+
+async def _handle_user_message(update: Update) -> None:
+    """
+    Handle regular user message (non-command).
+    
+    Args:
+        update: Telegram update object
+    """
+    message = update.message
+    text = message.text
+    chat_id = message.chat_id
+    user_id = message.from_user.id
+    is_private = (message.chat.type == "private")
+    
+    syslog2(LOG_NOTICE, "user message received", chat_id=chat_id, user_id=user_id, text_snippet=text[:50])
+    
+    # Step 1: Check access
+    if not await _check_access_step(user_id, chat_id, is_private, False, None):
+        return
+    
+    # Step 2: Determine if bot should respond
+    respond, reason = await _determine_response_step(message, False, is_private, chat_id)
+    
+    # Step 3: Check if bot_instance is available
+    ctx = get_runtime_context()
+    if not ctx.bot_instance:
+        syslog2(LOG_ERR, "bot instance missing", action="drop_message")
+        return
+    
+    # Step 4: Parse and handle search mentions
+    bot_username = (ctx.telegram_app.bot.username or "").lower()
+    bot_id = ctx.telegram_app.bot.id
+    if await _handle_search_mention_step(message, bot_username, bot_id, chat_id):
+        return
+    
+    # Step 5: Remove mention token from text if present
+    if text:
+        extracted_text = _extract_mention_text(text, bot_username)
+        if extracted_text is not None:
+            text = extracted_text
+    
+    # Step 6: Route message to appropriate handler
+    handler = MessageHandler(ctx.bot_instance, ctx.admin_manager, ctx.admin_router)
+    response = await _process_regular_message(text, handler, respond, ctx.admin_manager.config, chat_id)
+    if response is None:
+        return  # Message was ignored
+    
+    # Step 7: Send response if available
+    await _send_response_if_available(response, chat_id, False, respond)
 
 
 async def _process_webhook_update(update: Update) -> Optional[str]:
@@ -979,7 +1197,30 @@ async def _process_webhook_update(update: Update) -> Optional[str]:
         return response_text
     
     # Handle text message update
-    await process_text_update(update)
+    if not (update.message and update.message.text):
+        return None
+    
+    # Determine if message is a command or regular message
+    text = update.message.text
+    is_command = text.startswith("/")
+    
+    try:
+        if is_command:
+            await _handle_command(update)
+        else:
+            await _handle_user_message(update)
+    except Exception as e:
+        syslog2(LOG_ERR, "message handling failed", error=str(e), update_id=update.update_id)
+        # Try to send error message to user
+        try:
+            ctx = get_runtime_context()
+            if update.message:
+                await ctx.telegram_app.bot.send_message(
+                    chat_id=update.message.chat_id,
+                    text="Произошла ошибка при обработке сообщения. Попробуйте позже."
+                )
+        except:
+            pass
     
     return None
 
@@ -1007,8 +1248,9 @@ def _setup_webhook_endpoint(app: FastAPI):
             response_text = await _process_webhook_update(update)
             
             # Send response if needed (for document updates)
+            ctx = get_runtime_context()
             if response_text and update.message:
-                await telegram_app.bot.send_message(
+                await ctx.telegram_app.bot.send_message(
                     chat_id=update.message.chat_id, 
                     text=response_text
                 )
@@ -1035,7 +1277,8 @@ def create_app(args: Optional[SimpleNamespace] = None):
     @app.get("/health")
     async def health_check():
         """Health check endpoint for monitoring."""
-        return {"status": "healthy", "bot_loaded": bot_instance is not None}
+        ctx = get_runtime_context()
+        return {"status": "healthy", "bot_loaded": ctx.bot_instance is not None}
     
     # Setup webhook endpoint
     _setup_webhook_endpoint(app)
@@ -1079,15 +1322,16 @@ def _ensure_required_components() -> Optional[MessageHandler]:
     Returns:
         MessageHandler instance if components are available, None otherwise
     """
-    if not admin_manager:
+    ctx = get_runtime_context()
+    if not ctx.admin_manager:
         syslog2(LOG_ERR, "admin manager missing", action="drop_message")
         return None
     
-    if not bot_instance:
+    if not ctx.bot_instance:
         syslog2(LOG_ERR, "bot instance missing", action="drop_message")
         return None
     
-    return MessageHandler(bot_instance, admin_manager, admin_router)
+    return MessageHandler(ctx.bot_instance, ctx.admin_manager, ctx.admin_router)
 
 
 async def _ensure_handler_available(handler_func, chat_id: int, *args, **kwargs) -> bool:
@@ -1108,7 +1352,8 @@ async def _ensure_handler_available(handler_func, chat_id: int, *args, **kwargs)
     
     response = await handler_func(handler, *args, **kwargs)
     if response:
-        await telegram_app.bot.send_message(chat_id=chat_id, text=response)
+        ctx = get_runtime_context()
+        await ctx.telegram_app.bot.send_message(chat_id=chat_id, text=response)
     return True
 
 
@@ -1127,8 +1372,9 @@ async def _handle_public_commands(message, text: str, chat_id: int) -> bool:
     user_id = message.from_user.id
     
     # Handle /id command
+    ctx = get_runtime_context()
     if text == "/id":
-        await telegram_app.bot.send_message(
+        await ctx.telegram_app.bot.send_message(
             chat_id=chat_id,
             text=f"Chat ID: `{chat_id}`\nUser ID: `{user_id}`",
             parse_mode="Markdown",
@@ -1167,15 +1413,16 @@ def _check_access(user_id: int, chat_id: int, is_private: bool, is_command: bool
     Returns:
         Tuple of (is_allowed, denial_reason)
     """
-    if not admin_manager:
+    ctx = get_runtime_context()
+    if not ctx.admin_manager:
         syslog2(LOG_ERR, "admin manager missing", action="drop_message")
         return False, "admin_manager missing"
     
-    if not access_control:
+    if not ctx.access_control:
         syslog2(LOG_ERR, "access control missing")
         return False, "access_control missing"
     
-    is_allowed, denial_reason = access_control.is_allowed(
+    is_allowed, denial_reason = ctx.access_control.is_allowed(
         user_id=user_id,
         chat_id=chat_id,
         is_private=is_private,
@@ -1277,10 +1524,11 @@ async def _send_message_parts_unified(chat_id: int, message_parts_list: List[Lis
     Returns:
         Total number of message parts sent
     """
+    ctx = get_runtime_context()
     if not message_parts_list:
         if empty_message:
             try:
-                await telegram_app.bot.send_message(chat_id=chat_id, text=empty_message)
+                await ctx.telegram_app.bot.send_message(chat_id=chat_id, text=empty_message)
             except Exception as e:
                 syslog2(LOG_ERR, "failed to send empty message", chat_id=chat_id, error=str(e))
         return 0
@@ -1290,7 +1538,7 @@ async def _send_message_parts_unified(chat_id: int, message_parts_list: List[Lis
     try:
         for message_parts in message_parts_list:
             for part in message_parts:
-                await telegram_app.bot.send_message(
+                await ctx.telegram_app.bot.send_message(
                     chat_id=chat_id,
                     text=part["content"],
                     parse_mode="HTML"
@@ -1376,7 +1624,8 @@ async def _handle_search_mention(message, bot_username: str, bot_id: int, chat_i
     """
     is_search_command, search_query = _parse_search_mention(message, bot_username, bot_id)
     if is_search_command:
-        message_parts_list = search_message_contents(bot_instance.retrieval, bot_instance.db, search_query, top_k=3)
+        ctx = get_runtime_context()
+        message_parts_list = search_message_contents(ctx.bot_instance.retrieval, ctx.bot_instance.db, search_query, top_k=3)
         await _send_search_results(chat_id, message_parts_list, search_query)
         return True
     return False
@@ -1438,12 +1687,13 @@ async def _determine_response_decision(message, is_command: bool, is_private: bo
     Returns:
         Tuple of (should_respond, reason)
     """
-    config = admin_manager.config
-    bot_username = (telegram_app.bot.username or "").lower()
-    bot_id = telegram_app.bot.id
+    ctx = get_runtime_context()
+    config = ctx.admin_manager.config
+    bot_username = (ctx.telegram_app.bot.username or "").lower()
+    bot_id = ctx.telegram_app.bot.id
     has_mention = is_bot_mentioned(message, bot_username, bot_id)
     
-    respond, reason = frequency_controller.should_respond(
+    respond, reason = ctx.frequency_controller.should_respond(
         chat_id=chat_id,
         frequency=config.response_frequency or 0,
         has_mention=has_mention,
@@ -1467,7 +1717,8 @@ async def _send_response_if_available(response: Optional[str], chat_id: int, is_
     """
     if response:
         try:
-            await telegram_app.bot.send_message(chat_id=chat_id, text=response)
+            ctx = get_runtime_context()
+            await ctx.telegram_app.bot.send_message(chat_id=chat_id, text=response)
             syslog2(LOG_NOTICE, "response sent", chat_id=chat_id, response_length=len(response))
         except Exception as e:
             syslog2(LOG_ERR, "failed to send response", chat_id=chat_id, error=str(e))
@@ -1523,12 +1774,13 @@ async def _route_message_step(text: str, update: Update, is_command: bool, respo
     Returns:
         Response text or None if message should be ignored
     """
-    handler = MessageHandler(bot_instance, admin_manager, admin_router)
+    ctx = get_runtime_context()
+    handler = MessageHandler(ctx.bot_instance, ctx.admin_manager, ctx.admin_router)
     
     if is_command:
         return await _process_command_message(text, update, handler, respond)
     else:
-        return await _process_regular_message(text, handler, respond, admin_manager.config, chat_id)
+        return await _process_regular_message(text, handler, respond, ctx.admin_manager.config, chat_id)
 
 
 async def handle_message(update: Update):
@@ -1559,13 +1811,14 @@ async def handle_message(update: Update):
     respond, reason = await _determine_response_step(message, is_command, is_private, chat_id)
 
     # Step 4: Check if bot_instance is available
-    if not bot_instance:
+    ctx = get_runtime_context()
+    if not ctx.bot_instance:
         syslog2(LOG_ERR, "bot instance missing", action="drop_message")
         return
     
     # Step 5: Parse and handle search mentions
-    bot_username = (telegram_app.bot.username or "").lower()
-    bot_id = telegram_app.bot.id
+    bot_username = (ctx.telegram_app.bot.username or "").lower()
+    bot_id = ctx.telegram_app.bot.id
     if await _handle_search_mention_step(message, bot_username, bot_id, chat_id):
         return
     
@@ -1638,8 +1891,7 @@ def run_server(host: str = "127.0.0.1", port: int = 8000, log_level: Optional[st
         debug_rag: Enable RAG debug mode
         args: Parsed command line arguments (SimpleNamespace)
     """
-    global debug_rag_mode
-    debug_rag_mode = debug_rag
+    _set_debug_rag_mode(debug_rag)
     
     setup_logging(log_level=log_level, use_syslog=False)
     

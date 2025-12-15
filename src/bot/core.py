@@ -551,22 +551,42 @@ class LegaleBot:
                 # Re-raise other errors
                 raise
     
-    def chat(self, user_input: str, n_results: int = 3, respond: bool = True, system_prompt_template: str = None) -> str:
+    def _get_context_for_query(self, user_input: str, n_results: int) -> List[Dict]:
         """
-        Process a user message and return the bot's response.
+        Get context chunks for user query.
+        
+        Args:
+            user_input: User query string
+            n_results: Number of chunks to retrieve
+            
+        Returns:
+            List of context chunk dictionaries
         """
-        auto_reset_warning = self._ensure_context_limit()
-
-        if not respond:
-            self.chat_history.append({"role": "user", "content": user_input})
-            return ""
-
         if self.debug_rag and self.log_level <= LOG_DEBUG:
             syslog2(LOG_DEBUG, "rag_debug_state", has_active_context=self.active_context_chunks is not None, active_query=self.active_context_query[:80] if self.active_context_query else None)
         
         syslog2(LOG_NOTICE, "retrieving context", retrieval_type=self.retrieval_type, cached=self.active_context_chunks is not None)
         context_chunks = self._get_or_build_context(user_input, n_results)
+        
+        return context_chunks
 
+    def _build_llm_messages(
+        self,
+        context_chunks: List[Dict],
+        user_input: str,
+        system_prompt_template: str = None
+    ) -> List[Dict[str, str]]:
+        """
+        Build messages list for LLM API call.
+        
+        Args:
+            context_chunks: List of context chunk dictionaries
+            user_input: User query string
+            system_prompt_template: Optional custom system prompt template
+            
+        Returns:
+            List of message dictionaries for LLM API
+        """
         # системный промпт: контекст + история + инструкции, но без дублирования user_input
         system_prompt, _ = self._build_prompt_and_history(
             context_chunks=context_chunks,
@@ -583,9 +603,53 @@ class LegaleBot:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_input},
         ]
+        
+        return messages
 
+    def _call_llm_with_context(
+        self,
+        messages: List[Dict[str, str]],
+        context_chunks: List[Dict],
+        user_input: str,
+        system_prompt_template: str = None
+    ) -> str:
+        """
+        Call LLM with context and handle errors.
+        
+        Args:
+            messages: List of message dictionaries for LLM API
+            context_chunks: List of context chunk dictionaries
+            user_input: User query string
+            system_prompt_template: Optional custom system prompt template
+            
+        Returns:
+            LLM response string
+            
+        Raises:
+            Exception: If LLM call fails
+        """
+        response = self._call_llm_with_retry(messages, context_chunks, user_input, system_prompt_template)
+        return response
+
+    def chat(self, user_input: str, n_results: int = 3, respond: bool = True, system_prompt_template: str = None) -> str:
+        """
+        Process a user message and return the bot's response.
+        """
+        auto_reset_warning = self._ensure_context_limit()
+
+        if not respond:
+            self.chat_history.append({"role": "user", "content": user_input})
+            return ""
+
+        # Get context for query
+        context_chunks = self._get_context_for_query(user_input, n_results)
+
+        # Build LLM messages
+        messages = self._build_llm_messages(context_chunks, user_input, system_prompt_template)
+
+        # Call LLM with context
         try:
-            response = self._call_llm_with_retry(messages, context_chunks, user_input, system_prompt_template)
+            response = self._call_llm_with_context(messages, context_chunks, user_input, system_prompt_template)
             # Check if retry already included warning
             if "Ошибка лимита токенов" in response:
                 auto_reset_warning = ""
