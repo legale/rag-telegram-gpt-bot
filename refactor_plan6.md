@@ -164,7 +164,7 @@
 
 - [x] file=src/bot/tgbot.py func=_map_log_level_to_constant упростить: использовать словарь для маппинга вместо множественных if-elif
 
-- [ ] file=src/bot/tgbot.py func=_map_syslog2_to_logging_level упростить: использовать словарь для маппинга вместо множественных if-elif
+- [x] file=src/bot/tgbot.py func=_map_syslog2_to_logging_level упростить: использовать словарь для маппинга вместо множественных if-elif
 
 - [x] file=src/bot/tgbot.py func=setup_logging уменьшить цикломатическую сложность: вынести создание handler в _create_log_handler(), настройку formatter в _setup_formatter(), настройку loggers в _configure_loggers()
 
