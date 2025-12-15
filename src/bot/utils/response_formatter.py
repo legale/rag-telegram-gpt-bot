@@ -77,6 +77,33 @@ class ResponseFormatter:
         return filled_char * filled_width + empty_char * empty_width
     
     @staticmethod
+    def _format_error(error: str) -> str:
+        """
+        Format error message.
+        
+        Args:
+            error: Error message
+            
+        Returns:
+            Formatted error message
+        """
+        return f"Ошибка: {error}"
+    
+    @staticmethod
+    def _add_context(message: str, context: str) -> str:
+        """
+        Add context to a message.
+        
+        Args:
+            message: Message to add context to
+            context: Context string (e.g., operation name)
+            
+        Returns:
+            Message with context added
+        """
+        return f"Ошибка при {context}: {message}"
+    
+    @staticmethod
     def format_error_message(error: str, context: str = "") -> str:
         """
         Format an error message consistently.
@@ -88,9 +115,10 @@ class ResponseFormatter:
         Returns:
             Formatted error message
         """
+        error_message = ResponseFormatter._format_error(error)
         if context:
-            return f"Ошибка при {context}: {error}"
-        return f"Ошибка: {error}"
+            return ResponseFormatter._add_context(error_message, context)
+        return error_message
     
     @staticmethod
     def format_success_message(message: str, details: Optional[Dict[str, Any]] = None) -> str:
