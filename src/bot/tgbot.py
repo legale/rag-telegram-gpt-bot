@@ -1064,6 +1064,50 @@ async def process_text_update(update: Update) -> None:
             pass
 
 
+async def _validate_webhook_request(request: Request) -> Optional[dict]:
+    """
+    Validate webhook request body and extract JSON data.
+    
+    Args:
+        request: FastAPI request object
+        
+    Returns:
+        JSON data as dict or None if validation failed
+    """
+    try:
+        data = await request.json()
+        if not isinstance(data, dict):
+            syslog2(LOG_ERR, "webhook request body is not a dict", body_type=type(data).__name__)
+            return None
+        return data
+    except Exception as e:
+        syslog2(LOG_ERR, "webhook request validation failed", error=str(e))
+        return None
+
+
+def _parse_update_from_json(data: dict, bot) -> Optional[Update]:
+    """
+    Parse Update object from JSON data.
+    
+    Args:
+        data: JSON data as dict
+        bot: Telegram bot instance
+        
+    Returns:
+        Update object or None if parsing failed
+    """
+    try:
+        update = Update.de_json(data, bot)
+        if update is None:
+            syslog2(LOG_ERR, "failed to parse Update from JSON data")
+            return None
+        syslog2(LOG_DEBUG, "update received", update_id=update.update_id)
+        return update
+    except Exception as e:
+        syslog2(LOG_ERR, "webhook parse failed", error=str(e))
+        return None
+
+
 async def _parse_webhook_update(request: Request) -> Optional[Update]:
     """
     Parse Telegram update from HTTP request.
@@ -1074,15 +1118,15 @@ async def _parse_webhook_update(request: Request) -> Optional[Update]:
     Returns:
         Update object or None if parsing failed
     """
-    try:
-        data = await request.json()
-        ctx = get_runtime_context()
-        update = Update.de_json(data, ctx.telegram_app.bot)
-        syslog2(LOG_DEBUG, "update received", update_id=update.update_id)
-        return update
-    except Exception as e:
-        syslog2(LOG_ERR, "webhook parse failed", error=str(e))
+    # Step 1: Validate request body
+    data = await _validate_webhook_request(request)
+    if data is None:
         return None
+    
+    # Step 2: Parse Update from JSON
+    ctx = get_runtime_context()
+    update = _parse_update_from_json(data, ctx.telegram_app.bot)
+    return update
 
 
 async def _handle_command(update: Update) -> None:
