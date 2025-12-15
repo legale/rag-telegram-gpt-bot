@@ -82,7 +82,7 @@
 
 - [x] file=src/bot/config.py func=_load упростить логику: вынести создание файла с defaults в _create_default_config(), загрузку существующего config в _load_existing_config(), добавление missing defaults в _add_missing_defaults()
 
-- [ ] file=src/bot/admin_router.py func=_route_with_subcommand уменьшить цикломатическую сложность: вынести проверку доступа в _check_admin_access(), выполнение handler в _execute_handler_with_error_handling()
+- [x] file=src/bot/admin_router.py func=_route_with_subcommand уменьшить цикломатическую сложность: вынести проверку доступа в _check_admin_access(), выполнение handler в _execute_handler_with_error_handling()
 
 - [ ] file=src/bot/admin_tasks.py func=_persist_sql уменьшить цикломатическую сложность: вынести подготовку chunk models в _prepare_chunk_models(), сохранение в БД в _save_chunks_to_database()
 

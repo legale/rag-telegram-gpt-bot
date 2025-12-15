@@ -34,18 +34,6 @@ class AdminCommandRouter:
         else:
             self.handlers[command] = handler
     
-    def _check_admin_access(self, admin_manager, user_id: int) -> Tuple[bool, Optional[str]]:
-        """
-        Check if user has admin access.
-        
-        Returns:
-            Tuple of (is_admin, error_message)
-        """
-        if not admin_manager or not admin_manager.is_admin(user_id):
-            syslog2(LOG_WARNING, "unauthorized admin command", user_id=user_id)
-            return False, "Эта команда доступна только администратору."
-        return True, None
-    
     def _parse_command(self, text: str) -> Tuple[Optional[str], Optional[str], List[str]]:
         """
         Parse admin command text.
@@ -67,10 +55,27 @@ class AdminCommandRouter:
         
         return command, None, []
     
-    async def _execute_handler(self, handler: Callable, update: Update, 
-                               context: ContextTypes.DEFAULT_TYPE, 
-                               admin_manager, args: List[str], 
-                               command_name: str) -> str:
+    def _check_admin_access(self, admin_manager, user_id: int) -> Tuple[bool, Optional[str]]:
+        """
+        Check if user has admin access.
+        
+        Args:
+            admin_manager: AdminManager instance
+            user_id: User ID to check
+        
+        Returns:
+            Tuple of (is_admin, error_message)
+        """
+        if not admin_manager or not admin_manager.is_admin(user_id):
+            syslog2(LOG_WARNING, "unauthorized admin command", user_id=user_id)
+            return False, "Эта команда доступна только администратору."
+        return True, None
+
+    async def _execute_handler_with_error_handling(
+        self, handler: Callable, update: Update, 
+        context: ContextTypes.DEFAULT_TYPE, 
+        admin_manager, args: List[str], 
+        command_name: str) -> str:
         """
         Execute a command handler with error handling.
         
@@ -99,10 +104,16 @@ class AdminCommandRouter:
                                      context: ContextTypes.DEFAULT_TYPE,
                                      admin_manager) -> str:
         """Route command with subcommand."""
+        # Check admin access
+        user_id = update.message.from_user.id
+        is_admin, error = self._check_admin_access(admin_manager, user_id)
+        if not is_admin:
+            return error
+        
         # Try to find subcommand handler
         if command in self.subcommand_handlers and subcommand in self.subcommand_handlers[command]:
             handler = self.subcommand_handlers[command][subcommand]
-            return await self._execute_handler(
+            return await self._execute_handler_with_error_handling(
                 handler, update, context, admin_manager, args, f"{command}/{subcommand}"
             )
         
@@ -110,7 +121,7 @@ class AdminCommandRouter:
         if command in self.handlers:
             handler = self.handlers[command]
             full_args = [subcommand] + args
-            return await self._execute_handler(
+            return await self._execute_handler_with_error_handling(
                 handler, update, context, admin_manager, full_args, command
             )
         
@@ -127,7 +138,7 @@ class AdminCommandRouter:
         # Try direct handler
         if command in self.handlers:
             handler = self.handlers[command]
-            return await self._execute_handler(
+            return await self._execute_handler_with_error_handling(
                 handler, update, context, admin_manager, [], command
             )
         
