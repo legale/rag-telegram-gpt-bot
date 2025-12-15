@@ -14,7 +14,6 @@ from src.bot.utils import (
     ResponseFormatter,
     DatabaseStatsService,
     CommandValidator,
-    CommandValidator,
     HealthChecker,
     ErrorHandler,
 )

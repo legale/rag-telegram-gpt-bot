@@ -56,7 +56,7 @@
 
 - [x] file=src/ingestion/pipeline.py удалить закомментированные методы run_stage4, run_stage5, run_stage6, run_stage7 (clustering deprecated)
 
-- [ ] file=src/bot/admin_commands.py удалить дублирующийся импорт CommandValidator (импортируется дважды в строках 16-17)
+- [x] file=src/bot/admin_commands.py удалить дублирующийся импорт CommandValidator (импортируется дважды в строках 16-17)
 
 - [ ] file=src/bot/tgbot.py func=_register_admin_commands уменьшить цикломатическую сложность: вынести регистрацию каждой группы команд в отдельные функции _register_profile_commands(), _register_ingest_commands(), _register_stats_commands()
 
