@@ -231,36 +231,6 @@ class SqliteChunkStore:
         """
         self.db.clear()
 
-    def get_by_topic_l1(self, topic_id: int, limit: int) -> List[Chunk]:
-        """
-        Get chunks assigned to an L1 topic.
-        
-        DEPRECATED: Topics are no longer supported. Returns empty list.
-
-        Args:
-            topic_id: L1 topic ID
-            limit: Maximum number of chunks to return
-
-        Returns:
-            Empty list (topics deprecated)
-        """
-        return []
-
-    def get_by_topic_l2(self, topic_id: int, limit: int) -> List[Chunk]:
-        """
-        Get chunks assigned to an L2 topic.
-        
-        DEPRECATED: Topics are no longer supported. Returns empty list.
-
-        Args:
-            topic_id: L2 topic ID
-            limit: Maximum number of chunks to return
-
-        Returns:
-            Empty list (topics deprecated)
-        """
-        return []
-
     def _model_to_domain(self, model: ChunkModel) -> Chunk:
         """
         Convert ChunkModel to domain Chunk object.
