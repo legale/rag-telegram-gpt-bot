@@ -8,6 +8,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 import logging
 from src.lib.syslog2 import *
+from src.bot.utils.error_handler import ErrorHandler
 
 
 class AdminCommandRouter:
@@ -87,8 +88,11 @@ class AdminCommandRouter:
         try:
             return await handler(update, context, admin_manager, args)
         except Exception as e:
-            syslog2(LOG_ERR, "handler failed", command=command_name, error=str(e))
-            return f"Ошибка при выполнении команды: {e}"
+            return ErrorHandler.handle_error_static(
+                error=e,
+                context=f"выполнении команды {command_name}",
+                user_message=f"Ошибка при выполнении команды: {e}"
+            )
     
     async def _route_with_subcommand(self, command: str, subcommand: str, 
                                      args: List[str], update: Update,

@@ -18,6 +18,7 @@ from .access_control import AccessControlService
 from .frequency_controller import FrequencyController
 from .health_checker import HealthChecker
 from .telegram_links import build_message_link
+from .error_handler import ErrorHandler
 
 __all__ = [
     "ResponseFormatter",
@@ -27,4 +28,5 @@ __all__ = [
     "FrequencyController",
     "HealthChecker",
     "build_message_link",
+    "ErrorHandler",
 ]

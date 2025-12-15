@@ -28,7 +28,7 @@
 
 - [x] file=src/bot/core.py file=src/app/bootstrap.py убрать дублирование логики создания embedding_client из BotConfig: использовать единую функцию из bootstrap.py
 
-- [ ] file=src/bot/tgbot.py file=src/bot/admin_router.py убрать дублирование логики обработки ошибок: использовать единый метод handle_error() из BaseAdminCommand или создать ErrorHandler utility
+- [x] file=src/bot/tgbot.py file=src/bot/admin_router.py убрать дублирование логики обработки ошибок: использовать единый метод handle_error() из BaseAdminCommand или создать ErrorHandler utility
 
 - [ ] file=src/bot/tgbot.py file=src/bot/cli.py убрать дублирование логики парсинга команд: использовать единый CommandDispatcher для всех точек входа
 

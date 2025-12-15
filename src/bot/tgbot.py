@@ -35,7 +35,7 @@ from src.bot.admin_router import AdminCommandRouter
 from src.core.message_search import search_message_contents
 from src.bot.admin_commands import ProfileCommands, HelpCommands, IngestCommands, StatsCommands, ControlCommands, SettingsCommands, ModelCommands, SystemPromptCommands
 from src.bot.admin_tasks import TaskManager
-from src.bot.utils import AccessControlService, FrequencyController
+from src.bot.utils import AccessControlService, FrequencyController, ErrorHandler
 from src.bot.command_parser import parse_find_command_args as parse_find_args_common
 from src.lib.syslog2 import *
 
@@ -155,8 +155,7 @@ class MessageHandler:
         try:
             return self.bot.reset_context()
         except Exception as e:
-            syslog2(LOG_ERR, "reset context failed", error=str(e))
-            return "Ошибка при сбросе контекста."
+            return ErrorHandler.handle_error_static(e, "сбросе контекста", user_message="Ошибка при сбросе контекста.")
     
     async def handle_tokens_command(self) -> str:
         """Handle /tokens command."""
@@ -176,8 +175,7 @@ class MessageHandler:
                 response += "Достаточно места для разговора."
             return response
         except Exception as e:
-            syslog2(LOG_ERR, "get token usage failed", error=str(e))
-            return "Ошибка при получении информации о токенах."
+            return ErrorHandler.handle_error_static(e, "получении информации о токенах", user_message="Ошибка при получении информации о токенах.")
     
     async def handle_model_command(self) -> str:
         """Handle /model command."""
@@ -188,8 +186,7 @@ class MessageHandler:
                 self.admin_manager.config.current_model = self.bot.current_model_name
             return msg
         except Exception as e:
-            syslog2(LOG_ERR, "get model failed", error=str(e))
-            return "Ошибка при переключении модели."
+            return ErrorHandler.handle_error_static(e, "переключении модели", user_message="Ошибка при переключении модели.")
     
     async def handle_admin_set_command(self, text: str, message) -> str:
         """Handle /admin_set command."""
@@ -224,8 +221,7 @@ class MessageHandler:
                     f"Username: @{username}"
                 )
             except Exception as e:
-                syslog2(LOG_ERR, "set admin failed", error=str(e))
-                return "Ошибка при назначении администратора."
+                return ErrorHandler.handle_error_static(e, "назначении администратора", user_message="Ошибка при назначении администратора.")
         else:
             syslog2(LOG_WARNING, "failed admin set attempt", user_id=message.from_user.id)
             return "Неверный пароль."
@@ -258,8 +254,7 @@ class MessageHandler:
         try:
             return await self.admin_router.route(update, None, self.admin_manager)
         except Exception as e:
-            syslog2(LOG_ERR, "admin command failed", error=str(e))
-            return f"Ошибка при выполнении админ-команды: {e}"
+            return ErrorHandler.handle_error_static(e, "выполнении админ-команды", user_message=f"Ошибка при выполнении админ-команды: {e}")
     
     def _parse_find_command_args(self, text: str) -> Tuple[Optional[float], Optional[str]]:
         """
@@ -433,8 +428,7 @@ class MessageHandler:
             
             return self.bot.chat(text, respond=respond, system_prompt_template=system_prompt_template)
         except Exception as e:
-            syslog2(LOG_ERR, "process user query failed", error=str(e))
-            return f"Произошла ошибка при обработке вашего запроса. error={e}"
+            return ErrorHandler.handle_error_static(e, "обработке вашего запроса", user_message=f"Произошла ошибка при обработке вашего запроса. error={e}")
     
     def _get_command_and_args(self, text: str) -> Tuple[Optional[str], str]:
         """

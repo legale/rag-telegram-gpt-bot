@@ -16,6 +16,7 @@ from src.bot.utils import (
     CommandValidator,
     CommandValidator,
     HealthChecker,
+    ErrorHandler,
 )
 from src.lib.syslog2 import *
 
@@ -48,8 +49,7 @@ class BaseAdminCommand:
         Returns:
             Formatted error message
         """
-        syslog2(LOG_ERR, "admin command error", context=context, error=str(error))
-        return self.formatter.format_error_message(str(error), context)
+        return ErrorHandler.handle_error_static(error, context)
     
     def get_profile_paths(self, profile_name: str = None):
         """
