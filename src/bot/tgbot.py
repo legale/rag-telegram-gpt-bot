@@ -1456,12 +1456,12 @@ def is_bot_mentioned(message, bot_username: str, bot_id: int) -> bool:
     return False
 
 
-def _check_admin_manager(ctx) -> bool:
+def _check_admin_manager(ctx: RuntimeContext) -> bool:
     """
     Check if admin_manager is available.
     
     Args:
-        ctx: Runtime context
+        ctx: RuntimeContext instance
         
     Returns:
         True if admin_manager is available, False otherwise
@@ -1472,12 +1472,12 @@ def _check_admin_manager(ctx) -> bool:
     return True
 
 
-def _check_bot_instance(ctx) -> bool:
+def _check_bot_instance(ctx: RuntimeContext) -> bool:
     """
     Check if bot_instance is available.
     
     Args:
-        ctx: Runtime context
+        ctx: RuntimeContext instance
         
     Returns:
         True if bot_instance is available, False otherwise

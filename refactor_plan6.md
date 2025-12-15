@@ -6,7 +6,7 @@
 
 ## План задач рефакторинга
 
-- [x] file=src/bot/tgbot.py убрать глобальные переменные bot_instance, admin_manager, admin_router, task_manager, ingest_commands, command_dispatcher: создать класс RuntimeContext для хранения состояния и передавать его через dependency injection
+- [w] file=src/bot/tgbot.py убрать глобальные переменные bot_instance, admin_manager, admin_router, task_manager, ingest_commands, command_dispatcher: создать класс RuntimeContext для хранения состояния и передавать его через dependency injection (частично выполнено: RuntimeContext создан, глобальные переменные убраны, но dependency injection не реализован - везде используется get_runtime_context() как глобальный синглтон вместо передачи через параметры функций)
 
 - [x] file=src/bot/tgbot.py func=init_runtime_for_current_profile уменьшить цикломатическую сложность: разбить на отдельные функции _create_bot_instance(), _create_admin_components(), _create_command_dispatcher()
 
@@ -30,7 +30,7 @@
 
 - [x] file=src/bot/tgbot.py file=src/bot/admin_router.py убрать дублирование логики обработки ошибок: использовать единый метод handle_error() из BaseAdminCommand или создать ErrorHandler utility
 
-- [x] file=src/bot/tgbot.py file=src/bot/cli.py убрать дублирование логики парсинга команд: использовать единый CommandDispatcher для всех точек входа
+- [ ] file=src/bot/tgbot.py file=src/bot/cli.py убрать дублирование логики парсинга команд: использовать единый CommandDispatcher для всех точек входа (частично выполнено: используется dispatcher в main(), но есть неиспользуемая дублирующая функция handle_cli_command в cli.py)
 
 - [x] file=src/core/llm.py func=complete добавить явные таймауты для HTTP-запросов: использовать timeout параметр в OpenAI client (timeout=30.0)
 
@@ -44,7 +44,7 @@
 
 - [x] file=src/core/hybrid_retrieval.py func=search заменить широкий except Exception на специфичные исключения: обрабатывать EmbeddingError, VectorIndexError отдельно с fallback на FTS-only
 
-- [x] file=src/bot/core.py func=_call_llm_with_retry заменить широкий except Exception на специфичные исключения: обрабатывать APIError, TimeoutError, RateLimitError отдельно
+- [ ] file=src/bot/core.py func=_call_llm_with_retry заменить широкий except Exception на специфичные исключения: обрабатывать APIError, TimeoutError, RateLimitError отдельно (частично выполнено: TimeoutError обрабатывается отдельно, но APIError и RateLimitError обрабатываются внутри общего except Exception с проверкой типа по строке)
 
 - [x] file=src/bot/tgbot.py удалить неиспользуемую функцию _send_find_results_simple (помечена как deprecated, используется _send_message_parts_unified)
 
@@ -226,7 +226,7 @@
 
 - [ ] file=src/ingestion/pipeline.py func=run_all упростить: использовать список stage функций и вызывать их в цикле вместо явных вызовов
 
-- [ ] file=src/bot/tgbot.py func=_register_command_group упростить: использовать словарь для маппинга method_name -> subcommand вместо явных вызовов register()
+- [x] file=src/bot/tgbot.py func=_register_command_group упростить: использовать словарь для маппинга method_name -> subcommand вместо явных вызовов register()
 
 - [ ] file=src/bot/admin_commands.py func=BaseAdminCommand.get_profile_paths упростить: вынести валидацию profile_name в _validate_profile_name(), получение paths в _get_paths_for_profile()
 
