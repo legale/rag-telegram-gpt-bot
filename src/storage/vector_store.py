@@ -151,24 +151,6 @@ class VectorStore:
             metadata={"hnsw:space": "cosine"}  # Use cosine similarity instead of L2
         )
 
-    def get_topics_l2_collection(self):
-        """
-        Get the topics_l2 collection.
-        
-        Returns:
-            ChromaDB Collection for L2 topics
-        """
-        return self.topics_l2_collection
-
-    def get_topics_l1_collection(self):
-        """
-        Get the topics_l1 collection.
-        
-        Returns:
-            ChromaDB Collection for L1 topics
-        """
-        return self.topics_l1_collection
-
     def get_embeddings_by_ids(self, ids: List[str], collection_name: Optional[str] = None) -> Dict[str, Any]:
         """
         Get embeddings by chunk IDs from the specified collection.

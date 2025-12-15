@@ -52,7 +52,7 @@
 
 - [x] file=src/storage/db.py удалить закомментированные методы get_by_topic_l1, get_by_topic_l2 из ChunkStore (clustering deprecated)
 
-- [ ] file=src/storage/vector_store.py удалить неиспользуемые методы get_topics_l1_collection, get_topics_l2_collection (clustering deprecated)
+- [x] file=src/storage/vector_store.py удалить неиспользуемые методы get_topics_l1_collection, get_topics_l2_collection (clustering deprecated)
 
 - [ ] file=src/ingestion/pipeline.py удалить закомментированные методы run_stage4, run_stage5, run_stage6, run_stage7 (clustering deprecated)
 
