@@ -340,18 +340,8 @@ class IngestionPipeline:
             f"Collection dimension mismatch: existing={existing_dim}, new={new_dimension}. "
             f"Recreating collection...")
         
-        # Delete old collection and create new one
-        try:
-            self.vector_store.client.delete_collection(name=self.vector_store.collection_name)
-        except Exception as e:
-            syslog2(LOG_DEBUG, f"Error deleting collection (may not exist): {e}")
-        
-        # Create new collection
-        self.vector_store.collection = self.vector_store.client.get_or_create_collection(
-            name=self.vector_store.collection_name,
-            embedding_function=None,
-            metadata={"hnsw:space": "cosine"}
-        )
+        # Use public method to recreate collection
+        self.vector_store.recreate_collection()
         self.vector_store.expected_dimension = new_dimension
         syslog2(LOG_NOTICE, f"Collection recreated with dimension {new_dimension}")
     

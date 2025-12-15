@@ -216,7 +216,7 @@
 
 - [x] file=src/core/embedding.py func=get_embeddings_batched упростить: вынести обработку одного батча в _process_batch(), обновление прогресса в _update_progress()
 
-- [w] file=src/core/embedding.py func=create_embedding_client упростить: вынести создание LocalEmbeddingClient в _create_local_client(), создание EmbeddingClient в _create_api_client()
+- [x] file=src/core/embedding.py func=create_embedding_client упростить: вынести создание LocalEmbeddingClient в _create_local_client(), создание EmbeddingClient в _create_api_client()
 
 - [ ] file=src/core/prompt.py func=construct_prompt упростить: вынести проверку custom_template в _should_use_custom_template(), построение промпта из template в _build_from_template()
 
