@@ -188,7 +188,7 @@
 
 - [x] file=src/bot/config.py func=save упростить: вынести создание директории в _ensure_profile_dir(), сохранение файла в _write_config_file(), установку permissions в _set_file_permissions()
 
-- [ ] file=src/core/chunk_utils.py func=build_chunk_dict_from_domain_chunk упростить: вынести извлечение metadata в _extract_chunk_metadata(), создание dict в _create_chunk_dict()
+- [x] file=src/core/chunk_utils.py func=build_chunk_dict_from_domain_chunk упростить: вынести извлечение metadata в _extract_chunk_metadata(), создание dict в _create_chunk_dict()
 
 - [ ] file=src/core/distance_utils.py func=similarity_to_distance добавить обратную функцию distance_to_similarity для консистентности
 

@@ -1411,9 +1411,7 @@ def create_app(args: Optional[SimpleNamespace] = None):
 
 
 def _check_mention_entity(ent, text: str, bot_username: str) -> bool:
-    """
-    Check if mention entity matches bot username.
-    """
+    """Check if mention entity matches bot username."""
     try:
         mention_text = text[ent.offset: ent.offset + ent.length]
         return bot_username and mention_text.lower() == f"@{bot_username}"
@@ -1422,9 +1420,7 @@ def _check_mention_entity(ent, text: str, bot_username: str) -> bool:
 
 
 def _check_text_mention_entity(ent, bot_id: int) -> bool:
-    """
-    Check if text_mention entity matches bot id.
-    """
+    """Check if text_mention entity matches bot id."""
     try:
         return ent.user and ent.user.id == bot_id
     except Exception:
