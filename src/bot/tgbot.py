@@ -14,7 +14,7 @@ import os
 import logging
 import signal
 from types import SimpleNamespace
-from typing import Optional, Dict, List, Tuple, Union
+from typing import Optional, Dict, List, Tuple, Union, Callable
 from contextlib import asynccontextmanager
 
 # Add project root to path
@@ -1967,19 +1967,28 @@ def delete_webhook(token: str):
         sys.exit(1)
 
 
-def run_server(host: str = "127.0.0.1", port: int = 8000, log_level: Optional[str] = None, debug_rag: bool = False, args: Optional[SimpleNamespace] = None):
+def _create_fastapi_app(args: Optional[SimpleNamespace] = None) -> FastAPI:
     """
-    Run the FastAPI server in foreground mode.
+    Create FastAPI application instance.
     
     Args:
-        host: Host to bind
-        port: Port to bind
-        log_level: Log level string (INFO, DEBUG, WARNING, etc.) or number (6=INFO, 7=DEBUG)
-        debug_rag: Enable RAG debug mode
         args: Parsed command line arguments (SimpleNamespace)
+        
+    Returns:
+        FastAPI application instance
     """
-    _set_debug_rag_mode(debug_rag)
+    return create_app(args)
+
+def _setup_server_logging(log_level: Optional[str] = None) -> Tuple[str, bool]:
+    """
+    Setup logging for server and map log level for uvicorn.
     
+    Args:
+        log_level: Log level string (INFO, DEBUG, WARNING, etc.) or number (6=INFO, 7=DEBUG)
+        
+    Returns:
+        Tuple of (uvicorn_log_level, access_log)
+    """
     setup_logging(log_level=log_level, use_syslog=False)
     
     # Map log_level to uvicorn log level (lowercase string)
@@ -2011,15 +2020,75 @@ def run_server(host: str = "127.0.0.1", port: int = 8000, log_level: Optional[st
         uvicorn_log_level = "warning"
         access_log = False
     
-    # Create app with args
-    app = create_app(args)
+    return uvicorn_log_level, access_log
+
+def _start_uvicorn_server(app: FastAPI, host: str, port: int, uvicorn_log_level: str, access_log: bool) -> None:
+    """
+    Start uvicorn server with given configuration.
     
+    Args:
+        app: FastAPI application instance
+        host: Host to bind
+        port: Port to bind
+        uvicorn_log_level: Uvicorn log level (lowercase string)
+        access_log: Whether to enable access log
+    """
     uvicorn.run(
         app,
         host=host,
         port=port,
         log_level=uvicorn_log_level,
         access_log=access_log
+    )
+
+def run_server(host: str = "127.0.0.1", port: int = 8000, log_level: Optional[str] = None, debug_rag: bool = False, args: Optional[SimpleNamespace] = None):
+    """
+    Run the FastAPI server in foreground mode.
+    
+    Args:
+        host: Host to bind
+        port: Port to bind
+        log_level: Log level string (INFO, DEBUG, WARNING, etc.) or number (6=INFO, 7=DEBUG)
+        debug_rag: Enable RAG debug mode
+        args: Parsed command line arguments (SimpleNamespace)
+    """
+    _set_debug_rag_mode(debug_rag)
+    
+    uvicorn_log_level, access_log = _setup_server_logging(log_level)
+    app = _create_fastapi_app(args)
+    _start_uvicorn_server(app, host, port, uvicorn_log_level, access_log)
+
+
+def _setup_signal_handlers() -> Dict[int, Callable]:
+    """
+    Setup signal handlers for daemon process.
+    
+    Returns:
+        Dictionary mapping signal numbers to handler functions
+    """
+    return {
+        signal.SIGTERM: lambda signum, frame: sys.exit(0),
+        signal.SIGINT: lambda signum, frame: sys.exit(0),
+    }
+
+
+def _create_daemon_context(pid_file: str):
+    """
+    Create daemon context with signal handlers.
+    
+    Args:
+        pid_file: Path to PID file
+        
+    Returns:
+        DaemonContext instance
+    """
+    import daemon
+    from daemon import pidfile
+    
+    signal_map = _setup_signal_handlers()
+    return daemon.DaemonContext(
+        pidfile=pidfile.TimeoutPIDLockFile(pid_file),
+        signal_map=signal_map
     )
 
 
@@ -2032,9 +2101,6 @@ def run_daemon(host: str = "127.0.0.1", port: int = 8000, args: Optional[SimpleN
         port: Port to bind
         args: Parsed command line arguments (SimpleNamespace)
     """
-    import daemon
-    from daemon import pidfile
-    
     pid_file = "/var/run/legale-bot.pid"
     
     # Setup syslog logging
@@ -2043,13 +2109,8 @@ def run_daemon(host: str = "127.0.0.1", port: int = 8000, args: Optional[SimpleN
     # Create app with args
     app = create_app(args)
     
-    with daemon.DaemonContext(
-        pidfile=pidfile.TimeoutPIDLockFile(pid_file),
-        signal_map={
-            signal.SIGTERM: lambda signum, frame: sys.exit(0),
-            signal.SIGINT: lambda signum, frame: sys.exit(0),
-        }
-    ):
+    # Create daemon context and run server
+    with _create_daemon_context(pid_file):
         syslog2(LOG_NOTICE, "daemon started")
         uvicorn.run(
             app,
