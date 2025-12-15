@@ -24,6 +24,122 @@ class SqliteChunkStore:
         self.db = database
         self._fts_index: Optional[SqliteFTSIndex] = None
 
+    def _prepare_chunk_data(self, chunk: Chunk) -> Dict:
+        """
+        Prepare chunk data for database storage.
+        
+        Args:
+            chunk: Chunk domain object
+            
+        Returns:
+            Dictionary with prepared chunk data
+        """
+        # Prepare metadata JSON
+        metadata_json = json.dumps(chunk.metadata) if chunk.metadata else None
+
+        # Prepare embedding JSON
+        embedding_json = None
+        embedding_dim = None
+        if chunk.embedding:
+            embedding_json = json.dumps(chunk.embedding)
+            embedding_dim = len(chunk.embedding)
+
+        # Extract message IDs and timestamps
+        msg_id_start = None
+        msg_id_end = None
+        ts_from = None
+        ts_to = None
+        chat_id = None
+
+        if chunk.msg_ids:
+            msg_id_start = chunk.msg_ids[0]
+            if len(chunk.msg_ids) > 1:
+                msg_id_end = chunk.msg_ids[1]
+
+        if chunk.valid_period:
+            ts_from = chunk.valid_period[0]
+            if len(chunk.valid_period) > 1:
+                ts_to = chunk.valid_period[1]
+
+        # Extract chat_id from metadata if available
+        if chunk.metadata and "chat_id" in chunk.metadata:
+            chat_id = str(chunk.metadata["chat_id"])
+
+        return {
+            "metadata_json": metadata_json,
+            "embedding_json": embedding_json,
+            "embedding_dim": embedding_dim,
+            "msg_id_start": msg_id_start,
+            "msg_id_end": msg_id_end,
+            "ts_from": ts_from,
+            "ts_to": ts_to,
+            "chat_id": chat_id,
+        }
+
+    def _chunk_exists(self, session, chunk_id: str) -> Optional[ChunkModel]:
+        """
+        Check if chunk exists in database.
+        
+        Args:
+            session: Database session
+            chunk_id: Chunk ID
+            
+        Returns:
+            ChunkModel instance if exists, None otherwise
+        """
+        return session.query(ChunkModel).filter(
+            ChunkModel.id == chunk_id
+        ).first()
+
+    def _create_or_update_chunk(
+        self,
+        session,
+        chunk: Chunk,
+        chunk_data: Dict,
+        existing: Optional[ChunkModel]
+    ) -> bool:
+        """
+        Create or update chunk in database.
+        
+        Args:
+            session: Database session
+            chunk: Chunk domain object
+            chunk_data: Prepared chunk data dictionary
+            existing: Existing ChunkModel instance or None
+            
+        Returns:
+            True if new chunk was created, False if updated
+        """
+        if existing:
+            # Update existing chunk
+            existing.text = chunk.text
+            existing.metadata_json = chunk_data["metadata_json"]
+            existing.embedding_json = chunk_data["embedding_json"]
+            existing.embedding_dim = chunk_data["embedding_dim"]
+            existing.msg_id_start = chunk_data["msg_id_start"]
+            existing.msg_id_end = chunk_data["msg_id_end"]
+            existing.ts_from = chunk_data["ts_from"]
+            existing.ts_to = chunk_data["ts_to"]
+            if chunk_data["chat_id"]:
+                existing.chat_id = chunk_data["chat_id"]
+            return False
+        else:
+            # Create new chunk
+            chunk_model = ChunkModel(
+                id=chunk.id,
+                text=chunk.text,
+                metadata_json=chunk_data["metadata_json"],
+                embedding_json=chunk_data["embedding_json"],
+                embedding_dim=chunk_data["embedding_dim"],
+                msg_id_start=chunk_data["msg_id_start"],
+                msg_id_end=chunk_data["msg_id_end"],
+                ts_from=chunk_data["ts_from"],
+                ts_to=chunk_data["ts_to"],
+                chat_id=chunk_data["chat_id"],
+            )
+            session.add(chunk_model)
+            return True
+
     def save_batch(self, chunks: List[Chunk]) -> int:
         """
         Save a batch of chunks to the database.
@@ -41,69 +157,14 @@ class SqliteChunkStore:
         session = self.db.get_session()
         try:
             for chunk in chunks:
-                # Check if chunk already exists
-                existing = session.query(ChunkModel).filter(
-                    ChunkModel.id == chunk.id
-                ).first()
-
-                # Prepare metadata JSON
-                metadata_json = json.dumps(chunk.metadata) if chunk.metadata else None
-
-                # Prepare embedding JSON
-                embedding_json = None
-                embedding_dim = None
-                if chunk.embedding:
-                    embedding_json = json.dumps(chunk.embedding)
-                    embedding_dim = len(chunk.embedding)
-
-                # Extract message IDs and timestamps
-                msg_id_start = None
-                msg_id_end = None
-                ts_from = None
-                ts_to = None
-                chat_id = None
-
-                if chunk.msg_ids:
-                    msg_id_start = chunk.msg_ids[0]
-                    if len(chunk.msg_ids) > 1:
-                        msg_id_end = chunk.msg_ids[1]
-
-                if chunk.valid_period:
-                    ts_from = chunk.valid_period[0]
-                    if len(chunk.valid_period) > 1:
-                        ts_to = chunk.valid_period[1]
-
-                # Extract chat_id from metadata if available
-                if chunk.metadata and "chat_id" in chunk.metadata:
-                    chat_id = str(chunk.metadata["chat_id"])
-
-                if existing:
-                    # Update existing chunk
-                    existing.text = chunk.text
-                    existing.metadata_json = metadata_json
-                    existing.embedding_json = embedding_json
-                    existing.embedding_dim = embedding_dim
-                    existing.msg_id_start = msg_id_start
-                    existing.msg_id_end = msg_id_end
-                    existing.ts_from = ts_from
-                    existing.ts_to = ts_to
-                    if chat_id:
-                        existing.chat_id = chat_id
-                else:
-                    # Create new chunk
-                    chunk_model = ChunkModel(
-                        id=chunk.id,
-                        text=chunk.text,
-                        metadata_json=metadata_json,
-                        embedding_json=embedding_json,
-                        embedding_dim=embedding_dim,
-                        msg_id_start=msg_id_start,
-                        msg_id_end=msg_id_end,
-                        ts_from=ts_from,
-                        ts_to=ts_to,
-                        chat_id=chat_id,
-                    )
-                    session.add(chunk_model)
+                # Prepare chunk data
+                chunk_data = self._prepare_chunk_data(chunk)
+                
+                # Check if chunk exists
+                existing = self._chunk_exists(session, chunk.id)
+                
+                # Create or update chunk
+                if self._create_or_update_chunk(session, chunk, chunk_data, existing):
                     saved_count += 1
 
             session.commit()

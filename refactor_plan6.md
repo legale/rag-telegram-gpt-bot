@@ -72,7 +72,7 @@
 
 - [x] file=src/ingestion/chunker.py func=chunk_messages уменьшить цикломатическую сложность: вынести предварительный подсчет токенов в _precompute_token_counts(), создание chunks в _create_chunks_from_messages(), обработку overlap в _apply_overlap()
 
-- [ ] file=src/adapters/persistence/sqlite_chunk_store.py func=save_batch уменьшить цикломатическую сложность: вынести подготовку данных chunk в _prepare_chunk_data(), проверку существования chunk в _chunk_exists(), создание/обновление chunk в _create_or_update_chunk()
+- [x] file=src/adapters/persistence/sqlite_chunk_store.py func=save_batch уменьшить цикломатическую сложность: вынести подготовку данных chunk в _prepare_chunk_data(), проверку существования chunk в _chunk_exists(), создание/обновление chunk в _create_or_update_chunk()
 
 - [ ] file=src/adapters/persistence/sqlite_message_store.py func=save_batch уменьшить цикломатическую сложность: вынести конвертацию domain messages в dict в _convert_messages_to_dicts(), сохранение metadata в _save_message_metadata()
 
