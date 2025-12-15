@@ -153,21 +153,31 @@ History:
         
         return history_str
     
-    def _build_task_section(self, user_task: str, context_str: str, history_str: str, custom_template: Optional[str] = None) -> str:
+    def _should_use_custom_template(self, custom_template: Optional[str] = None) -> bool:
         """
-        Build final prompt by combining task, context, and history using template.
+        Check if custom template should be used.
         
         Args:
-            user_task: The specific instruction for the bot.
-            context_str: Formatted context string.
-            history_str: Formatted history string.
-            custom_template: Optional custom template string overriding the default.
+            custom_template: Optional custom template string
             
         Returns:
-            Formatted prompt string.
+            True if custom template should be used, False otherwise
         """
-        template = custom_template if custom_template else self.SYSTEM_PROMPT_TEMPLATE
+        return custom_template is not None and custom_template.strip() != ""
+    
+    def _build_from_template(self, template: str, user_task: str, context_str: str, history_str: str) -> str:
+        """
+        Build prompt from template.
         
+        Args:
+            template: Template string to use
+            user_task: The specific instruction for the bot
+            context_str: Formatted context string
+            history_str: Formatted history string
+            
+        Returns:
+            Formatted prompt string
+        """
         try:
             return template.format(
                 context=context_str.strip(),
@@ -181,6 +191,26 @@ History:
                 history=history_str.strip(),
                 task=user_task
             )
+    
+    def _build_task_section(self, user_task: str, context_str: str, history_str: str, custom_template: Optional[str] = None) -> str:
+        """
+        Build final prompt by combining task, context, and history using template.
+        
+        Args:
+            user_task: The specific instruction for the bot.
+            context_str: Formatted context string.
+            history_str: Formatted history string.
+            custom_template: Optional custom template string overriding the default.
+            
+        Returns:
+            Formatted prompt string.
+        """
+        if self._should_use_custom_template(custom_template):
+            template = custom_template
+        else:
+            template = self.SYSTEM_PROMPT_TEMPLATE
+        
+        return self._build_from_template(template, user_task, context_str, history_str)
     
     def construct_prompt(self, context_chunks: List[Dict], chat_history: List[Dict], user_task: str, max_context_chars: int = 8000, custom_template: str = None, log_level: int = LOG_WARNING) -> str:
         """
