@@ -373,7 +373,7 @@ class MessageHandler:
         Returns:
             System prompt template string
         """
-        return self.admin_manager.config.system_prompt
+        return self.admin_manager.config.get_system_prompt()
     
     def _print_rag_debug_info(self, text: str, n_results: int = 3) -> None:
         """

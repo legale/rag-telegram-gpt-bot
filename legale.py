@@ -783,10 +783,9 @@ def cmd_config(argv: list[str], profile_manager: ProfileManager) -> None:
         if not key:
             raise ValueError("key required for config get")
         if key == "system_prompt":
-            prompt = config.system_prompt
-            if not prompt:
-                from src.core.prompt import PromptEngine
-                prompt = f"(Default)\n{PromptEngine.SYSTEM_PROMPT_TEMPLATE}"
+            prompt = config.get_system_prompt()
+            if not config.system_prompt:
+                prompt = f"(Default)\n{prompt}"
             syslog2(LOG_NOTICE, "system prompt", profile=profile_name, prompt=prompt)
             return
         syslog2(LOG_ERR, "unknown config key", key=key)

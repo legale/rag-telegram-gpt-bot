@@ -116,7 +116,7 @@
 
 - [x] file=src/core/prompt.py func=construct_prompt уменьшить цикломатическую сложность: вынести построение context части в _build_context_section(), построение history части в _build_history_section(), построение task части в _build_task_section()
 
-- [ ] file=src/core/prompt.py func=get_system_prompt упростить: использовать единый метод для получения system prompt из BotConfig без дублирования логики
+- [x] file=src/core/prompt.py func=get_system_prompt упростить: использовать единый метод для получения system prompt из BotConfig без дублирования логики
 
 - [x] file=src/bot/utils/response_formatter.py создать единый класс ResponseFormatter для форматирования всех типов ответов (уже существует, проверить использование во всех местах)
 

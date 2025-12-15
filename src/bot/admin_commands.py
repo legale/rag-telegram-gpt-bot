@@ -973,11 +973,10 @@ class SystemPromptCommands(BaseAdminCommand):
     async def get_prompt(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
                         admin_manager, args: List[str]) -> str:
         """Handle /admin system_prompt get command."""
-        current_prompt = admin_manager.config.system_prompt
+        current_prompt = admin_manager.config.get_system_prompt()
+        is_default = not admin_manager.config.system_prompt
         
-        if not current_prompt:
-            from src.core.prompt import PromptEngine
-            current_prompt = PromptEngine.SYSTEM_PROMPT_TEMPLATE
+        if is_default:
             return f"**Текущий системный промпт (по умолчанию):**\n\n```\n{current_prompt}\n```"
             
         return f"**Текущий системный промпт (пользовательский):**\n\n```\n{current_prompt}\n```"
@@ -1027,8 +1026,7 @@ class SystemPromptCommands(BaseAdminCommand):
             admin_manager.config.system_prompt = ""
             logger.info(f"System prompt reset to default by admin {update.message.from_user.id}")
             
-            from src.core.prompt import PromptEngine
-            default_prompt = PromptEngine.SYSTEM_PROMPT_TEMPLATE
+            default_prompt = admin_manager.config.get_system_prompt()
             
             return f"Системный промпт сброшен на значение по умолчанию:\n\n```\n{default_prompt}\n```"
         except Exception as e:

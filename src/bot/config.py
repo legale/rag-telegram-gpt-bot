@@ -176,6 +176,19 @@ class BotConfig:
     def system_prompt(self, value: str):
         self.data["system_prompt"] = value
         self.save()
+    
+    def get_system_prompt(self) -> str:
+        """
+        Get system prompt from config, or return default template if empty.
+        
+        Returns:
+            System prompt string (custom from config or default template)
+        """
+        prompt = self.system_prompt
+        if not prompt:
+            from src.core.prompt import PromptEngine
+            return PromptEngine.SYSTEM_PROMPT_TEMPLATE
+        return prompt
 
     @property
     def embedding_model(self) -> str:
