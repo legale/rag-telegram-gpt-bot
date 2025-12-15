@@ -1007,59 +1007,60 @@ class IngestionPipeline:
 
 
 if __name__ == "__main__":
-    from src.lib.argparse2 import (
-        CommandParser, CommandSpec, ArgStream, CLIError, CLIHelp,
-        parse_option, parse_flag
-    )
-    
-    def parse_ingest_main(stream: ArgStream) -> dict:
-        """Parse ingest command for pipeline main."""
-        file = None
-        if stream.has_next() and not stream.peek().startswith("--"):
-            file = stream.next()
-        clear = parse_flag(stream, "clear")
-        db_url = parse_option(stream, "db-url")
-        vec_path = parse_option(stream, "vec-path")
-        collection = parse_option(stream, "collection") or "embed-l1"
-        return {
-            "file": file,
-            "clear": clear,
-            "db_url": db_url,
-            "vec_path": vec_path,
-            "collection": collection
-        }
-    
-    commands = [
-        CommandSpec("ingest", parse_ingest_main, "Ingest chat dump into database and vector store"),
-    ]
-    
-    parser = CommandParser(commands)
+    from src.lib.argparse2 import cmd_parse
     
     if len(sys.argv) == 1:
         print("Usage: python -m src.ingestion.pipeline ingest [file] [--clear] [--db-url <url>] [--vec-path <path>] [--collection <name>]", file=sys.stderr)
         sys.exit(1)
     
+    # Build opt_table for options
+    opt_table = {
+        "clear": {"desc": "Clear database before ingestion"},
+        "db-url": {"arg": True, "desc": "Database URL", "meta": "URL"},
+        "vec-path": {"arg": True, "desc": "Vector database path", "meta": "PATH"},
+        "collection": {"arg": True, "desc": "Collection name", "meta": "NAME"},
+    }
+    
     try:
-        cmd_name, args = parser.parse(sys.argv[1:])
-    except CLIHelp:
-        print("Ingest chat dump into database and vector store")
-        print("\nUsage: python -m src.ingestion.pipeline ingest [file] [--clear] [--db-url <url>] [--vec-path <path>] [--collection <name>]")
-        sys.exit(0)
-    except CLIError as e:
+        opts, cmd, args = cmd_parse(sys.argv[1:], opt_table)
+        
+        if cmd != "ingest":
+            print(f"Error: unknown command: {cmd}", file=sys.stderr)
+            print("Usage: python -m src.ingestion.pipeline ingest [file] [--clear] [--db-url <url>] [--vec-path <path>] [--collection <name>]", file=sys.stderr)
+            sys.exit(1)
+        
+        # Parse arguments
+        file = args[0] if args and not args[0].startswith("--") else None
+        clear = opts.get("clear", False)
+        db_url = opts.get("db-url")
+        vec_path = opts.get("vec-path")
+        collection = opts.get("collection") or "embed-l1"
+        
+        # Convert to SimpleNamespace for compatibility
+        from types import SimpleNamespace
+        parsed_args = SimpleNamespace(
+            file=file,
+            clear=clear,
+            db_url=db_url,
+            vec_path=vec_path,
+            collection=collection
+        )
+        
+    except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
     
-    if not args.file and not args.clear:
+    if not parsed_args.file and not parsed_args.clear:
         print("Error: Please provide a chat dump file or specify --clear for cleanup.", file=sys.stderr)
         sys.exit(1)
     
-    if not args.db_url or not args.vec_path:
+    if not parsed_args.db_url or not parsed_args.vec_path:
         print("Error: --db-url and --vec-path are required for ingestion", file=sys.stderr)
         sys.exit(1)
     
     pipeline = IngestionPipeline(
-        db_url=args.db_url,
-        vector_db_path=args.vec_path,
-        collection_name=args.collection,
+        db_url=parsed_args.db_url,
+        vector_db_path=parsed_args.vec_path,
+        collection_name=parsed_args.collection,
     )
-    pipeline.run(args.file, clear_existing=args.clear)
+    pipeline.run(parsed_args.file, clear_existing=parsed_args.clear)

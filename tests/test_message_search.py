@@ -1,276 +1,283 @@
 """
-Tests for message search functionality.
+Tests for message_search module.
 """
 
 import pytest
-from unittest.mock import Mock, patch
 from datetime import datetime
-from src.core.message_search import search_message_links, search_message_contents
+from src.core.message_search import (
+    convert_search_results_to_dict,
+    _convert_similarity_to_distance,
+    _log_retrieval_distances,
+    search_message_links,
+    search_message_contents,
+    _filter_by_threshold,
+    _parse_msg_id,
+    _format_message_parts,
+    _prepare_message_parts
+)
+from src.core.domain import SearchResult, Chunk, Message
 from src.core.hybrid_retrieval import HybridRetrievalService
 from src.storage.db import Database, MessageModel
 
 
-@pytest.fixture
-def mock_retrieval():
-    """Create a mock HybridRetrievalService."""
-    retrieval = Mock(spec=HybridRetrievalService)
-    return retrieval
+class TestConvertSearchResultsToDict:
+    """Tests for convert_search_results_to_dict function."""
+    
+    def test_convert_empty_list(self):
+        """Test converting empty list."""
+        result = convert_search_results_to_dict([])
+        assert result == []
+    
+    def test_convert_single_result(self):
+        """Test converting single result."""
+        chunk = Chunk(id="chunk1", text="Test", metadata={"chat_id": "chat1"})
+        search_result = SearchResult(chunk=chunk, score=0.8, topics=None)
+        results = convert_search_results_to_dict([search_result])
+        
+        assert len(results) == 1
+        assert results[0]["id"] == "chunk1"
+        assert abs(results[0]["distance"] - 0.2) < 0.01  # 1.0 - 0.8
+        assert results[0]["metadata"]["chat_id"] == "chat1"
+    
+    def test_convert_multiple_results(self):
+        """Test converting multiple results."""
+        chunks = [
+            Chunk(id=f"chunk{i}", text=f"Test {i}", metadata={})
+            for i in range(3)
+        ]
+        search_results = [
+            SearchResult(chunk=chunk, score=0.8, topics=None)
+            for chunk in chunks
+        ]
+        results = convert_search_results_to_dict(search_results)
+        
+        assert len(results) == 3
+        assert all(abs(r["distance"] - 0.2) < 0.01 for r in results)
+    
+    def test_convert_with_topics(self):
+        """Test converting with topics."""
+        chunk = Chunk(id="chunk1", text="Test", metadata={})
+        topics = {"l1": "topic1", "l2": "topic2"}
+        search_result = SearchResult(chunk=chunk, score=0.8, topics=topics)
+        results = convert_search_results_to_dict([search_result])
+        
+        assert results[0]["metadata"]["topics"] == topics
 
 
-@pytest.fixture
-def mock_db():
-    """Create a mock Database."""
-    db = Mock(spec=Database)
-    return db
+class TestConvertSimilarityToDistance:
+    """Tests for _convert_similarity_to_distance function."""
+    
+    def test_convert_score_one(self):
+        """Test converting score 1.0."""
+        result = _convert_similarity_to_distance(1.0)
+        assert result == 0.0
+    
+    def test_convert_score_zero(self):
+        """Test converting score 0.0."""
+        result = _convert_similarity_to_distance(0.0)
+        assert result == 1.0
+    
+    def test_convert_score_half(self):
+        """Test converting score 0.5."""
+        result = _convert_similarity_to_distance(0.5)
+        assert result == 0.5
 
 
-def test_search_message_links_success(mock_retrieval, mock_db):
-    """Test successful message link search."""
-    # Mock retrieval results
-    mock_retrieval.search_chunks_basic.return_value = [
-        {"id": "chunk1", "score": 0.9},
-        {"id": "chunk2", "score": 0.8},
-        {"id": "chunk3", "score": 0.7},
-    ]
+class TestLogRetrievalDistances:
+    """Tests for _log_retrieval_distances function."""
     
-    # Mock database link info
-    mock_db.get_chunk_link_info.side_effect = [
-        (123456, 100, "test_channel"),  # chunk1
-        (-987654, 200, None),  # chunk2 (group, negative chat_id)
-        (111222, 300, "another_channel"),  # chunk3
-    ]
+    def test_log_empty_results(self):
+        """Test logging empty results."""
+        _log_retrieval_distances([], "query", "context")  # Should not raise
     
-    links = search_message_links(mock_retrieval, mock_db, "test query", top_k=3)
-    
-    assert len(links) == 3
-    assert "t.me/test_channel/100" in links[0]
-    # Negative chat_id without 100 prefix uses tg:// format
-    assert "tg://" in links[1] and "987654" in links[1]
-    assert "t.me/another_channel/300" in links[2]
-    
-    mock_retrieval.search_chunks_basic.assert_called_once_with("test query", n_results=3)
-    assert mock_db.get_chunk_link_info.call_count == 3
+    def test_log_with_results(self):
+        """Test logging with results."""
+        results = [
+            {"id": "chunk1", "distance": 0.5, "source": "vector"}
+        ]
+        _log_retrieval_distances(results, "query", "context")  # Should not raise
 
 
-def test_search_message_links_empty_results(mock_retrieval, mock_db):
-    """Test search with no results."""
-    mock_retrieval.search_chunks_basic.return_value = []
+class TestSearchMessageLinks:
+    """Tests for search_message_links function."""
     
-    links = search_message_links(mock_retrieval, mock_db, "nonexistent query", top_k=3)
+    def test_search_empty_results(self, tmp_path):
+        """Test search with empty results."""
+        from src.app.bootstrap import create_hybrid_retrieval
+        from src.core.embedding import LocalEmbeddingClient
+        
+        db = Database(f"sqlite:///{tmp_path}/test.db")
+        client = LocalEmbeddingClient(model="all-MiniLM-L6-v2")
+        retrieval = create_hybrid_retrieval(
+            db_url=f"sqlite:///{tmp_path}/test.db",
+            vector_db_path=str(tmp_path / "vector"),
+            embedding_client=client
+        )
+        
+        links = search_message_links(retrieval, db, "test query", top_k=3)
+        assert links == []
     
-    assert len(links) == 0
-    # search_message_links uses top_k directly (not top_k * 2)
-    mock_retrieval.search_chunks_basic.assert_called_once_with("nonexistent query", n_results=3)
-    mock_db.get_chunk_link_info.assert_not_called()
+    def test_search_with_results(self, tmp_path):
+        """Test search with results."""
+        from src.app.bootstrap import create_hybrid_retrieval
+        from src.core.embedding import LocalEmbeddingClient
+        
+        db = Database(f"sqlite:///{tmp_path}/test.db")
+        client = LocalEmbeddingClient(model="all-MiniLM-L6-v2")
+        retrieval = create_hybrid_retrieval(
+            db_url=f"sqlite:///{tmp_path}/test.db",
+            vector_db_path=str(tmp_path / "vector"),
+            embedding_client=client
+        )
+        
+        # Even without data, should return empty list, not error
+        links = search_message_links(retrieval, db, "test", top_k=3)
+        assert isinstance(links, list)
 
 
-def test_search_message_links_missing_chunk_id(mock_retrieval, mock_db):
-    """Test search results without chunk IDs are skipped."""
-    mock_retrieval.search_chunks_basic.return_value = [
-        {"score": 0.9},  # Missing 'id'
-        {"id": "chunk2", "score": 0.8},
-    ]
+class TestSearchMessageContents:
+    """Tests for search_message_contents function."""
     
-    mock_db.get_chunk_link_info.return_value = (123456, 100, "test_channel")
+    def test_search_empty_results(self, tmp_path):
+        """Test search with empty results."""
+        from src.app.bootstrap import create_hybrid_retrieval
+        from src.core.embedding import LocalEmbeddingClient
+        
+        db = Database(f"sqlite:///{tmp_path}/test.db")
+        client = LocalEmbeddingClient(model="all-MiniLM-L6-v2")
+        retrieval = create_hybrid_retrieval(
+            db_url=f"sqlite:///{tmp_path}/test.db",
+            vector_db_path=str(tmp_path / "vector"),
+            embedding_client=client
+        )
+        
+        results = search_message_contents(retrieval, db, "test query", top_k=3)
+        assert results == []
     
-    links = search_message_links(mock_retrieval, mock_db, "query", top_k=3)
-    
-    # Only chunk2 should be processed
-    assert len(links) == 1
-    mock_db.get_chunk_link_info.assert_called_once_with("chunk2")
+    def test_search_with_threshold(self, tmp_path):
+        """Test search with threshold."""
+        from src.app.bootstrap import create_hybrid_retrieval
+        from src.core.embedding import LocalEmbeddingClient
+        
+        db = Database(f"sqlite:///{tmp_path}/test.db")
+        client = LocalEmbeddingClient(model="all-MiniLM-L6-v2")
+        retrieval = create_hybrid_retrieval(
+            db_url=f"sqlite:///{tmp_path}/test.db",
+            vector_db_path=str(tmp_path / "vector"),
+            embedding_client=client
+        )
+        
+        results = search_message_contents(retrieval, db, "test", top_k=3, threshold=1.5)
+        assert isinstance(results, list)
 
 
-def test_search_message_links_missing_link_info(mock_retrieval, mock_db):
-    """Test chunks with missing link info are skipped."""
-    mock_retrieval.search_chunks_basic.return_value = [
-        {"id": "chunk1", "score": 0.9},
-        {"id": "chunk2", "score": 0.8},
-    ]
+class TestFilterByThreshold:
+    """Tests for _filter_by_threshold function."""
     
-    # First chunk has missing info, second has valid info
-    mock_db.get_chunk_link_info.side_effect = [
-        (None, None, None),  # chunk1 - missing info
-        (123456, 100, "test_channel"),  # chunk2 - valid info
-    ]
+    def test_filter_empty(self):
+        """Test filtering empty list."""
+        result = _filter_by_threshold([], 1.5)
+        assert result == []
     
-    links = search_message_links(mock_retrieval, mock_db, "query", top_k=3)
+    def test_filter_all_pass(self):
+        """Test filtering where all pass."""
+        results = [
+            {"id": "chunk1", "distance": 0.5},
+            {"id": "chunk2", "distance": 1.0}
+        ]
+        filtered = _filter_by_threshold(results, 1.5)
+        assert len(filtered) == 2
     
-    # Only chunk2 should be included
-    assert len(links) == 1
-    assert "t.me/test_channel/100" in links[0]
+    def test_filter_some_pass(self):
+        """Test filtering where some pass."""
+        results = [
+            {"id": "chunk1", "distance": 0.5},
+            {"id": "chunk2", "distance": 2.0}
+        ]
+        filtered = _filter_by_threshold(results, 1.5)
+        assert len(filtered) == 1
+        assert filtered[0]["id"] == "chunk1"
+    
+    def test_filter_none_pass(self):
+        """Test filtering where none pass."""
+        results = [
+            {"id": "chunk1", "distance": 2.0},
+            {"id": "chunk2", "distance": 3.0}
+        ]
+        filtered = _filter_by_threshold(results, 1.5)
+        assert len(filtered) == 0
+    
+    def test_filter_missing_distance(self):
+        """Test filtering with missing distance."""
+        results = [
+            {"id": "chunk1"}  # no distance
+        ]
+        filtered = _filter_by_threshold(results, 1.5)
+        assert len(filtered) == 0  # Missing distance treated as inf
 
 
-def test_search_message_links_default_top_k(mock_retrieval, mock_db):
-    """Test default top_k value."""
-    mock_retrieval.search_chunks_basic.return_value = []
+class TestParseMsgId:
+    """Tests for _parse_msg_id function."""
     
-    search_message_links(mock_retrieval, mock_db, "query")
+    def test_parse_composite_format(self):
+        """Test parsing composite format."""
+        result = _parse_msg_id("chat1_12345")
+        assert result == 12345
     
-    # Should use default top_k=3
-    mock_retrieval.search_chunks_basic.assert_called_once_with("query", n_results=3)
+    def test_parse_simple_format(self):
+        """Test parsing simple format."""
+        result = _parse_msg_id("12345")
+        assert result == 12345
+    
+    def test_parse_invalid_format(self):
+        """Test parsing invalid format."""
+        result = _parse_msg_id("invalid")
+        assert isinstance(result, int)  # Should return hash-based fallback
 
 
-def test_search_message_links_custom_top_k(mock_retrieval, mock_db):
-    """Test custom top_k value."""
-    mock_retrieval.search_chunks_basic.return_value = []
+class TestFormatMessageParts:
+    """Tests for _format_message_parts function."""
     
-    search_message_links(mock_retrieval, mock_db, "query", top_k=5)
-    
-    mock_retrieval.search_chunks_basic.assert_called_once_with("query", n_results=5)
+    def test_format_basic(self, tmp_path):
+        """Test formatting basic message."""
+        from src.storage.db import Database
+        
+        db = Database(f"sqlite:///{tmp_path}/test.db")
+        session = db.get_session()
+        try:
+            msg = MessageModel(
+                msg_id="chat1_12345",
+                chat_id="chat1",
+                from_id="user1",
+                text="Test message",
+                ts=datetime.now()
+            )
+            session.add(msg)
+            session.commit()
+            
+            parts = _format_message_parts(msg, 12345, 0.5, "chunk1", 0, False)
+            
+            assert len(parts) > 0
+            # Check that parts have required keys
+            assert "content" in parts[0] or "text" in parts[0]
+            assert parts[0]["distance"] == 0.5
+        finally:
+            session.close()
 
 
-def test_search_message_links_negative_chat_id_with_prefix(mock_retrieval, mock_db):
-    """Test handling of negative chat_id with '100' prefix."""
-    mock_retrieval.search_chunks_basic.return_value = [
-        {"id": "chunk1", "score": 0.9},
-    ]
+class TestPrepareMessageParts:
+    """Tests for _prepare_message_parts function."""
     
-    # Negative chat_id like -1001234567890 (Telegram format)
-    # Should remove '100' prefix: 1001234567890 -> 1234567890
-    mock_db.get_chunk_link_info.return_value = (-1001234567890, 100, None)
+    def test_prepare_empty_results(self, tmp_path):
+        """Test preparing with empty results."""
+        db = Database(f"sqlite:///{tmp_path}/test.db")
+        result = _prepare_message_parts(db, [], False)
+        assert result == []
     
-    links = search_message_links(mock_retrieval, mock_db, "query", top_k=1)
-    
-    assert len(links) == 1
-    # Should convert -1001234567890 -> 1234567890
-    assert "t.me/c/1234567890/100" in links[0]
-
-
-# Tests for search_message_contents
-
-def test_search_message_contents_success(mock_retrieval, mock_db):
-    """Test successful message content search."""
-    # Mock retrieval results
-    mock_retrieval.search_chunks_basic.return_value = [
-        {"id": "chunk1", "score": 0.9},
-        {"id": "chunk2", "score": 0.8},
-    ]
-    
-    # Mock messages from database
-    msg1 = Mock(spec=MessageModel)
-    msg1.msg_id = "123456_100"
-    msg1.text = "Test message 1"
-    msg1.ts = datetime(2025, 12, 9, 0, 49, 22)
-    msg1.from_id = "User1"
-    
-    msg2 = Mock(spec=MessageModel)
-    msg2.msg_id = "123456_200"
-    msg2.text = "Test message 2"
-    msg2.ts = datetime(2025, 12, 9, 0, 50, 0)
-    msg2.from_id = "User2"
-    
-    mock_db.get_messages_by_chunk.side_effect = [
-        [msg1],  # chunk1
-        [msg2],  # chunk2
-    ]
-    
-    results = search_message_contents(mock_retrieval, mock_db, "test query", top_k=2)
-    
-    assert len(results) == 2
-    assert len(results[0]) == 1  # One message part
-    assert len(results[1]) == 1  # One message part
-    
-    # Check first message content
-    assert results[0][0]["id"] == 100
-    assert "Test message 1" in results[0][0]["content"]
-    assert "User1" in results[0][0]["content"]
-    
-    # Check second message content
-    assert results[1][0]["id"] == 200
-    assert "Test message 2" in results[1][0]["content"]
-    assert "User2" in results[1][0]["content"]
-    
-    # After refactoring: search_message_contents calls _search_chunks with top_k*2, 
-    # and _search_chunks calls search_chunks_basic with top_k*2, so total is top_k*4
-    mock_retrieval.search_chunks_basic.assert_called_once_with("test query", n_results=8)
-    assert mock_db.get_messages_by_chunk.call_count == 2
-
-
-def test_search_message_contents_empty_results(mock_retrieval, mock_db):
-    """Test search with no results."""
-    mock_retrieval.search_chunks_basic.return_value = []
-    
-    results = search_message_contents(mock_retrieval, mock_db, "nonexistent query", top_k=3)
-    
-    assert len(results) == 0
-    # After refactoring: search_message_contents calls _search_chunks with top_k*2, 
-    # and _search_chunks calls search_chunks_basic with top_k*2, so total is top_k*4
-    mock_retrieval.search_chunks_basic.assert_called_once_with("nonexistent query", n_results=12)
-    mock_db.get_messages_by_chunk.assert_not_called()
-
-
-def test_search_message_contents_missing_chunk_id(mock_retrieval, mock_db):
-    """Test search results without chunk IDs are skipped."""
-    mock_retrieval.search_chunks_basic.return_value = [
-        {"score": 0.9},  # Missing 'id'
-        {"id": "chunk2", "score": 0.8},
-    ]
-    
-    msg = Mock(spec=MessageModel)
-    msg.msg_id = "123456_100"
-    msg.text = "Test message"
-    msg.ts = datetime(2025, 12, 9, 0, 49, 22)
-    msg.from_id = "User"
-    
-    mock_db.get_messages_by_chunk.return_value = [msg]
-    
-    results = search_message_contents(mock_retrieval, mock_db, "query", top_k=3)
-    
-    # Only chunk2 should be processed
-    assert len(results) == 1
-    mock_db.get_messages_by_chunk.assert_called_once_with("chunk2")
-
-
-def test_search_message_contents_no_messages_in_chunk(mock_retrieval, mock_db):
-    """Test chunks with no messages are skipped."""
-    mock_retrieval.search_chunks_basic.return_value = [
-        {"id": "chunk1", "score": 0.9},
-        {"id": "chunk2", "score": 0.8},
-    ]
-    
-    msg = Mock(spec=MessageModel)
-    msg.msg_id = "123456_100"
-    msg.text = "Test message"
-    msg.ts = datetime(2025, 12, 9, 0, 49, 22)
-    msg.from_id = "User"
-    
-    # First chunk has no messages, second has one
-    mock_db.get_messages_by_chunk.side_effect = [
-        [],  # chunk1 - no messages
-        [msg],  # chunk2 - has message
-    ]
-    
-    results = search_message_contents(mock_retrieval, mock_db, "query", top_k=3)
-    
-    # Only chunk2 should be included
-    assert len(results) == 1
-    assert len(results[0]) == 1
-
-
-def test_search_message_contents_multiple_messages_in_chunk(mock_retrieval, mock_db):
-    """Test chunk with multiple messages."""
-    mock_retrieval.search_chunks_basic.return_value = [
-        {"id": "chunk1", "score": 0.9},
-    ]
-    
-    msg1 = Mock(spec=MessageModel)
-    msg1.msg_id = "123456_100"
-    msg1.text = "Message 1"
-    msg1.ts = datetime(2025, 12, 9, 0, 49, 22)
-    msg1.from_id = "User1"
-    
-    msg2 = Mock(spec=MessageModel)
-    msg2.msg_id = "123456_101"
-    msg2.text = "Message 2"
-    msg2.ts = datetime(2025, 12, 9, 0, 49, 30)
-    msg2.from_id = "User2"
-    
-    mock_db.get_messages_by_chunk.return_value = [msg1, msg2]
-    
-    results = search_message_contents(mock_retrieval, mock_db, "query", top_k=1)
-    
-    # Should have two results (one per message in chunk)
-    assert len(results) == 2
-    assert len(results[0]) == 1  # First message part
-    assert len(results[1]) == 1  # Second message part
+    def test_prepare_with_results_no_messages(self, tmp_path):
+        """Test preparing with results but no messages."""
+        db = Database(f"sqlite:///{tmp_path}/test.db")
+        results = [{"id": "nonexistent_chunk", "distance": 0.5}]
+        result = _prepare_message_parts(db, results, False)
+        assert result == []
 

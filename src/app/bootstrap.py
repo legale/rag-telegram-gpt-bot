@@ -155,6 +155,14 @@ def create_hybrid_retrieval(
         llm = LLMAdapter(llm_client)
 
     # Create and return HybridRetrievalService
+    # Map retrieval_mode to fts_only if needed
+    if retrieval_mode == "fts_only":
+        fts_only = True
+    elif retrieval_mode == "vector_only":
+        # For vector_only, we still need fts_only=False but will handle in service
+        fts_only = False
+    # else: hybrid mode, fts_only already set correctly
+    
     hybrid_retrieval = HybridRetrievalService(
         fts_index=fts_index,
         vector_index=vector_index,
@@ -164,7 +172,6 @@ def create_hybrid_retrieval(
         log_level=log_level,
         fts_only=fts_only,
         llm=llm,
-        retrieval_mode=retrieval_mode,
     )
 
     return hybrid_retrieval

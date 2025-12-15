@@ -1687,65 +1687,100 @@ def main():
     """
     Main CLI entry point.
     """
-    from src.lib.argparse2 import (
-        CommandParser, CommandSpec, ArgStream, CLIError, CLIHelp,
-        parse_option, parse_int_option, parse_flag
-    )
+    from src.lib.argparse2 import parse
+    from types import SimpleNamespace
     
-    def parse_bot_register(stream: ArgStream) -> dict:
-        """Parse bot register command."""
-        url = parse_option(stream, "url")
-        if not url:
-            raise CLIError("url required for bot register")
-        token = parse_option(stream, "token")
-        return {"url": url, "token": token, "bot_command": "register"}
-    
-    def parse_bot_delete(stream: ArgStream) -> dict:
-        """Parse bot delete command."""
-        token = parse_option(stream, "token")
-        return {"token": token, "bot_command": "delete"}
-    
-    def parse_bot_run(stream: ArgStream) -> dict:
-        """Parse bot run command."""
-        host = parse_option(stream, "host") or "127.0.0.1"
-        port = parse_int_option(stream, "port", 8000)
-        token = parse_option(stream, "token")
-        debug_rag = parse_flag(stream, "debug-rag")
-        return {"host": host, "port": port, "token": token, "debug_rag": debug_rag, "bot_command": "run"}
-    
-    def parse_bot_daemon(stream: ArgStream) -> dict:
-        """Parse bot daemon command."""
-        host = parse_option(stream, "host") or "127.0.0.1"
-        port = parse_int_option(stream, "port", 8000)
-        token = parse_option(stream, "token")
-        return {"host": host, "port": port, "token": token, "bot_command": "daemon"}
-    
-    commands = [
-        CommandSpec("register", parse_bot_register, "Register webhook with Telegram\n  register url <url> [token <token>]"),
-        CommandSpec("delete", parse_bot_delete, "Delete webhook from Telegram\n  delete [token <token>]"),
-        CommandSpec("run", parse_bot_run, "Run server in foreground\n  run [host <host>] [port <port>] [token <token>] [debug-rag] [-V <level>]"),
-        CommandSpec("daemon", parse_bot_daemon, "Run server as daemon\n  daemon [host <host>] [port <port>] [token <token>]"),
-    ]
-    
-    parser = CommandParser(commands)
+    # Build opt_table for global options (only -h, --help, -V)
+    opt_table = {
+        "h": {"desc": "Show help"},
+        "help": {"desc": "Show help"},
+        "V": {"arg": True, "desc": "Set log level", "meta": "LEVEL"},
+    }
     
     try:
-        cmd_name, args = parser.parse(sys.argv[1:])
-    except CLIHelp:
-        print("Legale Bot Telegram Webhook Daemon")
-        print("\nCommands:")
-        for spec in commands:
-            if spec.help_text:
-                print(f"  {spec.help_text}")
-        sys.exit(0)
-    except CLIError as e:
+        # Parse global options first
+        opts, remaining_args = parse(sys.argv[1:], opt_table)
+        
+        # Check for help
+        if opts.get("h") or opts.get("help") or not remaining_args:
+            print("Telegram Bot Webhook Server")
+            print("\nCommands:")
+            print("  register url <url> [token <token>] - Register webhook with Telegram")
+            print("  delete [token <token>] - Delete webhook from Telegram")
+            print("  run [host <host>] [port <port>] [token <token>] [debug-rag] - Run server in foreground")
+            print("  daemon [host <host>] [port <port>] [token <token>] - Run server as daemon")
+            sys.exit(0)
+        
+        # Extract command
+        cmd = remaining_args[0]
+        args_list = remaining_args[1:]
+        
+        # Parse command-specific arguments (words without dashes)
+        parsed_opts = {}
+        i = 0
+        while i < len(args_list):
+            arg = args_list[i]
+            if arg == "url" and i + 1 < len(args_list):
+                parsed_opts["url"] = args_list[i + 1]
+                i += 2
+            elif arg == "token" and i + 1 < len(args_list):
+                parsed_opts["token"] = args_list[i + 1]
+                i += 2
+            elif arg == "host" and i + 1 < len(args_list):
+                parsed_opts["host"] = args_list[i + 1]
+                i += 2
+            elif arg == "port" and i + 1 < len(args_list):
+                parsed_opts["port"] = args_list[i + 1]
+                i += 2
+            elif arg == "debug-rag":
+                parsed_opts["debug-rag"] = True
+                i += 1
+            else:
+                i += 1
+        
+        # Parse command-specific arguments
+        if cmd == "register":
+            url = parsed_opts.get("url")
+            if not url:
+                print("Error: url required for bot register", file=sys.stderr)
+                sys.exit(1)
+            token = parsed_opts.get("token")
+            parsed_args = SimpleNamespace(url=url, token=token, bot_command="register")
+        
+        elif cmd == "delete":
+            token = parsed_opts.get("token")
+            parsed_args = SimpleNamespace(token=token, bot_command="delete")
+        
+        elif cmd == "run":
+            host = parsed_opts.get("host") or "127.0.0.1"
+            port = int(parsed_opts.get("port", 8000)) if parsed_opts.get("port") else 8000
+            token = parsed_opts.get("token")
+            debug_rag = parsed_opts.get("debug-rag", False)
+            parsed_args = SimpleNamespace(host=host, port=port, token=token, debug_rag=debug_rag, bot_command="run")
+        
+        elif cmd == "daemon":
+            host = parsed_opts.get("host") or "127.0.0.1"
+            port = int(parsed_opts.get("port", 8000)) if parsed_opts.get("port") else 8000
+            token = parsed_opts.get("token")
+            parsed_args = SimpleNamespace(host=host, port=port, token=token, bot_command="daemon")
+        
+        else:
+            print(f"Error: unknown command: {cmd}", file=sys.stderr)
+            sys.exit(1)
+        
+    except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
+        print("\nUsage:")
+        print("  register url <url> [token <token>] - Register webhook with Telegram")
+        print("  delete [token <token>] - Delete webhook from Telegram")
+        print("  run [host <host>] [port <port>] [token <token>] [debug-rag] - Run server in foreground")
+        print("  daemon [host <host>] [port <port>] [token <token>] - Run server as daemon")
         sys.exit(1)
     
     # Get token from args or env
-    token = getattr(args, 'token', None) or os.getenv("TELEGRAM_BOT_TOKEN")
+    token = getattr(parsed_args, 'token', None) or os.getenv("TELEGRAM_BOT_TOKEN")
     
-    if cmd_name in ["register", "delete", "run", "daemon"] and not token:
+    if parsed_args.bot_command in ["register", "delete", "run", "daemon"] and not token:
         print("Error: TELEGRAM_BOT_TOKEN must be set in environment or passed via --token", file=sys.stderr)
         sys.exit(1)
     
@@ -1754,16 +1789,16 @@ def main():
         os.environ["TELEGRAM_BOT_TOKEN"] = token
     
     # Execute command
-    if cmd_name == "register":
-        register_webhook(args.url, token)
-    elif cmd_name == "delete":
+    if parsed_args.bot_command == "register":
+        register_webhook(parsed_args.url, token)
+    elif parsed_args.bot_command == "delete":
         delete_webhook(token)
-    elif cmd_name == "run":
-        log_level = getattr(args, 'log_level', None)
-        debug_rag = getattr(args, 'debug_rag', False)
-        run_server(args.host, args.port, log_level=log_level, debug_rag=debug_rag)
-    elif cmd_name == "daemon":
-        run_daemon(args.host, args.port)
+    elif parsed_args.bot_command == "run":
+        log_level = getattr(parsed_args, 'log_level', None)
+        debug_rag = getattr(parsed_args, 'debug_rag', False)
+        run_server(parsed_args.host, parsed_args.port, log_level=log_level, debug_rag=debug_rag, args=parsed_args)
+    elif parsed_args.bot_command == "daemon":
+        run_daemon(parsed_args.host, parsed_args.port, args=parsed_args)
 
 
 if __name__ == "__main__":

@@ -49,10 +49,7 @@ import warnings
 from typing import Optional
 from dotenv import load_dotenv, set_key, find_dotenv
 from src.lib.syslog2 import *
-from src.lib.argparse2 import (
-    CommandParser, CommandSpec, ArgStream, CLIError, CLIHelp,
-    parse_flag, parse_option, parse_int_option, parse_float_option, parse_choice_option
-)
+from src.lib.argparse2 import parse, cmd_parse, gen_help, split_args, matches
 
 # Suppress sklearn deprecation warnings from hdbscan and other libraries
 warnings.filterwarnings('ignore', category=FutureWarning, module='sklearn')
@@ -286,7 +283,6 @@ def cmd_ingest(args, profile_manager: ProfileManager):
             sys.exit(1)
         model = getattr(args, 'model', None)
         batch_size = getattr(args, 'batch_size', 128)
-        # Topic clustering (L1/L2) is no longer needed for hybrid/FTS5 search
         # Only stages 0-3 are run: messages, chunks, embeddings, vector sync
         pipeline.run_all(args.file, model=model, batch_size=batch_size)
         
@@ -606,93 +602,103 @@ def cmd_test_embedding(args):
         sys.exit(1)
 
 
-# ===== PARSER FUNCTIONS FOR COMMANDPARSER =====
+# ===== PARSER FUNCTIONS =====
 
-def parse_test_embedding(stream: ArgStream) -> dict:
+def parse_test_embedding(opts: dict, args: list) -> dict:
     """Parse test-embedding command."""
-    text = stream.expect("text")
-    model = parse_option(stream, "model") or "ai-sage/Giga-Embeddings-instruct"
+    if not args:
+        raise ValueError("text required for test-embedding")
+    text = args[0]
+    model = opts.get("model") or "ai-sage/Giga-Embeddings-instruct"
     return {"text": text, "model": model}
 
 
-def parse_profile_list(stream: ArgStream) -> dict:
+def parse_profile_list(opts: dict, args: list) -> dict:
     """Parse profile list command."""
-    return {"profile": parse_option(stream, "profile")}
+    return {"profile": opts.get("profile")}
 
 
-def parse_profile_create(stream: ArgStream) -> dict:
+def parse_profile_create(opts: dict, args: list) -> dict:
     """Parse profile create command."""
-    name = stream.expect("profile name")
-    set_active = parse_flag(stream, "set-active")
-    return {"name": name, "set_active": set_active, "profile": parse_option(stream, "profile")}
+    if not args:
+        raise ValueError("profile name required for profile create")
+    name = args[0]
+    set_active = opts.get("set-active", False)
+    return {"name": name, "set_active": set_active, "profile": opts.get("profile")}
 
 
-def parse_profile_get(stream: ArgStream) -> dict:
+def parse_profile_get(opts: dict, args: list) -> dict:
     """Parse profile get command - returns current profile name."""
     # No arguments needed, just return empty dict
-    return {"profile": parse_option(stream, "profile")}
+    return {"profile": opts.get("profile")}
 
 
-def parse_profile_set(stream: ArgStream) -> dict:
+def parse_profile_set(opts: dict, args: list) -> dict:
     """Parse profile set command."""
-    name = stream.expect("profile name")
-    return {"name": name, "profile": parse_option(stream, "profile")}
+    if not args:
+        raise ValueError("profile name required for profile set")
+    name = args[0]
+    return {"name": name, "profile": opts.get("profile")}
 
 
-def parse_profile_delete(stream: ArgStream) -> dict:
+def parse_profile_delete(opts: dict, args: list) -> dict:
     """Parse profile delete command."""
-    name = stream.expect("profile name")
-    force = parse_flag(stream, "force")
-    return {"name": name, "force": force, "profile": parse_option(stream, "profile")}
+    if not args:
+        raise ValueError("profile name required for profile delete")
+    name = args[0]
+    force = opts.get("force", False)
+    return {"name": name, "force": force, "profile": opts.get("profile")}
 
 
-def parse_profile_info(stream: ArgStream) -> dict:
+def parse_profile_info(opts: dict, args: list) -> dict:
     """Parse profile info command."""
-    name = None
-    if stream.has_next() and stream.peek() != "profile":
-        name = stream.next()
-    profile = parse_option(stream, "profile")
+    name = args[0] if args and not args[0].startswith("-") else None
+    profile = opts.get("profile")
     return {"name": name, "profile": profile}
 
 
-def parse_profile_option(stream: ArgStream) -> dict:
+def parse_profile_option(opts: dict, args: list) -> dict:
     """Parse profile option command."""
-    option = stream.expect("option")
-    action = stream.expect("action")
-    value = None
-    if stream.has_next() and stream.peek() not in ("profile",):
-        value = stream.next()
-    profile = parse_option(stream, "profile")
+    if len(args) < 2:
+        raise ValueError("option and action required for profile option")
+    option = args[0]
+    action = args[1]
+    value = args[2] if len(args) > 2 and not args[2].startswith("-") else None
+    profile = opts.get("profile")
     return {"option": option, "action": action, "value": value, "profile": profile}
 
 
-def parse_ingest_all(stream: ArgStream) -> dict:
+def parse_ingest_all(opts: dict, args: list) -> dict:
     """Parse ingest all command."""
-    file = stream.expect("file path")
-    model = parse_option(stream, "model")
-    batch_size = parse_int_option(stream, "batch-size", 128)
-    profile = parse_option(stream, "profile")
+    if not args:
+        raise ValueError("file path required for ingest all")
+    file = args[0]
+    model = opts.get("model")
+    batch_size = int(opts.get("batch-size", 128)) if opts.get("batch-size") else 128
+    profile = opts.get("profile")
     return {"file": file, "model": model, "batch_size": batch_size, "profile": profile, "ingest_command": "all"}
 
 
-def parse_ingest_stage0(stream: ArgStream) -> dict:
+def parse_ingest_stage0(opts: dict, args: list) -> dict:
     """Parse ingest stage0 command."""
-    file = stream.expect("file path")
-    profile = parse_option(stream, "profile")
+    if not args:
+        raise ValueError("file path required for ingest stage0")
+    file = args[0]
+    profile = opts.get("profile")
     return {"file": file, "profile": profile, "ingest_command": "stage0"}
 
 
-def parse_ingest_stage1(stream: ArgStream) -> dict:
+def parse_ingest_stage1(opts: dict, args: list) -> dict:
     """Parse ingest stage1 command."""
-    profile = parse_option(stream, "profile")
+    profile = opts.get("profile")
     return {"profile": profile, "ingest_command": "stage1"}
 
 
-def parse_ingest_stage2(stream: ArgStream) -> dict:
+def parse_ingest_stage2(opts: dict, args: list) -> dict:
     """Parse ingest stage2 command."""
-    model = parse_option(stream, "model")
-    batch_size = parse_int_option(stream, "batch-size", 128)
-    profile = parse_option(stream, "profile")
+    model = opts.get("model")
+    batch_size = int(opts.get("batch-size", 128)) if opts.get("batch-size") else 128
+    profile = opts.get("profile")
     return {
         "model": model,
         "batch_size": batch_size,
@@ -701,9 +707,9 @@ def parse_ingest_stage2(stream: ArgStream) -> dict:
     }
 
 
-def parse_ingest_stage3(stream: ArgStream) -> dict:
+def parse_ingest_stage3(opts: dict, args: list) -> dict:
     """Parse ingest stage3 command."""
-    profile = parse_option(stream, "profile")
+    profile = opts.get("profile")
     return {"profile": profile, "ingest_command": "stage3"}
 
 
@@ -711,59 +717,47 @@ def parse_ingest_stage3(stream: ArgStream) -> dict:
 
 
 
-def parse_ingest_stage8(stream: ArgStream) -> dict:
+def parse_ingest_stage8(opts: dict, args: list) -> dict:
     """Parse ingest stage8 command."""
-    # Default only_unnamed=True, but can be overridden with --no-only-unnamed or explicit flag
-    only_unnamed = True  # Default: only process unnamed/unknown/placeholder topics
-    if parse_flag(stream, "no-only-unnamed") or parse_flag(stream, "all"):
-        only_unnamed = False
-    elif parse_flag(stream, "only-unnamed"):
-        only_unnamed = True  # Explicitly set to True
-    rebuild = parse_flag(stream, "rebuild")
-    profile = parse_option(stream, "profile")
-    return {"only_unnamed": only_unnamed, "rebuild": rebuild, "profile": profile, "ingest_command": "stage8"}
+    rebuild = opts.get("rebuild", False)
+    profile = opts.get("profile")
+    return {"rebuild": rebuild, "profile": profile, "ingest_command": "stage8"}
 
 
-def parse_ingest_stage9(stream: ArgStream) -> dict:
+def parse_ingest_stage9(opts: dict, args: list) -> dict:
     """Parse ingest stage9 command."""
-    # Default only_unnamed=True, but can be overridden with --no-only-unnamed or explicit flag
-    only_unnamed = True  # Default: only process unnamed/unknown/placeholder topics
-    if parse_flag(stream, "no-only-unnamed") or parse_flag(stream, "all"):
-        only_unnamed = False
-    elif parse_flag(stream, "only-unnamed"):
-        only_unnamed = True  # Explicitly set to True
-    rebuild = parse_flag(stream, "rebuild")
-    profile = parse_option(stream, "profile")
-    return {"only_unnamed": only_unnamed, "rebuild": rebuild, "profile": profile, "ingest_command": "stage9"}
+    rebuild = opts.get("rebuild", False)
+    profile = opts.get("profile")
+    return {"rebuild": rebuild, "profile": profile, "ingest_command": "stage9"}
 
 
-def parse_ingest_clear_all(stream: ArgStream) -> dict:
+def parse_ingest_clear_all(opts: dict, args: list) -> dict:
     """Parse ingest clear all command."""
-    profile = parse_option(stream, "profile")
+    profile = opts.get("profile")
     return {"profile": profile, "ingest_command": "clear_all"}
 
 
-def parse_ingest_clear_stage0(stream: ArgStream) -> dict:
+def parse_ingest_clear_stage0(opts: dict, args: list) -> dict:
     """Parse ingest clear stage0 command."""
-    profile = parse_option(stream, "profile")
+    profile = opts.get("profile")
     return {"profile": profile, "ingest_command": "clear_stage0"}
 
 
-def parse_ingest_clear_stage1(stream: ArgStream) -> dict:
+def parse_ingest_clear_stage1(opts: dict, args: list) -> dict:
     """Parse ingest clear stage1 command."""
-    profile = parse_option(stream, "profile")
+    profile = opts.get("profile")
     return {"profile": profile, "ingest_command": "clear_stage1"}
 
 
-def parse_ingest_clear_stage2(stream: ArgStream) -> dict:
+def parse_ingest_clear_stage2(opts: dict, args: list) -> dict:
     """Parse ingest clear stage2 command."""
-    profile = parse_option(stream, "profile")
+    profile = opts.get("profile")
     return {"profile": profile, "ingest_command": "clear_stage2"}
 
 
-def parse_ingest_clear_stage3(stream: ArgStream) -> dict:
+def parse_ingest_clear_stage3(opts: dict, args: list) -> dict:
     """Parse ingest clear stage3 command."""
-    profile = parse_option(stream, "profile")
+    profile = opts.get("profile")
     return {"profile": profile, "ingest_command": "clear_stage3"}
 
 
@@ -771,184 +765,170 @@ def parse_ingest_clear_stage3(stream: ArgStream) -> dict:
 
 
 
-def parse_ingest_info(stream: ArgStream) -> dict:
+def parse_ingest_info(opts: dict, args: list) -> dict:
     """Parse ingest info command."""
-    profile = parse_option(stream, "profile")
+    profile = opts.get("profile")
     return {"profile": profile, "ingest_command": "info"}
 
 
-def parse_ingest(stream: ArgStream) -> dict:
+def parse_ingest(opts: dict, args: list) -> dict:
     """Parse ingest command without subcommand (treats as 'all')."""
-    if not stream.has_next():
-        raise CLIError("ingest subcommand required (all, stage0-9, clear all/stage0-9, info) or file path")
+    if not args:
+        raise ValueError("ingest subcommand required (all, stage0-9, clear all/stage0-9, info) or file path")
     
     # Check if first argument is a subcommand
-    first = stream.peek().lower()
+    first = args[0].lower()
     if first in ("all", "stage0", "stage1", "stage2", "stage3", "clear", "info"):
-        raise CLIError(f"ingest subcommand '{first}' requires explicit subcommand syntax")
+        raise ValueError(f"ingest subcommand '{first}' requires explicit subcommand syntax")
     
     # Treat as 'all' with file path
-    file = stream.next()
-    model = parse_option(stream, "model")
-    batch_size = parse_int_option(stream, "batch-size", 128)
-    profile = parse_option(stream, "profile")
+    file = args[0]
+    model = opts.get("model")
+    batch_size = int(opts.get("batch-size", 128)) if opts.get("batch-size") else 128
+    profile = opts.get("profile")
     return {"file": file, "model": model, "batch_size": batch_size, "profile": profile, "ingest_command": "all"}
 
 
 
 
-def parse_telegram_list(stream: ArgStream) -> dict:
+def parse_telegram_list(opts: dict, args: list) -> dict:
     """Parse telegram list command."""
-    return {"profile": parse_option(stream, "profile"), "telegram_command": "list"}
+    return {"profile": opts.get("profile"), "telegram_command": "list"}
 
 
-def parse_telegram_members(stream: ArgStream) -> dict:
+def parse_telegram_members(opts: dict, args: list) -> dict:
     """Parse telegram members command."""
-    target = stream.expect("target")
-    profile = parse_option(stream, "profile")
+    if not args:
+        raise ValueError("target required for telegram members")
+    target = args[0]
+    profile = opts.get("profile")
     return {"target": target, "profile": profile, "telegram_command": "members"}
 
 
-def parse_telegram_dump(stream: ArgStream) -> dict:
+def parse_telegram_dump(opts: dict, args: list) -> dict:
     """Parse telegram dump command."""
-    target = stream.expect("target")
-    limit = parse_int_option(stream, "limit", 1000)
-    output = parse_option(stream, "output")
-    profile = parse_option(stream, "profile")
+    if not args:
+        raise ValueError("target required for telegram dump")
+    target = args[0]
+    limit = int(opts.get("limit", 1000)) if opts.get("limit") else 1000
+    output = opts.get("output")
+    profile = opts.get("profile")
     return {"target": target, "limit": limit, "output": output, "profile": profile, "telegram_command": "dump"}
 
 
-def parse_telegram_ingest_all(stream: ArgStream) -> dict:
+def parse_telegram_ingest_all(opts: dict, args: list) -> dict:
     """Parse telegram ingest all command."""
-    target = stream.expect("target")
-    limit = parse_int_option(stream, "limit", 1000)
-    model = parse_option(stream, "model")
-    batch_size = parse_int_option(stream, "batch-size", 128)
-    profile = parse_option(stream, "profile")
+    if not args:
+        raise ValueError("target required for telegram ingest all")
+    target = args[0]
+    limit = int(opts.get("limit", 1000)) if opts.get("limit") else 1000
+    model = opts.get("model")
+    batch_size = int(opts.get("batch-size", 128)) if opts.get("batch-size") else 128
+    profile = opts.get("profile")
     return {"target": target, "limit": limit, "model": model, "batch_size": batch_size, "profile": profile, "telegram_command": "ingest_all"}
 
 
-def parse_chat(stream: ArgStream) -> dict:
+def parse_chat(opts: dict, args: list) -> dict:
     """Parse chat command."""
-    chunks = parse_int_option(stream, "chunks")
-    debug_rag = parse_flag(stream, "debug-rag")
-    retrieval_type = parse_choice_option(stream, "retrieval-type", ["hybrid", "fts_only", "vector_only"], "hybrid")
-    profile = parse_option(stream, "profile")
+    chunks = int(opts.get("chunks")) if opts.get("chunks") else None
+    debug_rag = opts.get("debug-rag", False)
+    retrieval_type = opts.get("retrieval-type", "hybrid")
+    if retrieval_type not in ["hybrid", "fts_only", "vector_only"]:
+        raise ValueError(f"invalid retrieval-type: {retrieval_type}, must be one of: hybrid, fts_only, vector_only")
+    profile = opts.get("profile")
     return {"chunks": chunks, "debug_rag": debug_rag, "retrieval_type": retrieval_type, "profile": profile}
 
 
-def parse_bot_register(stream: ArgStream) -> dict:
+def parse_bot_register(opts: dict, args: list) -> dict:
     """Parse bot register command."""
-    url = parse_option(stream, "url")
+    url = opts.get("url")
     if not url:
-        raise CLIError("url required for bot register")
-    token = parse_option(stream, "token")
-    profile = parse_option(stream, "profile")
+        raise ValueError("url required for bot register")
+    token = opts.get("token")
+    profile = opts.get("profile")
     return {"url": url, "token": token, "profile": profile, "bot_command": "register"}
 
 
-def parse_bot_delete(stream: ArgStream) -> dict:
+def parse_bot_delete(opts: dict, args: list) -> dict:
     """Parse bot delete command."""
-    token = parse_option(stream, "token")
-    profile = parse_option(stream, "profile")
+    token = opts.get("token")
+    profile = opts.get("profile")
     return {"token": token, "profile": profile, "bot_command": "delete"}
 
 
-def parse_bot_run(stream: ArgStream) -> dict:
+def parse_bot_run(opts: dict, args: list) -> dict:
     """Parse bot run command."""
-    host = parse_option(stream, "host") or "127.0.0.1"
-    port = parse_int_option(stream, "port", 8000)
-    profile = parse_option(stream, "profile")
-    debug_rag = parse_flag(stream, "debug-rag")
-    retrieval_type = parse_choice_option(stream, "retrieval-type", ["hybrid", "fts_only", "vector_only"], "hybrid")
+    host = opts.get("host") or "127.0.0.1"
+    port = int(opts.get("port", 8000)) if opts.get("port") else 8000
+    profile = opts.get("profile")
+    debug_rag = opts.get("debug-rag", False)
+    retrieval_type = opts.get("retrieval-type", "hybrid")
+    if retrieval_type not in ["hybrid", "fts_only", "vector_only"]:
+        raise ValueError(f"invalid retrieval-type: {retrieval_type}, must be one of: hybrid, fts_only, vector_only")
     return {"host": host, "port": port, "profile": profile, "debug_rag": debug_rag, "retrieval_type": retrieval_type, "bot_command": "run"}
 
 
-def parse_bot_daemon(stream: ArgStream) -> dict:
+def parse_bot_daemon(opts: dict, args: list) -> dict:
     """Parse bot daemon command."""
-    host = parse_option(stream, "host") or "127.0.0.1"
-    port = parse_int_option(stream, "port", 8000)
-    profile = parse_option(stream, "profile")
+    host = opts.get("host") or "127.0.0.1"
+    port = int(opts.get("port", 8000)) if opts.get("port") else 8000
+    profile = opts.get("profile")
     return {"host": host, "port": port, "profile": profile, "bot_command": "daemon"}
 
 
-def parse_config_get(stream: ArgStream) -> dict:
+def parse_config_get(opts: dict, args: list) -> dict:
     """Parse config get command."""
-    key = stream.expect("key")
-    profile = parse_option(stream, "profile")
+    if not args:
+        raise ValueError("key required for config get")
+    key = args[0]
+    profile = opts.get("profile")
     return {"key": key, "profile": profile, "config_command": "get"}
 
 
-def parse_config_set(stream: ArgStream) -> dict:
+def parse_config_set(opts: dict, args: list) -> dict:
     """Parse config set command."""
-    key = stream.expect("key")
-    value = stream.expect("value")
-    profile = parse_option(stream, "profile")
+    if len(args) < 2:
+        raise ValueError("key and value required for config set")
+    key = args[0]
+    value = args[1]
+    profile = opts.get("profile")
     return {"key": key, "value": value, "profile": profile, "config_command": "set"}
 
 
-def parse_clustering_params(stream: ArgStream, prefix: str) -> dict:
-    """Parse clustering parameters for a given prefix."""
-    return {
-        f"{prefix}_min_size": parse_int_option(stream, f"{prefix}-min-size", 2),
-        f"{prefix}_min_samples": parse_int_option(stream, f"{prefix}-min-samples", 1),
-        f"{prefix}_metric": parse_choice_option(stream, f"{prefix}-metric", ["cosine", "euclidean", "manhattan"], "cosine"),
-        f"{prefix}_method": parse_choice_option(stream, f"{prefix}-method", ["eom", "leaf"], "eom"),
-        f"{prefix}_epsilon": parse_float_option(stream, f"{prefix}-epsilon", 0.0),
-    }
-
-
-# parse_topics_cluster_l1, parse_topics_cluster_l2, parse_topics_name, parse_topics_build removed - clustering is deprecated
-
-
-def parse_topics_list(stream: ArgStream) -> dict:
-    """Parse topics list command."""
-    profile = parse_option(stream, "profile")
-    return {"profile": profile, "topic_command": "list"}
-
-
-def parse_topics_show(stream: ArgStream) -> dict:
-    """Parse topics show command."""
-    id_str = stream.expect("topic id")
-    try:
-        topic_id = int(id_str)
-    except ValueError:
-        raise CLIError(f"invalid topic id: {id_str}")
-    profile = parse_option(stream, "profile")
-    return {"id": str(topic_id), "profile": profile, "topic_command": "show"}
 
 
 # Subcommand parsers
-def _parse_profile_subcommand(stream: ArgStream) -> dict:
+def _parse_profile_subcommand(opts: dict, args: list) -> dict:
     """Parse profile subcommand."""
-    if not stream.has_next():
-        raise CLIError("profile subcommand required (list, create, get, set, delete, info, option)")
-    subcmd = stream.next().lower()
+    if not args:
+        raise ValueError("profile subcommand required (list, create, get, set, delete, info, option)")
+    subcmd = args[0].lower()
+    remaining_args = args[1:]
     
     result = None
     if subcmd == "list":
-        result = parse_profile_list(stream)
+        result = parse_profile_list(opts, remaining_args)
         result["profile_command"] = "list"
     elif subcmd == "create":
-        result = parse_profile_create(stream)
+        result = parse_profile_create(opts, remaining_args)
         result["profile_command"] = "create"
     elif subcmd == "get":
-        result = parse_profile_get(stream)
+        result = parse_profile_get(opts, remaining_args)
         result["profile_command"] = "get"
     elif subcmd == "set":
-        result = parse_profile_set(stream)
+        result = parse_profile_set(opts, remaining_args)
         result["profile_command"] = "set"
     elif subcmd == "delete":
-        result = parse_profile_delete(stream)
+        result = parse_profile_delete(opts, remaining_args)
         result["profile_command"] = "delete"
     elif subcmd == "info":
-        result = parse_profile_info(stream)
+        result = parse_profile_info(opts, remaining_args)
         result["profile_command"] = "info"
     elif subcmd == "option":
-        result = parse_profile_option(stream)
+        result = parse_profile_option(opts, remaining_args)
         result["profile_command"] = "option"
     else:
-        raise CLIError(f"unknown profile subcommand: {subcmd}")
+        raise ValueError(f"unknown profile subcommand: {subcmd}")
     
     return result
 
@@ -957,88 +937,95 @@ def _parse_profile_subcommand_with_args(args):
     """Extract profile subcommand from args."""
     profile_command = getattr(args, 'profile_command', None)
     if not profile_command:
-        raise CLIError("profile subcommand required")
+        raise ValueError("profile subcommand required")
     return f"profile_{profile_command}", args
 
 
-def _parse_ingest_subcommand(stream: ArgStream) -> dict:
+def _parse_ingest_subcommand(opts: dict, args: list) -> dict:
     """Parse ingest subcommand."""
-    if not stream.has_next():
-        # Show help if no arguments
-        raise CLIHelp()
+    if not args:
+        # Show help if no arguments - return help command
+        return {"ingest_command": "help"}
     
-    subcmd = stream.next().lower()
+    subcmd = args[0].lower()
+    remaining_args = args[1:]
+    
     if subcmd == "all":
-        return parse_ingest_all(stream)
+        return parse_ingest_all(opts, remaining_args)
     elif subcmd == "stage0":
-        return parse_ingest_stage0(stream)
+        return parse_ingest_stage0(opts, remaining_args)
     elif subcmd == "stage1":
-        return parse_ingest_stage1(stream)
+        return parse_ingest_stage1(opts, remaining_args)
     elif subcmd == "stage2":
-        return parse_ingest_stage2(stream)
+        return parse_ingest_stage2(opts, remaining_args)
     elif subcmd == "stage3":
-        return parse_ingest_stage3(stream)
+        return parse_ingest_stage3(opts, remaining_args)
     elif subcmd == "stage8":
-        return parse_ingest_stage8(stream)
+        return parse_ingest_stage8(opts, remaining_args)
     elif subcmd == "stage9":
-        return parse_ingest_stage9(stream)
+        return parse_ingest_stage9(opts, remaining_args)
     elif subcmd == "clear":
         # Parse clear subcommand
-        if not stream.has_next():
-            raise CLIError("clear subcommand required (all, stage0-9)")
-        clear_subcmd = stream.next().lower()
+        if not remaining_args:
+            raise ValueError("clear subcommand required (all, stage0-9)")
+        clear_subcmd = remaining_args[0].lower()
+        clear_remaining = remaining_args[1:]
         if clear_subcmd == "all":
-            return parse_ingest_clear_all(stream)
+            return parse_ingest_clear_all(opts, clear_remaining)
         elif clear_subcmd == "stage0":
-            return parse_ingest_clear_stage0(stream)
+            return parse_ingest_clear_stage0(opts, clear_remaining)
         elif clear_subcmd == "stage1":
-            return parse_ingest_clear_stage1(stream)
+            return parse_ingest_clear_stage1(opts, clear_remaining)
         elif clear_subcmd == "stage2":
-            return parse_ingest_clear_stage2(stream)
+            return parse_ingest_clear_stage2(opts, clear_remaining)
         elif clear_subcmd == "stage3":
-            return parse_ingest_clear_stage3(stream)
+            return parse_ingest_clear_stage3(opts, clear_remaining)
         elif clear_subcmd == "stage8":
-            return parse_ingest_clear_stage8(stream)
+            return parse_ingest_clear_stage8(opts, clear_remaining)
         elif clear_subcmd == "stage9":
-            return parse_ingest_clear_stage9(stream)
+            return parse_ingest_clear_stage9(opts, clear_remaining)
         else:
-            raise CLIError(f"unknown clear subcommand: {clear_subcmd}. Use: all, stage0, stage1, stage2, stage3")
+            raise ValueError(f"unknown clear subcommand: {clear_subcmd}. Use: all, stage0, stage1, stage2, stage3")
     elif subcmd == "info":
-        return parse_ingest_info(stream)
+        return parse_ingest_info(opts, remaining_args)
     else:
-        raise CLIError(f"unknown ingest subcommand: {subcmd}. Use: all, stage0-9, clear all/stage0-9, info")
+        raise ValueError(f"unknown ingest subcommand: {subcmd}. Use: all, stage0-9, clear all/stage0-9, info")
 
 
 def _parse_ingest_subcommand_with_args(args):
     """Extract ingest subcommand from args."""
     ingest_command = getattr(args, 'ingest_command', 'all')
+    if ingest_command == "help":
+        raise ValueError("ingest subcommand required (all, stage0-9, clear all/stage0-9, info)")
     return f"ingest_{ingest_command}", args
 
 
-def _parse_telegram_subcommand(stream: ArgStream) -> dict:
+def _parse_telegram_subcommand(opts: dict, args: list) -> dict:
     """Parse telegram subcommand."""
-    if not stream.has_next():
-        raise CLIError("telegram subcommand required (list, members, dump, ingest)")
-    subcmd = stream.next().lower()
+    if not args:
+        raise ValueError("telegram subcommand required (list, members, dump, ingest)")
+    subcmd = args[0].lower()
+    remaining_args = args[1:]
     
     result = None
     if subcmd == "list":
-        result = parse_telegram_list(stream)
+        result = parse_telegram_list(opts, remaining_args)
     elif subcmd == "members":
-        result = parse_telegram_members(stream)
+        result = parse_telegram_members(opts, remaining_args)
     elif subcmd == "dump":
-        result = parse_telegram_dump(stream)
+        result = parse_telegram_dump(opts, remaining_args)
     elif subcmd == "ingest":
         # Parse ingest subcommand
-        if not stream.has_next():
-            raise CLIError("telegram ingest subcommand required (all)")
-        ingest_subcmd = stream.next().lower()
+        if not remaining_args:
+            raise ValueError("telegram ingest subcommand required (all)")
+        ingest_subcmd = remaining_args[0].lower()
+        ingest_remaining = remaining_args[1:]
         if ingest_subcmd == "all":
-            result = parse_telegram_ingest_all(stream)
+            result = parse_telegram_ingest_all(opts, ingest_remaining)
         else:
-            raise CLIError(f"unknown telegram ingest subcommand: {ingest_subcmd}")
+            raise ValueError(f"unknown telegram ingest subcommand: {ingest_subcmd}")
     else:
-        raise CLIError(f"unknown telegram subcommand: {subcmd}")
+        raise ValueError(f"unknown telegram subcommand: {subcmd}")
     
     # telegram_command already set by parsers
     return result
@@ -1048,27 +1035,28 @@ def _parse_telegram_subcommand_with_args(args):
     """Extract telegram subcommand from args."""
     telegram_command = getattr(args, 'telegram_command', None)
     if not telegram_command:
-        raise CLIError("telegram subcommand required")
+        raise ValueError("telegram subcommand required")
     return f"telegram_{telegram_command}", args
 
 
-def _parse_bot_subcommand(stream: ArgStream) -> dict:
+def _parse_bot_subcommand(opts: dict, args: list) -> dict:
     """Parse bot subcommand."""
-    if not stream.has_next():
-        raise CLIError("bot subcommand required (register, delete, run, daemon)")
-    subcmd = stream.next().lower()
+    if not args:
+        raise ValueError("bot subcommand required (register, delete, run, daemon)")
+    subcmd = args[0].lower()
+    remaining_args = args[1:]
     
     result = None
     if subcmd == "register":
-        result = parse_bot_register(stream)
+        result = parse_bot_register(opts, remaining_args)
     elif subcmd == "delete":
-        result = parse_bot_delete(stream)
+        result = parse_bot_delete(opts, remaining_args)
     elif subcmd == "run":
-        result = parse_bot_run(stream)
+        result = parse_bot_run(opts, remaining_args)
     elif subcmd == "daemon":
-        result = parse_bot_daemon(stream)
+        result = parse_bot_daemon(opts, remaining_args)
     else:
-        raise CLIError(f"unknown bot subcommand: {subcmd}")
+        raise ValueError(f"unknown bot subcommand: {subcmd}")
     
     # bot_command already set by parsers
     return result
@@ -1078,23 +1066,24 @@ def _parse_bot_subcommand_with_args(args):
     """Extract bot subcommand from args."""
     bot_command = getattr(args, 'bot_command', None)
     if not bot_command:
-        raise CLIError("bot subcommand required")
+        raise ValueError("bot subcommand required")
     return f"bot_{bot_command}", args
 
 
-def _parse_config_subcommand(stream: ArgStream) -> dict:
+def _parse_config_subcommand(opts: dict, args: list) -> dict:
     """Parse config subcommand."""
-    if not stream.has_next():
-        raise CLIError("config subcommand required (get, set)")
-    subcmd = stream.next().lower()
+    if not args:
+        raise ValueError("config subcommand required (get, set)")
+    subcmd = args[0].lower()
+    remaining_args = args[1:]
     
     result = None
     if subcmd == "get":
-        result = parse_config_get(stream)
+        result = parse_config_get(opts, remaining_args)
     elif subcmd == "set":
-        result = parse_config_set(stream)
+        result = parse_config_set(opts, remaining_args)
     else:
-        raise CLIError(f"unknown config subcommand: {subcmd}")
+        raise ValueError(f"unknown config subcommand: {subcmd}")
     
     # config_command already set by parsers
     return result
@@ -1104,29 +1093,10 @@ def _parse_config_subcommand_with_args(args):
     """Extract config subcommand from args."""
     config_command = getattr(args, 'config_command', None)
     if not config_command:
-        raise CLIError("config subcommand required")
+        raise ValueError("config subcommand required")
     return f"config_{config_command}", args
 
 
-def _parse_topics_subcommand(stream: ArgStream) -> dict:
-    """Parse topics subcommand."""
-    if not stream.has_next():
-        raise CLIError("topics subcommand required (list, show)")
-    subcmd = stream.next().lower()
-    
-    # All topics commands removed - clustering is deprecated
-    raise CLIError("topics commands are no longer available - clustering has been removed")
-    
-    # topic_command already set by parsers
-    return result
-
-
-def _parse_topics_subcommand_with_args(args):
-    """Extract topics subcommand from args."""
-    topic_command = getattr(args, 'topic_command', None)
-    if not topic_command:
-        raise CLIError("topics subcommand required")
-    return f"topics_{topic_command}", args
 
 
 def main():
@@ -1135,74 +1105,92 @@ def main():
     # Setup logging early for error messages
     setup_log(LOG_NOTICE)  # Use default level for error messages    
     
-    # Build command specifications
-    commands = [
-        # Test embedding
-        CommandSpec("test-embedding", parse_test_embedding),
-        
-        # Profile commands
-        CommandSpec("profile", lambda s: _parse_profile_subcommand(s)),
-        
-        # Ingest commands
-        CommandSpec(
-            "ingest", 
-            lambda s: _parse_ingest_subcommand(s),
-            help_text="ingest <subcommand>\n\nSubcommands:\n  all <file> [model <name>] [batch-size <n>] [profile <name>] - Run all stages (0-3)\n  stage0 <file> [profile <name>] - Parse and store messages\n  stage1 [profile <name>] - Create and store chunks\n  stage2 [model <name>] [batch-size <n>] [profile <name>] - Generate embeddings for chunks (save to SQLite)\n  stage3 [profile <name>] - Sync chunks to vector database\n  clear all/stage0/stage1/stage2/stage3 [profile <name>] - Clear stages\n  info [profile <name>] - Show database statistics"
-        ),
-        
-        # Telegram commands
-        CommandSpec("telegram", lambda s: _parse_telegram_subcommand(s)),
-        
-        # Chat
-        CommandSpec("chat", parse_chat),
-        
-        # Bot commands
-        CommandSpec("bot", lambda s: _parse_bot_subcommand(s)),
-        
-        # Config commands
-        CommandSpec("config", lambda s: _parse_config_subcommand(s)),
-        
-        # Topics commands
-        CommandSpec("topics", lambda s: _parse_topics_subcommand(s)),
-    ]
+    # Build opt_table for global options
+    opt_table = {
+        "V": {"arg": True, "desc": "Set log level", "meta": "LEVEL"},
+        "log-level": {"arg": True, "desc": "Set log level", "meta": "LEVEL"},
+        "h": {"desc": "Show help"},
+        "help": {"desc": "Show help"},
+        "v": {"desc": "Show version"},
+        "version": {"desc": "Show version"},
+    }
     
-    parser = CommandParser(commands)
+    # Build cmd_table for commands
+    cmd_table = {
+        "test-embedding": {"desc": "Test embedding generation"},
+        "profile": {"desc": "Profile management"},
+        "ingest": {"desc": "Data ingestion"},
+        "telegram": {"desc": "Telegram data fetching"},
+        "chat": {"desc": "Interactive chat"},
+        "bot": {"desc": "Telegram bot webhook"},
+        "config": {"desc": "Configuration management"},
+    }
     
     try:
         # Parse arguments (skip script name)
-        cmd_name, args = parser.parse(sys.argv[1:])
-        syslog2(LOG_NOTICE, "args:", **vars(args))
-    
-    except CLIHelp:
-        # Check if it's a specific command help request
-        if len(sys.argv) > 1:
-            cmd = sys.argv[1]
-            help_text = parser.get_help(cmd)
+        opts, cmd, args = cmd_parse(sys.argv[1:], opt_table)
+        
+        # Handle help and version flags
+        if opts.get("h", False) or opts.get("help", False) or cmd == "help":
+            help_text = gen_help("legale", opt_table, cmd_table)
             syslog2(LOG_NOTICE, "help", help_text=help_text)
+            sys.exit(0)
+        
+        if opts.get("v", False) or opts.get("version", False):
+            print("legale-bot version 1.0")
+            sys.exit(0)
+        
+        # Handle log level from -V option
+        log_level = opts.get("V") or opts.get("log-level")
+        
+        # Parse command-specific arguments
+        if cmd == "test-embedding":
+            result = parse_test_embedding(opts, args)
+        elif cmd == "profile":
+            result = _parse_profile_subcommand(opts, args)
+        elif cmd == "ingest":
+            result = _parse_ingest_subcommand(opts, args)
+        elif cmd == "telegram":
+            result = _parse_telegram_subcommand(opts, args)
+        elif cmd == "chat":
+            result = parse_chat(opts, args)
+        elif cmd == "bot":
+            result = _parse_bot_subcommand(opts, args)
+        elif cmd == "config":
+            result = _parse_config_subcommand(opts, args)
         else:
-            syslog2(LOG_NOTICE, "help", help_text=parser.get_help())
-        sys.exit(0)
-    except CLIError as e:
+            raise ValueError(f"Unknown command: {cmd}")
+        
+        # Add log_level to result if present
+        if log_level:
+            result["log_level"] = log_level
+        
+        # Convert result dict to SimpleNamespace for compatibility
+        from types import SimpleNamespace
+        args_obj = SimpleNamespace(**result)
+        syslog2(LOG_NOTICE, "args:", **result)
+        
+        # Handle subcommands that need routing
+        if cmd == "profile":
+            cmd_name, args_obj = _parse_profile_subcommand_with_args(args_obj)
+        elif cmd == "ingest":
+            cmd_name, args_obj = _parse_ingest_subcommand_with_args(args_obj)
+        elif cmd == "telegram":
+            cmd_name, args_obj = _parse_telegram_subcommand_with_args(args_obj)
+        elif cmd == "bot":
+            cmd_name, args_obj = _parse_bot_subcommand_with_args(args_obj)
+        elif cmd == "config":
+            cmd_name, args_obj = _parse_config_subcommand_with_args(args_obj)
+        else:
+            cmd_name = cmd
+    
+    except ValueError as e:
         syslog2(LOG_ERR, f"Error: {e}")
         sys.exit(1)
-    
-    # Handle subcommands that need routing
-    if cmd_name == "profile":
-        cmd_name, args = _parse_profile_subcommand_with_args(args)
-    elif cmd_name == "ingest":
-        cmd_name, args = _parse_ingest_subcommand_with_args(args)
-    elif cmd_name == "telegram":
-        cmd_name, args = _parse_telegram_subcommand_with_args(args)
-    elif cmd_name == "bot":
-        cmd_name, args = _parse_bot_subcommand_with_args(args)
-    elif cmd_name == "config":
-        cmd_name, args = _parse_config_subcommand_with_args(args)
-    elif cmd_name == "topics":
-        cmd_name, args = _parse_topics_subcommand_with_args(args)
 
     # Setup global logging
     syslog_level = LOG_NOTICE
-    log_level = getattr(args, 'log_level', None)
+    log_level = getattr(args_obj, 'log_level', None)
     if log_level:
         # Convert string log level to integer if needed
         # Supports both "LOG_*" and plain names (e.g., "LOG_INFO" or "INFO")
@@ -1243,28 +1231,25 @@ def main():
     # Route to appropriate command handler
     try:
         if cmd_name == 'test-embedding':
-            cmd_test_embedding(args)
+            cmd_test_embedding(args_obj)
         
         elif cmd_name.startswith('profile_'):
-            cmd_profile(args, profile_manager)
+            cmd_profile(args_obj, profile_manager)
         
         elif cmd_name.startswith('ingest_'):
-            cmd_ingest(args, profile_manager)
+            cmd_ingest(args_obj, profile_manager)
         
         elif cmd_name.startswith('telegram_'):
-            cmd_telegram(args, profile_manager)
+            cmd_telegram(args_obj, profile_manager)
         
         elif cmd_name == 'chat':
-            cmd_chat(args, profile_manager)
+            cmd_chat(args_obj, profile_manager)
         
         elif cmd_name.startswith('bot_'):
-            cmd_bot(args, profile_manager)
+            cmd_bot(args_obj, profile_manager)
 
         elif cmd_name.startswith('config_'):
-            cmd_config(args, profile_manager)
-
-        elif cmd_name.startswith('topics_'):
-            cmd_topics(args, profile_manager)
+            cmd_config(args_obj, profile_manager)
 
         else:
             syslog2(LOG_ERR, f"Unknown command: {cmd_name}")
@@ -1272,14 +1257,6 @@ def main():
     except Exception as e:
         syslog2(LOG_ERR, f"Command execution failed", command=cmd_name, error=str(e))
         sys.exit(1)
-
-
-def cmd_topics(args, profile_manager: ProfileManager):
-    """Handle topic management commands."""
-    # All topic commands removed - clustering is deprecated
-    syslog2(LOG_ERR, "topics commands are no longer available - clustering has been removed")
-    sys.exit(1)
-
 
 
 def cmd_profile_option(args, profile_manager: ProfileManager):

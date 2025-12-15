@@ -78,14 +78,24 @@ class TestTgBotCLI:
         with patch('sys.argv', ['tgbot.py', 'run', 'token', 'tok']), \
              patch('src.bot.tgbot.run_server') as mock_run:
             main()
-            mock_run.assert_called_with('127.0.0.1', 8000, log_level=None, debug_rag=False)
+            # Теперь run_server вызывается с дополнительным аргументом args
+            assert mock_run.called
+            call_args = mock_run.call_args
+            assert call_args[0][0] == '127.0.0.1'
+            assert call_args[0][1] == 8000
+            assert call_args[1]['log_level'] is None
+            assert call_args[1]['debug_rag'] is False
             assert os.environ["TELEGRAM_BOT_TOKEN"] == 'tok'
 
     def test_main_daemon(self):
         with patch('sys.argv', ['tgbot.py', 'daemon', 'token', 'tok']), \
              patch('src.bot.tgbot.run_daemon') as mock_run:
             main()
-            mock_run.assert_called_with('127.0.0.1', 8000)
+            # Теперь run_daemon вызывается с дополнительным аргументом args
+            assert mock_run.called
+            call_args = mock_run.call_args
+            assert call_args[0][0] == '127.0.0.1'
+            assert call_args[0][1] == 8000
 
     def test_main_no_token(self):
         with patch('sys.argv', ['tgbot.py', 'run']), \

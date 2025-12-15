@@ -35,7 +35,49 @@ except ImportError as e:
 
 from dotenv import load_dotenv
 from src.lib.syslog2 import *
-from src.lib.argparse2 import ArgStream, parse_int_option, parse_flag, parse_option, CLIError
+from src.lib.argparse2 import parse
+
+class CLIError(Exception):
+    """Raised when CLI arguments are invalid."""
+    pass
+
+def _find_and_remove(args: list, token: str) -> bool:
+    """Find and remove a token from args list."""
+    token_lower = token.lower()
+    for i, arg in enumerate(args):
+        if arg.lower() == token_lower:
+            args.pop(i)
+            return True
+    return False
+
+def _find_and_remove_next(args: list, token: str) -> str | None:
+    """Find a token and return the next value, removing both."""
+    token_lower = token.lower()
+    for i, arg in enumerate(args):
+        if arg.lower() == token_lower:
+            args.pop(i)
+            if i < len(args):
+                return args.pop(i)
+            return None
+    return None
+
+def parse_int_option(args: list, name: str, default: int | None = None) -> int | None:
+    """Parse an integer option from args list."""
+    value = _find_and_remove_next(args, name)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        raise CLIError(f"invalid integer value for {name}: {value}")
+
+def parse_flag(args: list, name: str) -> bool:
+    """Parse a flag (boolean option) from args list."""
+    return _find_and_remove(args, name)
+
+def parse_option(args: list, name: str) -> str | None:
+    """Parse an option with value from args list."""
+    return _find_and_remove_next(args, name)
 from src.bot.command_parser import parse_find_command_args as parse_find_args_common
 from typing import Optional, Tuple
 from pathlib import Path
@@ -219,16 +261,24 @@ def main():
         syslog2(LOG_WARNING, "api key missing", env_file=dotenv_path)
         # Print first few chars if exists to verify
     
-    # Parse arguments using custom parser
-    stream = ArgStream(sys.argv[1:])
+    # Parse arguments using argparse2
+    opt_table = {
+        "V": {"arg": True, "desc": "Set log level", "meta": "LEVEL"},
+        "log-level": {"arg": True, "desc": "Set log level", "meta": "LEVEL"},
+        "chunks": {"arg": True, "desc": "Number of chunks", "meta": "N"},
+        "debug-rag": {"desc": "Enable debug RAG mode"},
+        "retrieval-type": {"arg": True, "desc": "Retrieval type", "meta": "TYPE"},
+    }
+    
+    opts, args = parse(sys.argv[1:], opt_table)
     
     # Handle -V/--log-level (global option)
-    log_level_str = parse_option(stream, "-V") or parse_option(stream, "--log-level")
+    log_level_str = opts.get("V") or opts.get("log-level")
     
     # Parse other options
-    chunks = parse_int_option(stream, "--chunks") or 5
-    debug_rag = parse_flag(stream, "--debug-rag")
-    retrieval_type = parse_option(stream, "--retrieval-type") or "hybrid"
+    chunks = int(opts.get("chunks", 5)) if opts.get("chunks") else 5
+    debug_rag = opts.get("debug-rag", False)
+    retrieval_type = opts.get("retrieval-type") or "hybrid"
     
     # Count -v flags for log level (need to check before stream consumes them)
     verbose = 0
