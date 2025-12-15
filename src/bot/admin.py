@@ -57,18 +57,30 @@ class AdminManager:
         # Restrict file permissions (owner read/write only)
         os.chmod(self.admin_file, 0o600)
     
-    def set_admin(self, user_id: int, username: str, first_name: str, last_name: Optional[str] = None) -> bool:
+    def _validate_admin_password(self, password: Optional[str] = None) -> bool:
         """
-        Set a user as admin.
+        Validate admin password if provided.
+        
+        Args:
+            password: Password to validate (optional)
+        
+        Returns:
+            True if password is valid or not required, False otherwise
+        """
+        if password is None:
+            # Password validation is optional for backward compatibility
+            return True
+        return self.verify_password(password)
+    
+    def _save_admin_info(self, user_id: int, username: str, first_name: str, last_name: Optional[str] = None) -> None:
+        """
+        Save admin information to file.
         
         Args:
             user_id: Telegram user ID
             username: Telegram username
             first_name: User's first name
             last_name: User's last name (optional)
-        
-        Returns:
-            True if admin was set successfully
         """
         data = {
             'user_id': user_id,
@@ -79,6 +91,27 @@ class AdminManager:
         }
         
         self._save_admin_data(data)
+    
+    def set_admin(self, user_id: int, username: str, first_name: str, last_name: Optional[str] = None, password: Optional[str] = None) -> bool:
+        """
+        Set a user as admin.
+        
+        Args:
+            user_id: Telegram user ID
+            username: Telegram username
+            first_name: User's first name
+            last_name: User's last name (optional)
+            password: Admin password for validation (optional)
+        
+        Returns:
+            True if admin was set successfully
+        """
+        # Validate password if provided
+        if not self._validate_admin_password(password):
+            return False
+        
+        # Save admin info
+        self._save_admin_info(user_id, username, first_name, last_name)
         return True
     
     def get_admin(self) -> Optional[Dict]:
