@@ -102,7 +102,7 @@
 
 - [x] file=src/ingestion/pipeline.py func=_prepare_chunk_data_for_vector_store уменьшить цикломатическую сложность: вынести парсинг embedding_json в _parse_chunk_embedding(), подготовку metadata в _prepare_chunk_metadata()
 
-- [ ] file=src/ingestion/pipeline.py func=_check_and_fix_collection_dimension упростить: вынести проверку dimension в _check_collection_dimension(), пересоздание collection в _recreate_collection_if_needed()
+- [x] file=src/ingestion/pipeline.py func=_check_and_fix_collection_dimension упростить: вынести проверку dimension в _check_collection_dimension(), пересоздание collection в _recreate_collection_if_needed()
 
 - [ ] file=src/bot/tgbot.py func=_parse_webhook_update уменьшить цикломатическую сложность: вынести валидацию request body в _validate_webhook_request(), парсинг Update в _parse_update_from_json()
 

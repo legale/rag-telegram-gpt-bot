@@ -293,6 +293,68 @@ class IngestionPipeline:
         dimension = len(embeddings[0]) if embeddings else 0
         return ids, documents, embeddings, metadatas, dimension
     
+    def _check_collection_dimension(self, new_dimension: int) -> Optional[int]:
+        """
+        Check current collection dimension.
+        
+        Args:
+            new_dimension: Expected dimension for new embeddings
+            
+        Returns:
+            Existing dimension if collection has data, None otherwise
+        """
+        if new_dimension == 0:
+            return None
+        
+        try:
+            collection_count = self.vector_store.collection.count()
+            if collection_count > 0:
+                # Collection has data - check its dimension
+                sample = self.vector_store.collection.get(limit=1, include=["embeddings"])
+                if sample and sample.get("embeddings") and len(sample["embeddings"]) > 0:
+                    existing_dim = len(sample["embeddings"][0])
+                    return existing_dim
+        except Exception as e:
+            syslog2(LOG_DEBUG, f"Could not check collection dimension: {e}")
+        
+        return None
+    
+    def _recreate_collection_if_needed(self, existing_dim: Optional[int], new_dimension: int) -> None:
+        """
+        Recreate collection if dimension mismatch detected.
+        
+        Args:
+            existing_dim: Current collection dimension (None if empty)
+            new_dimension: Expected dimension for new embeddings
+        """
+        if existing_dim is None:
+            # Collection is empty, no need to recreate
+            return
+        
+        if existing_dim == new_dimension:
+            # Dimensions match, no need to recreate
+            return
+        
+        # Dimension mismatch - MUST recreate collection
+        syslog2(LOG_WARNING, 
+            f"Collection dimension mismatch: existing={existing_dim}, new={new_dimension}. "
+            f"Recreating collection...")
+        
+        # Delete old collection and create new one
+        try:
+            self.vector_store.client.delete_collection(name=self.vector_store.collection_name)
+        except Exception as e:
+            syslog2(LOG_DEBUG, f"Error deleting collection (may not exist): {e}")
+        
+        # Create new collection
+        self.vector_store.collection = self.vector_store.client.get_or_create_collection(
+            name=self.vector_store.collection_name,
+            embedding_function=None,
+            metadata={"hnsw:space": "cosine"}
+        )
+        self.vector_store.expected_dimension = new_dimension
+        syslog2(LOG_NOTICE, f"Collection recreated with dimension {new_dimension}")
+    
     def _check_and_fix_collection_dimension(self, new_dimension: int) -> None:
         """
         Check collection dimension and recreate if mismatch.
@@ -303,23 +365,11 @@ class IngestionPipeline:
         if new_dimension == 0:
             return
         
-        try:
-            collection_count = self.vector_store.collection.count()
-            if collection_count > 0:
-                # Collection has data - check its dimension
-                sample = self.vector_store.collection.get(limit=1, include=["embeddings"])
-                if sample and sample.get("embeddings") and len(sample["embeddings"]) > 0:
-                    existing_dim = len(sample["embeddings"][0])
-                    if existing_dim != new_dimension:
-                        # Dimension mismatch - MUST recreate collection
-                        syslog2(LOG_WARNING, 
-                            f"Collection dimension mismatch: existing={existing_dim}, new={new_dimension}. "
-                            f"Recreating collection...")
-                        self.vector_store.collection = self.vector_store._recreate_collection_with_dimension(new_dimension)
-                        self.vector_store.expected_dimension = new_dimension
-                        syslog2(LOG_NOTICE, f"Collection recreated with dimension {new_dimension}")
-        except Exception as e:
-            syslog2(LOG_DEBUG, f"Could not check collection dimension: {e}")
+        # Check current dimension
+        existing_dim = self._check_collection_dimension(new_dimension)
+        
+        # Recreate if needed
+        self._recreate_collection_if_needed(existing_dim, new_dimension)
         
         # Update expected dimension
         self.vector_store.expected_dimension = new_dimension
