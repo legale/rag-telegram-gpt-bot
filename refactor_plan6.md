@@ -124,7 +124,7 @@
 
 - [ ] file=src/bot/admin.py func=is_admin упростить: вынести проверку пароля в _verify_password(), проверку существования admin в _admin_exists()
 
-- [ ] file=src/bot/admin.py func=set_admin упростить: вынести валидацию пароля в _validate_admin_password(), сохранение admin в _save_admin_info()
+- [x] file=src/bot/admin.py func=set_admin упростить: вынести валидацию пароля в _validate_admin_password(), сохранение admin в _save_admin_info()
 
 - [ ] file=src/core/commands.py func=FindCommandHandler.handle уменьшить цикломатическую сложность: вынести парсинг аргументов в _parse_find_args(), создание retrieval service в _create_retrieval_service(), выполнение поиска в _execute_search()
 
