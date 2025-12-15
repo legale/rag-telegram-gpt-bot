@@ -100,7 +100,20 @@ class QueryRewriter:
             
             return rephrased
             
+        except (TimeoutError, OSError) as e:
+            # Network timeout or connection error - fallback to original query
+            if self.log_level <= LOG_WARNING:
+                syslog2(LOG_WARNING, "query_rewriter: rephrasing timeout/connection error", error=str(e))
+            return query
         except Exception as e:
+            # Check if it's an API error (OpenAI/OpenRouter)
+            error_str = str(e).lower()
+            if "api" in error_str or "rate limit" in error_str or "timeout" in error_str:
+                # API error or rate limit - fallback to original query
+                if self.log_level <= LOG_WARNING:
+                    syslog2(LOG_WARNING, "query_rewriter: rephrasing API error", error=str(e))
+                return query
+            # Other errors - log and fallback
             if self.log_level <= LOG_WARNING:
                 syslog2(LOG_WARNING, "query_rewriter: rephrasing failed", error=str(e))
             return query

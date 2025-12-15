@@ -88,7 +88,7 @@
 
 - [x] file=src/bot/admin_tasks.py func=_persist_vectors уменьшить цикломатическую сложность: вынести подготовку данных для vector store в _prepare_vector_data(), синхронизацию в _sync_to_vector_store()
 
-- [ ] file=src/core/query_rewriter.py func=rephrase_for_embedding добавить обработку ошибок LLM: обрабатывать APIError, TimeoutError с fallback на возврат оригинального query
+- [x] file=src/core/query_rewriter.py func=rephrase_for_embedding добавить обработку ошибок LLM: обрабатывать APIError, TimeoutError с fallback на возврат оригинального query
 
 - [ ] file=src/core/llm.py func=complete добавить retry логику с exponential backoff для RateLimitError и временных ошибок сети
 
