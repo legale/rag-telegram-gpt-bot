@@ -184,7 +184,7 @@
 
 - [ ] file=src/storage/db.py func=fts_search уменьшить цикломатическую сложность: вынести построение WHERE clause в _build_fts_where_clause(), выполнение FTS запроса в _execute_fts_query(), конвертацию результатов в _convert_fts_results()
 
-- [ ] file=src/bot/config.py упростить: вынести валидацию значений в отдельные методы _validate_chunk_token_min(), _validate_chunk_token_max(), _validate_chunk_overlap_ratio() и т.д.
+- [x] file=src/bot/config.py упростить: вынести валидацию значений в отдельные методы _validate_chunk_token_min(), _validate_chunk_token_max(), _validate_chunk_overlap_ratio() и т.д.
 
 - [ ] file=src/bot/config.py func=save упростить: вынести создание директории в _ensure_profile_dir(), сохранение файла в _write_config_file(), установку permissions в _set_file_permissions()
 
