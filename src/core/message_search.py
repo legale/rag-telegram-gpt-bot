@@ -306,6 +306,66 @@ def _format_message_parts(msg: MessageModel, msg_id: int, distance: float, chunk
     return parts
 
 
+def _get_messages_for_chunk(
+    db: Database,
+    chunk_id: str,
+    distance: float,
+    debug_rag: bool
+) -> List[MessageModel]:
+    """
+    Get messages for a chunk from database.
+    
+    Args:
+        db: Database instance
+        chunk_id: Chunk ID
+        distance: Distance value for logging
+        debug_rag: Enable detailed RAG debug logging
+        
+    Returns:
+        List of MessageModel instances
+    """
+    messages = db.get_messages_by_chunk(chunk_id)
+    
+    if debug_rag:
+        syslog2(
+            LOG_DEBUG,
+            "msg_search contents chunk messages",
+            chunk_id=chunk_id,
+            msg_count=len(messages or []),
+            distance=distance,
+        )
+    
+    return messages or []
+
+
+def _format_message_parts_for_chunk(
+    messages: List[MessageModel],
+    distance: float,
+    chunk_id: str,
+    debug_rag: bool
+) -> List[List[Dict]]:
+    """
+    Format message parts for all messages in a chunk.
+    
+    Args:
+        messages: List of MessageModel instances
+        distance: Distance value for messages
+        chunk_id: Chunk ID for logging
+        debug_rag: Enable detailed RAG debug logging
+        
+    Returns:
+        List of message part lists
+    """
+    message_parts: List[List[Dict]] = []
+    
+    for msg_idx, msg in enumerate(messages):
+        msg_id = _parse_msg_id(msg.msg_id)
+        parts = _format_message_parts(msg, msg_id, distance, chunk_id, msg_idx, debug_rag)
+        message_parts.append(parts)
+    
+    return message_parts
+
+
 def _prepare_message_parts(
     db: Database,
     results: List[Dict],
@@ -337,25 +397,14 @@ def _prepare_message_parts(
 
         distance = float(item.get("distance", 0.0))
         
-        # get messages from database
-        messages = db.get_messages_by_chunk(chunk_id)
+        # Get messages for chunk
+        messages = _get_messages_for_chunk(db, chunk_id, distance, debug_rag)
         
-        if debug_rag:
-            syslog2(
-                LOG_DEBUG,
-                "msg_search contents chunk messages",
-                chunk_id=chunk_id,
-                msg_count=len(messages or []),
-                distance=distance,
-            )
-
         if not messages:
             continue
         
-        # process each message
-        for msg_idx, msg in enumerate(messages):
-            msg_id = _parse_msg_id(msg.msg_id)
-            parts = _format_message_parts(msg, msg_id, distance, chunk_id, msg_idx, debug_rag)
-            all_message_parts.append(parts)
+        # Format message parts for chunk
+        chunk_parts = _format_message_parts_for_chunk(messages, distance, chunk_id, debug_rag)
+        all_message_parts.extend(chunk_parts)
     
     return all_message_parts
