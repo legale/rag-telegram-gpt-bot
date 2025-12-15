@@ -1443,6 +1443,12 @@ async def _determine_response_decision(message, is_command: bool, is_private: bo
     bot_id = telegram_app.bot.id
     has_mention = is_bot_mentioned(message, bot_username, bot_id)
     
+    # Remove mention token from message text if present
+    if message.text and not is_command and isinstance(message.text, str):
+        extracted_text = _extract_mention_text(message.text, bot_username)
+        if extracted_text is not None:
+            message.text = extracted_text
+    
     respond, reason = frequency_controller.should_respond(
         chat_id=chat_id,
         frequency=config.response_frequency or 0,
