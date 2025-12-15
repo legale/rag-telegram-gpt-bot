@@ -27,7 +27,13 @@ class TestTelegramFetcher:
         assert fetcher.api_id == 12345
         assert fetcher.api_hash == "mock_hash"
         assert fetcher.session_name == "mock_session"
-        mock_client.assert_called_once_with("mock_session", 12345, "mock_hash")
+        assert fetcher.timeout == 30  # Default timeout
+        mock_client.assert_called_once_with("mock_session", 12345, "mock_hash", timeout=30)
+    
+    def test_init_with_custom_timeout(self, mock_client):
+        fetcher = TelegramFetcher(12345, "mock_hash", "mock_session", timeout=60)
+        assert fetcher.timeout == 60
+        mock_client.assert_called_once_with("mock_session", 12345, "mock_hash", timeout=60)
 
     def test_find_chat_by_id(self, fetcher):
         # Setup mock dialogs
