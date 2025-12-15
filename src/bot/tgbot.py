@@ -1301,14 +1301,13 @@ async def _process_webhook_update(update: Update) -> Optional[str]:
     return None
 
 
-def _setup_webhook_endpoint(app: FastAPI):
+def _create_webhook_handler():
     """
-    Setup webhook endpoint for FastAPI app.
+    Create webhook endpoint handler function.
     
-    Args:
-        app: FastAPI application instance
+    Returns:
+        Async function that handles webhook requests
     """
-    @app.post("/webhook")
     async def webhook(request: Request):
         """
         Handle incoming Telegram webhook updates.
@@ -1336,6 +1335,18 @@ def _setup_webhook_endpoint(app: FastAPI):
         except Exception as e:
             syslog2(LOG_ERR, "webhook processing failed", error=str(e))
             return Response(status_code=500)
+    
+    return webhook
+
+def _setup_webhook_endpoint(app: FastAPI):
+    """
+    Setup webhook endpoint for FastAPI app.
+    
+    Args:
+        app: FastAPI application instance
+    """
+    webhook_handler = _create_webhook_handler()
+    app.post("/webhook")(webhook_handler)
 
 
 def create_app(args: Optional[SimpleNamespace] = None):

@@ -106,7 +106,7 @@
 
 - [x] file=src/bot/tgbot.py func=_parse_webhook_update уменьшить цикломатическую сложность: вынести валидацию request body в _validate_webhook_request(), парсинг Update в _parse_update_from_json()
 
-- [ ] file=src/bot/tgbot.py func=_setup_webhook_endpoint упростить: вынести создание endpoint handler в _create_webhook_handler()
+- [x] file=src/bot/tgbot.py func=_setup_webhook_endpoint упростить: вынести создание endpoint handler в _create_webhook_handler()
 
 - [ ] file=src/bot/tgbot.py func=main уменьшить цикломатическую сложность: вынести парсинг аргументов в _parse_cli_arguments(), выполнение команд в _execute_bot_command()
 
