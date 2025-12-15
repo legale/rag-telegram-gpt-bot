@@ -503,6 +503,38 @@ class LegaleBot:
         # считаем так же, как реально вызываем модель: system + пустой user
         return self._calculate_token_usage(system_prompt, user_content="")
 
+    def _check_token_limit_exceeded(self) -> bool:
+        """
+        Check if token limit is exceeded.
+        
+        Returns:
+            True if token limit is exceeded, False otherwise
+        """
+        if not self.chat_history:
+            return False
+        
+        token_usage = self.get_token_usage()
+        # можно сбрасывать не по 100%, а, например, по 0.8 * лимита
+        return token_usage["current_tokens"] >= self.max_context_tokens
+    
+    def _reset_context_if_needed(self) -> str:
+        """
+        Reset context if needed and return warning message.
+        
+        Returns:
+            Warning message if context was reset, empty string otherwise
+        """
+        if not self._check_token_limit_exceeded():
+            return ""
+        
+        token_usage = self.get_token_usage()
+        had_active_context = self.active_context_chunks is not None
+        self.reset_context()
+        warning = "Контекст был автоматически сброшен из-за достижения лимита токенов.\n\n"
+        if self.log_level <= LOG_INFO:
+            syslog2(LOG_WARNING, "auto reset context", token_usage=f"{token_usage['current_tokens']}/{self.max_context_tokens}", had_active_context=had_active_context)
+        return warning
+    
     def _ensure_context_limit(self) -> str:
         """
         Ensure context doesn't exceed token limit by resetting if necessary.
@@ -510,19 +542,7 @@ class LegaleBot:
         Returns:
             Warning message if context was reset, empty string otherwise
         """
-        if not self.chat_history:
-            return ""
-        
-        token_usage = self.get_token_usage()
-        # можно сбрасывать не по 100%, а, например, по 0.8 * лимита
-        if token_usage["current_tokens"] >= self.max_context_tokens:
-            had_active_context = self.active_context_chunks is not None
-            self.reset_context()
-            warning = "Контекст был автоматически сброшен из-за достижения лимита токенов.\n\n"
-            if self.log_level <= LOG_INFO:
-                syslog2(LOG_WARNING, "auto reset context", token_usage=f"{token_usage['current_tokens']}/{self.max_context_tokens}", had_active_context=had_active_context)
-            return warning
-        return ""
+        return self._reset_context_if_needed()
     
     def _is_token_limit_error(self, error_msg: str) -> bool:
         """

@@ -172,7 +172,7 @@
 
 - [ ] file=src/bot/core.py func=get_token_usage упростить: использовать _build_prompt_and_history() вместо дублирования логики построения промпта
 
-- [ ] file=src/bot/core.py func=_ensure_context_limit упростить: вынести проверку лимита токенов в _check_token_limit_exceeded(), сброс контекста в _reset_context_if_needed()
+- [x] file=src/bot/core.py func=_ensure_context_limit упростить: вынести проверку лимита токенов в _check_token_limit_exceeded(), сброс контекста в _reset_context_if_needed()
 
 - [x] file=src/core/hybrid_retrieval.py func=retrieve упростить: вынести конвертацию SearchResult в dict в _convert_search_results_to_dicts(), фильтрацию по threshold в _filter_by_threshold()
 
