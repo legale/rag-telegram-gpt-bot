@@ -533,17 +533,19 @@ def _register_command_group(
             router.register(group_name, method)
 
 
-def _get_profile_paths() -> Dict:
+def _get_profile_paths(ctx: RuntimeContext) -> Dict:
     """
     Get profile paths for current active profile.
     
+    Args:
+        ctx: RuntimeContext instance
+        
     Returns:
         Dictionary with profile paths
         
     Raises:
         RuntimeError: If profile_manager is not initialized
     """
-    ctx = get_runtime_context()
     if ctx.profile_manager is None:
         raise RuntimeError("profile_manager is not initialized")
     
@@ -621,7 +623,7 @@ def _get_bot_configuration(admin_manager_local: AdminManager, args: Optional[Sim
     return model_name, debug_rag, log_level, retrieval_type
 
 
-def _create_legale_bot(paths: Dict, model_name: str, log_level: int, debug_rag: bool, profile_dir: str, retrieval_type: str = "hybrid") -> LegaleBot:
+def _create_legale_bot(paths: Dict, model_name: str, log_level: int, debug_rag: bool, profile_dir: str, ctx: RuntimeContext, retrieval_type: str = "hybrid") -> LegaleBot:
     """
     Create and initialize LegaleBot instance.
     
@@ -631,6 +633,7 @@ def _create_legale_bot(paths: Dict, model_name: str, log_level: int, debug_rag: 
         log_level: Logging level
         debug_rag: Debug RAG flag
         profile_dir: Profile directory path
+        ctx: RuntimeContext instance
         retrieval_type: Retrieval type ("hybrid", "fts_only", "vector_only")
         
     Returns:
@@ -645,7 +648,6 @@ def _create_legale_bot(paths: Dict, model_name: str, log_level: int, debug_rag: 
         profile_dir=profile_dir,
         retrieval_type=retrieval_type
     )
-    ctx = get_runtime_context()
     syslog2(
         LOG_WARNING, 
         "bot core initialized", 
@@ -765,13 +767,14 @@ def _register_admin_commands(admin_router_local: AdminCommandRouter, bot_instanc
     return task_manager_local, ingest_commands_local
 
 
-def _create_bot_instance(paths: Dict, admin_manager_local: AdminManager, args: Optional[SimpleNamespace] = None) -> Tuple[LegaleBot, bool]:
+def _create_bot_instance(paths: Dict, admin_manager_local: AdminManager, ctx: RuntimeContext, args: Optional[SimpleNamespace] = None) -> Tuple[LegaleBot, bool]:
     """
     Create LegaleBot instance.
     
     Args:
         paths: Profile paths dictionary
         admin_manager_local: AdminManager instance
+        ctx: RuntimeContext instance
         args: Optional namespace with configuration overrides
         
     Returns:
@@ -782,25 +785,26 @@ def _create_bot_instance(paths: Dict, admin_manager_local: AdminManager, args: O
     
     # Create LegaleBot
     profile_dir = paths["profile_dir"]
-    bot_instance_local = _create_legale_bot(paths, model_name, log_level, debug_rag, profile_dir, retrieval_type)
+    bot_instance_local = _create_legale_bot(paths, model_name, log_level, debug_rag, profile_dir, ctx, retrieval_type)
     
     return bot_instance_local, debug_rag
 
 
-def _create_admin_components(paths: Dict, bot_instance_local: LegaleBot) -> Tuple[AdminCommandRouter, TaskManager, IngestCommands]:
+def _create_admin_components(paths: Dict, bot_instance_local: LegaleBot, ctx: RuntimeContext) -> Tuple[AdminCommandRouter, TaskManager, IngestCommands]:
     """
     Create admin router, task manager and ingest commands.
     
     Args:
         paths: Profile paths dictionary
         bot_instance_local: LegaleBot instance
+        ctx: RuntimeContext instance
         
     Returns:
         Tuple of (admin_router, task_manager, ingest_commands)
     """
     # Create admin router and register commands
     admin_router_local = AdminCommandRouter()
-    task_manager_local, ingest_commands_local = _register_admin_commands(admin_router_local, bot_instance_local)
+    task_manager_local, ingest_commands_local = _register_admin_commands(admin_router_local, bot_instance_local, ctx)
     
     return admin_router_local, task_manager_local, ingest_commands_local
 
@@ -853,7 +857,7 @@ async def init_runtime_for_current_profile(args: Optional[SimpleNamespace] = Non
     bot_instance_local, debug_rag = _create_bot_instance(paths, admin_manager_local, args)
 
     # Step 4: Create admin components (router, task_manager, ingest_commands)
-    admin_router_local, task_manager_local, ingest_commands_local = _create_admin_components(paths, bot_instance_local)
+    admin_router_local, task_manager_local, ingest_commands_local = _create_admin_components(paths, bot_instance_local, ctx)
 
     # Step 5: Create command dispatcher
     command_dispatcher_local = _create_command_dispatcher(

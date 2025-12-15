@@ -630,9 +630,9 @@ class HybridRetrievalService:
         
         return chunk_dicts
 
-    def _convert_to_basic_format(self, search_results: List) -> List[Dict]:
+    def _convert_to_basic_format(self, search_results: List[SearchResult]) -> List[Dict]:
         """
-        Convert search results to basic format with distance.
+        Convert SearchResult objects to basic format with distance.
         
         Args:
             search_results: List of SearchResult objects
@@ -640,9 +640,6 @@ class HybridRetrievalService:
         Returns:
             List of dictionaries with keys: id, distance, metadata
         """
-        from src.core.chunk_utils import build_chunk_dict_from_domain_chunk
-        from src.core.distance_utils import similarity_to_distance
-        
         results = []
         for result in search_results:
             chunk_dict = build_chunk_dict_from_domain_chunk(
