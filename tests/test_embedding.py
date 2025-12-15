@@ -53,6 +53,88 @@ def test_get_embeddings_batched(client):
         assert len(embs) == 3
         assert mock_get_embs.call_count == 2
 
+def test_get_embeddings_batched_retry_on_rate_limit(client):
+    """Test that get_embeddings_batched retries on rate limit errors with exponential backoff."""
+    from unittest.mock import call
+    
+    # Create a mock exception with RateLimitError in the name
+    class MockRateLimitError(Exception):
+        pass
+    MockRateLimitError.__name__ = "RateLimitError"
+    
+    rate_limit_error = MockRateLimitError("rate limit exceeded")
+    
+    with patch.object(client, 'get_embeddings') as mock_get_embs, \
+         patch('time.sleep') as mock_sleep:
+        mock_get_embs.side_effect = [
+            rate_limit_error,
+            rate_limit_error,
+            [[1.0], [2.0]]  # Success on third attempt
+        ]
+        
+        embs = client.get_embeddings_batched(["a", "b"], batch_size=2)
+        
+        assert len(embs) == 2
+        assert mock_get_embs.call_count == 3
+        # Verify exponential backoff delays: 1s, 2s
+        assert mock_sleep.call_count == 2
+        assert mock_sleep.call_args_list[0] == call(1.0)
+        assert mock_sleep.call_args_list[1] == call(2.0)
+
+def test_get_embeddings_batched_retry_on_connection_error(client):
+    """Test that get_embeddings_batched retries on connection errors."""
+    class MockAPIConnectionError(Exception):
+        pass
+    MockAPIConnectionError.__name__ = "APIConnectionError"
+    
+    connection_error = MockAPIConnectionError("connection error")
+    
+    with patch.object(client, 'get_embeddings') as mock_get_embs, \
+         patch('time.sleep') as mock_sleep:
+        mock_get_embs.side_effect = [
+            connection_error,
+            [[1.0]]  # Success on second attempt
+        ]
+        
+        embs = client.get_embeddings_batched(["a"], batch_size=1)
+        
+        assert len(embs) == 1
+        assert mock_get_embs.call_count == 2
+        assert mock_sleep.call_count == 1
+
+def test_get_embeddings_batched_no_retry_on_non_retryable_error(client):
+    """Test that get_embeddings_batched doesn't retry on non-retryable errors."""
+    non_retryable_error = ValueError("invalid input")
+    
+    with patch.object(client, 'get_embeddings') as mock_get_embs, \
+         patch('time.sleep') as mock_sleep:
+        mock_get_embs.side_effect = non_retryable_error
+        
+        with pytest.raises(ValueError):
+            client.get_embeddings_batched(["a"], batch_size=1)
+        
+        assert mock_get_embs.call_count == 1
+        assert mock_sleep.call_count == 0
+
+def test_get_embeddings_batched_exhausts_retries(client):
+    """Test that get_embeddings_batched raises after exhausting all retries."""
+    class MockRateLimitError(Exception):
+        pass
+    MockRateLimitError.__name__ = "RateLimitError"
+    
+    rate_limit_error = MockRateLimitError("rate limit exceeded")
+    
+    with patch.object(client, 'get_embeddings') as mock_get_embs, \
+         patch('time.sleep') as mock_sleep:
+        mock_get_embs.side_effect = rate_limit_error
+        
+        with pytest.raises(Exception):
+            client.get_embeddings_batched(["a"], batch_size=1)
+        
+        # Should have tried max_retries + 1 times (default 3 + 1 = 4)
+        assert mock_get_embs.call_count == 4
+        assert mock_sleep.call_count == 3  # Sleep between retries
+
 def test_embed_and_save_jsonl(client, tmp_path):
     with patch.object(client, 'get_embeddings') as mock_get_embs:
         mock_get_embs.return_value = [[0.1], [0.2]]

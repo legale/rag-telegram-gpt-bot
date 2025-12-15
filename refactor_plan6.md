@@ -92,7 +92,7 @@
 
 - [x] file=src/core/llm.py func=complete добавить retry логику с exponential backoff для RateLimitError и временных ошибок сети
 
-- [ ] file=src/core/embedding.py func=get_embeddings_batched добавить retry логику с exponential backoff для временных ошибок API
+- [x] file=src/core/embedding.py func=get_embeddings_batched добавить retry логику с exponential backoff для временных ошибок API
 
 - [ ] file=src/bot/core.py func=_retry_after_reset упростить: убрать дублирование построения промпта, использовать _build_prompt_and_history()
 
