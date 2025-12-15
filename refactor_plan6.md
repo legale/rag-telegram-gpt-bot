@@ -76,7 +76,7 @@
 
 - [x] file=src/adapters/persistence/sqlite_message_store.py func=save_batch уменьшить цикломатическую сложность: вынести конвертацию domain messages в dict в _convert_messages_to_dicts(), сохранение metadata в _save_message_metadata()
 
-- [ ] file=src/storage/db.py func=_ensure_schema уменьшить цикломатическую сложность: вынести создание FTS5 таблиц в _create_fts5_tables(), создание triggers в _create_fts5_triggers(), проверку колонок в _check_and_add_columns()
+- [x] file=src/storage/db.py func=_ensure_schema уменьшить цикломатическую сложность: вынести создание FTS5 таблиц в _create_fts5_tables(), создание triggers в _create_fts5_triggers(), проверку колонок в _check_and_add_columns()
 
 - [ ] file=src/storage/db.py func=add_messages_batch уменьшить цикломатическую сложность: вынести проверку существующих msg_ids в _get_existing_msg_ids(), фильтрацию новых сообщений в _filter_new_messages()
 

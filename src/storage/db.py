@@ -74,125 +74,153 @@ class Database:
         # Simple auto-migration for dev environment (adding new columns if missing)
         self._ensure_schema()
         
+    def _create_fts5_tables(self, conn) -> None:
+        """
+        Create FTS5 tables for messages and chunks.
+        
+        Args:
+            conn: Database connection
+        """
+        from sqlalchemy import text
+        # Create messages_fts table if it doesn't exist
+        conn.execute(text("""
+            CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+                msg_id UNINDEXED,
+                chat_id UNINDEXED,
+                from_id UNINDEXED,
+                ts UNINDEXED,
+                text,
+                content='messages',
+                content_rowid='rowid'
+            )
+        """))
+        
+        # Create chunks_fts table if it doesn't exist
+        conn.execute(text("""
+            CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+                id UNINDEXED,
+                chat_id UNINDEXED,
+                text,
+                content='chunks',
+                content_rowid='rowid'
+            )
+        """))
+
+    def _create_fts5_triggers(self, conn) -> None:
+        """
+        Create triggers to keep FTS5 tables in sync with main tables.
+        
+        Args:
+            conn: Database connection
+        """
+        from sqlalchemy import text
+        # Messages triggers
+        conn.execute(text("""
+            CREATE TRIGGER IF NOT EXISTS messages_fts_insert AFTER INSERT ON messages BEGIN
+                INSERT INTO messages_fts(msg_id, chat_id, from_id, ts, text)
+                VALUES (new.msg_id, new.chat_id, new.from_id, new.ts, new.text);
+            END
+        """))
+        
+        conn.execute(text("""
+            CREATE TRIGGER IF NOT EXISTS messages_fts_delete AFTER DELETE ON messages BEGIN
+                DELETE FROM messages_fts WHERE msg_id = old.msg_id;
+            END
+        """))
+        
+        conn.execute(text("""
+            CREATE TRIGGER IF NOT EXISTS messages_fts_update AFTER UPDATE ON messages BEGIN
+                DELETE FROM messages_fts WHERE msg_id = old.msg_id;
+                INSERT INTO messages_fts(msg_id, chat_id, from_id, ts, text)
+                VALUES (new.msg_id, new.chat_id, new.from_id, new.ts, new.text);
+            END
+        """))
+        
+        # Chunks triggers
+        conn.execute(text("""
+            CREATE TRIGGER IF NOT EXISTS chunks_fts_insert AFTER INSERT ON chunks BEGIN
+                INSERT INTO chunks_fts(id, chat_id, text)
+                VALUES (new.id, new.chat_id, new.text);
+            END
+        """))
+        
+        conn.execute(text("""
+            CREATE TRIGGER IF NOT EXISTS chunks_fts_delete AFTER DELETE ON chunks BEGIN
+                DELETE FROM chunks_fts WHERE id = old.id;
+            END
+        """))
+        
+        conn.execute(text("""
+            CREATE TRIGGER IF NOT EXISTS chunks_fts_update AFTER UPDATE ON chunks BEGIN
+                DELETE FROM chunks_fts WHERE id = old.id;
+                INSERT INTO chunks_fts(id, chat_id, text)
+                VALUES (new.id, new.chat_id, new.text);
+            END
+        """))
+
+    def _check_and_add_columns(self, conn) -> None:
+        """
+        Check and add missing columns to chunks table.
+        
+        Args:
+            conn: Database connection
+        """
+        from sqlalchemy import text
+        # Check chunks table columns
+        try:
+            # We can't easily check all at once, so we try accessing one.
+            # If chat_id is missing, we assume Phase 14.2 columns are missing.
+            conn.execute(text("SELECT chat_id FROM chunks LIMIT 1"))
+        except Exception:
+            # Phase 14.2 columns missing
+            try:
+                conn.execute(text("ALTER TABLE chunks ADD COLUMN chat_id VARCHAR"))
+                conn.execute(text("ALTER TABLE chunks ADD COLUMN msg_id_start VARCHAR"))
+                conn.execute(text("ALTER TABLE chunks ADD COLUMN msg_id_end VARCHAR"))
+                conn.execute(text("ALTER TABLE chunks ADD COLUMN ts_from DATETIME"))
+                conn.execute(text("ALTER TABLE chunks ADD COLUMN ts_to DATETIME"))
+                conn.commit()
+            except Exception as e:
+                syslog2(LOG_WARNING, "schema update warning (chunks 14.2)", error=str(e))
+
+        # topic_l1_id and topic_l2_id removed - clustering is deprecated
+        
+        # Check chunks table for msg_id_start_raw/msg_id_end_raw (refactoring)
+        try:
+            conn.execute(text("SELECT msg_id_start_raw FROM chunks LIMIT 1"))
+        except Exception:
+            try:
+                conn.execute(text("ALTER TABLE chunks ADD COLUMN msg_id_start_raw VARCHAR"))
+                conn.execute(text("ALTER TABLE chunks ADD COLUMN msg_id_end_raw VARCHAR"))
+                conn.commit()
+            except Exception as e:
+                syslog2(LOG_WARNING, "schema update warning (chunks raw msg_id)", error=str(e))
+        
+        # Check chunks table for embedding_dim (refactoring)
+        try:
+            conn.execute(text("SELECT embedding_dim FROM chunks LIMIT 1"))
+        except Exception:
+            try:
+                conn.execute(text("ALTER TABLE chunks ADD COLUMN embedding_dim INTEGER"))
+                conn.commit()
+            except Exception as e:
+                syslog2(LOG_WARNING, "schema update warning (chunks embedding_dim)", error=str(e))
+
     def _ensure_schema(self):
         """Checks for new columns and adds them if missing (SQLite specific)."""
         from sqlalchemy import text
         with self.engine.connect() as conn:
             # Ensure FTS5 tables exist (for hybrid retrieval)
             try:
-                # Create messages_fts table if it doesn't exist
-                conn.execute(text("""
-                    CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
-                        msg_id UNINDEXED,
-                        chat_id UNINDEXED,
-                        from_id UNINDEXED,
-                        ts UNINDEXED,
-                        text,
-                        content='messages',
-                        content_rowid='rowid'
-                    )
-                """))
-                
-                # Create chunks_fts table if it doesn't exist
-                conn.execute(text("""
-                    CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
-                        id UNINDEXED,
-                        chat_id UNINDEXED,
-                        text,
-                        content='chunks',
-                        content_rowid='rowid'
-                    )
-                """))
-                
-                # Create triggers to keep FTS5 in sync with main tables
-                # Messages triggers
-                conn.execute(text("""
-                    CREATE TRIGGER IF NOT EXISTS messages_fts_insert AFTER INSERT ON messages BEGIN
-                        INSERT INTO messages_fts(msg_id, chat_id, from_id, ts, text)
-                        VALUES (new.msg_id, new.chat_id, new.from_id, new.ts, new.text);
-                    END
-                """))
-                
-                conn.execute(text("""
-                    CREATE TRIGGER IF NOT EXISTS messages_fts_delete AFTER DELETE ON messages BEGIN
-                        DELETE FROM messages_fts WHERE msg_id = old.msg_id;
-                    END
-                """))
-                
-                conn.execute(text("""
-                    CREATE TRIGGER IF NOT EXISTS messages_fts_update AFTER UPDATE ON messages BEGIN
-                        DELETE FROM messages_fts WHERE msg_id = old.msg_id;
-                        INSERT INTO messages_fts(msg_id, chat_id, from_id, ts, text)
-                        VALUES (new.msg_id, new.chat_id, new.from_id, new.ts, new.text);
-                    END
-                """))
-                
-                # Chunks triggers
-                conn.execute(text("""
-                    CREATE TRIGGER IF NOT EXISTS chunks_fts_insert AFTER INSERT ON chunks BEGIN
-                        INSERT INTO chunks_fts(id, chat_id, text)
-                        VALUES (new.id, new.chat_id, new.text);
-                    END
-                """))
-                
-                conn.execute(text("""
-                    CREATE TRIGGER IF NOT EXISTS chunks_fts_delete AFTER DELETE ON chunks BEGIN
-                        DELETE FROM chunks_fts WHERE id = old.id;
-                    END
-                """))
-                
-                conn.execute(text("""
-                    CREATE TRIGGER IF NOT EXISTS chunks_fts_update AFTER UPDATE ON chunks BEGIN
-                        DELETE FROM chunks_fts WHERE id = old.id;
-                        INSERT INTO chunks_fts(id, chat_id, text)
-                        VALUES (new.id, new.chat_id, new.text);
-                    END
-                """))
-                
+                self._create_fts5_tables(conn)
+                self._create_fts5_triggers(conn)
                 conn.commit()
             except Exception as e:
                 # FTS5 might not be available, log warning but continue
                 syslog2(LOG_DEBUG, "fts5 tables creation skipped", error=str(e))
             
-            # Check chunks table columns
-            try:
-                # We can't easily check all at once, so we try accessing one.
-                # If chat_id is missing, we assume Phase 14.2 columns are missing.
-                conn.execute(text("SELECT chat_id FROM chunks LIMIT 1"))
-            except Exception:
-                # Phase 14.2 columns missing
-                try:
-                    conn.execute(text("ALTER TABLE chunks ADD COLUMN chat_id VARCHAR"))
-                    conn.execute(text("ALTER TABLE chunks ADD COLUMN msg_id_start VARCHAR"))
-                    conn.execute(text("ALTER TABLE chunks ADD COLUMN msg_id_end VARCHAR"))
-                    conn.execute(text("ALTER TABLE chunks ADD COLUMN ts_from DATETIME"))
-                    conn.execute(text("ALTER TABLE chunks ADD COLUMN ts_to DATETIME"))
-                    conn.commit()
-                except Exception as e:
-                    syslog2(LOG_WARNING, "schema update warning (chunks 14.2)", error=str(e))
-
-            # topic_l1_id and topic_l2_id removed - clustering is deprecated
-            
-            # Check chunks table for msg_id_start_raw/msg_id_end_raw (refactoring)
-            try:
-                conn.execute(text("SELECT msg_id_start_raw FROM chunks LIMIT 1"))
-            except Exception:
-                try:
-                    conn.execute(text("ALTER TABLE chunks ADD COLUMN msg_id_start_raw VARCHAR"))
-                    conn.execute(text("ALTER TABLE chunks ADD COLUMN msg_id_end_raw VARCHAR"))
-                    conn.commit()
-                except Exception as e:
-                    syslog2(LOG_WARNING, "schema update warning (chunks raw msg_id)", error=str(e))
-            
-            # Check chunks table for embedding_dim (refactoring)
-            try:
-                conn.execute(text("SELECT embedding_dim FROM chunks LIMIT 1"))
-            except Exception:
-                try:
-                    conn.execute(text("ALTER TABLE chunks ADD COLUMN embedding_dim INTEGER"))
-                    conn.commit()
-                except Exception as e:
-                    syslog2(LOG_WARNING, "schema update warning (chunks embedding_dim)", error=str(e))
+            # Check and add missing columns
+            self._check_and_add_columns(conn)
             
             # Check chunks table for embedding_json (refactoring - stage2)
             try:
