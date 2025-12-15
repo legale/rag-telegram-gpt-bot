@@ -68,7 +68,7 @@
 
 - [x] file=src/core/message_search.py func=_prepare_message_parts уменьшить цикломатическую сложность: вынести получение сообщений для chunk в _get_messages_for_chunk(), форматирование сообщений в _format_message_parts_for_chunk()
 
-- [ ] file=src/core/message_search.py func=_format_message_parts уменьшить цикломатическую сложность: вынести парсинг msg_id в _parse_message_id(), создание message_data в _create_message_data()
+- [x] file=src/core/message_search.py func=_format_message_parts уменьшить цикломатическую сложность: вынести парсинг msg_id в _parse_message_id(), создание message_data в _create_message_data()
 
 - [ ] file=src/ingestion/chunker.py func=chunk_messages уменьшить цикломатическую сложность: вынести предварительный подсчет токенов в _precompute_token_counts(), создание chunks в _create_chunks_from_messages(), обработку overlap в _apply_overlap()
 

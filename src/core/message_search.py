@@ -258,6 +258,39 @@ def _parse_msg_id(msg_id_str: str) -> int:
         return hash(msg_id_str) % (10 ** 9)  # 9-digit number
 
 
+def _parse_message_id(msg_id_str: str) -> int:
+    """
+    Parse message ID from string format.
+    
+    Args:
+        msg_id_str: Message ID string
+        
+    Returns:
+        Parsed numeric message ID
+    """
+    return _parse_msg_id(msg_id_str)
+
+
+def _create_message_data(msg: MessageModel, distance: float) -> Dict:
+    """
+    Create message data dictionary.
+    
+    Args:
+        msg: MessageModel instance
+        distance: Distance value for this message
+        
+    Returns:
+        Message data dictionary
+    """
+    return {
+        "text": msg.text or "",
+        "date": msg.ts.isoformat() if msg.ts else "",
+        "sender": msg.from_id or "Unknown",
+        "sender_id": None,  # from_id is string, not numeric user_id
+        "distance": distance,
+    }
+
+
 def _format_message_parts(msg: MessageModel, msg_id: int, distance: float, chunk_id: str, 
                          msg_idx: int, debug_rag: bool) -> List[Dict]:
     """
@@ -289,18 +322,12 @@ def _format_message_parts(msg: MessageModel, msg_id: int, distance: float, chunk
             distance=distance,
         )
     
-    # prepare message data
-    msg_data = {
-        "text": msg.text or "",
-        "date": msg.ts.isoformat() if msg.ts else "",
-        "sender": msg.from_id or "Unknown",
-        "sender_id": None,  # from_id is string, not numeric user_id
-        "distance": distance,
-    }
+    # Create message data
+    msg_data = _create_message_data(msg, distance)
     
-    # split message into parts if needed
+    # Split message into parts if needed
     parts = split_message_if_needed(msg_data, msg_id, MAX_TG_CONTENT_LEN)
-    # propagate distance into each part for caller
+    # Propagate distance into each part for caller
     for part in parts:
         part["distance"] = distance
     return parts
