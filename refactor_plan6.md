@@ -38,7 +38,7 @@
 
 - [x] file=src/ingestion/telegram.py func=dump_chat добавить явные таймауты для Telethon API вызовов: использовать timeout параметр в client методах
 
-- [ ] file=src/bot/tgbot.py func=_process_webhook_update заменить широкий except Exception на специфичные исключения: обрабатывать ValueError, KeyError, AttributeError отдельно с соответствующими сообщениями
+- [x] file=src/bot/tgbot.py func=_process_webhook_update заменить широкий except Exception на специфичные исключения: обрабатывать ValueError, KeyError, AttributeError отдельно с соответствующими сообщениями
 
 - [ ] file=src/ingestion/pipeline.py func=parse_and_store_messages заменить широкий except Exception на специфичные исключения: обрабатывать FileNotFoundError, json.JSONDecodeError, ValueError отдельно
 

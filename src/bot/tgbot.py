@@ -1177,8 +1177,44 @@ async def _process_webhook_update(update: Update) -> Optional[str]:
             await _handle_command(update)
         else:
             await _handle_user_message(update)
+    except ValueError as e:
+        syslog2(LOG_ERR, "message handling failed: invalid value", error=str(e), update_id=update.update_id)
+        # Try to send error message to user
+        try:
+            ctx = get_runtime_context()
+            if update.message:
+                await ctx.telegram_app.bot.send_message(
+                    chat_id=update.message.chat_id,
+                    text=f"Ошибка: неверное значение параметра. {str(e)}"
+                )
+        except Exception:
+            pass  # Ignore errors when sending error message
+    except KeyError as e:
+        syslog2(LOG_ERR, "message handling failed: missing key", error=str(e), update_id=update.update_id)
+        # Try to send error message to user
+        try:
+            ctx = get_runtime_context()
+            if update.message:
+                await ctx.telegram_app.bot.send_message(
+                    chat_id=update.message.chat_id,
+                    text=f"Ошибка: отсутствует необходимый параметр. {str(e)}"
+                )
+        except Exception:
+            pass  # Ignore errors when sending error message
+    except AttributeError as e:
+        syslog2(LOG_ERR, "message handling failed: missing attribute", error=str(e), update_id=update.update_id)
+        # Try to send error message to user
+        try:
+            ctx = get_runtime_context()
+            if update.message:
+                await ctx.telegram_app.bot.send_message(
+                    chat_id=update.message.chat_id,
+                    text=f"Ошибка: отсутствует необходимый атрибут. {str(e)}"
+                )
+        except Exception:
+            pass  # Ignore errors when sending error message
     except Exception as e:
-        syslog2(LOG_ERR, "message handling failed", error=str(e), update_id=update.update_id)
+        syslog2(LOG_ERR, "message handling failed: unexpected error", error=str(e), update_id=update.update_id)
         # Try to send error message to user
         try:
             ctx = get_runtime_context()
