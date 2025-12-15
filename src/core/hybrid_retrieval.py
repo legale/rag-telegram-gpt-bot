@@ -544,9 +544,6 @@ class HybridRetrievalService:
             output_mode="context"
         )
         
-        # Convert SearchResult to dict format
-        from src.core.chunk_utils import build_chunk_dict_from_domain_chunk
-        
         if self.log_level <= LOG_DEBUG:
             syslog2(LOG_DEBUG, "hybrid_retrieval: retrieve() called", 
                    query=query,
@@ -554,19 +551,61 @@ class HybridRetrievalService:
                    score_threshold=score_threshold,
                    search_results_count=len(search_results))
         
-        chunk_dicts = []
-        filtered_count = 0
+        # Filter by threshold
+        filtered_results = self._filter_by_threshold(search_results, threshold)
+        
+        # Convert SearchResult to dict format
+        chunk_dicts = self._convert_search_results_to_dicts(filtered_results)
+        
+        if self.log_level <= LOG_DEBUG:
+            syslog2(LOG_DEBUG, "hybrid_retrieval: retrieve() results", 
+                   total_search_results=len(search_results),
+                   filtered_by_threshold=len(search_results) - len(filtered_results),
+                   chunks_with_text=len(chunk_dicts),
+                   final_count=min(len(chunk_dicts), n_results))
+        
+        return chunk_dicts[:n_results]
+
+    def _filter_by_threshold(self, search_results: List[SearchResult], threshold: Optional[float]) -> List[SearchResult]:
+        """
+        Filter search results by score threshold.
+
+        Args:
+            search_results: List of SearchResult objects
+            threshold: Optional minimum score threshold
+
+        Returns:
+            Filtered list of SearchResult objects
+        """
+        if not threshold:
+            return search_results
+        
+        filtered_results = []
         for result in search_results:
-            # Filter by threshold if provided
-            if threshold and result.score < threshold:
-                if self.log_level <= LOG_DEBUG:
-                    syslog2(LOG_DEBUG, "hybrid_retrieval: result filtered by threshold", 
-                           chunk_id=result.chunk.id,
-                           score=result.score,
-                           threshold=threshold)
-                filtered_count += 1
-                continue
-            
+            if result.score >= threshold:
+                filtered_results.append(result)
+            elif self.log_level <= LOG_DEBUG:
+                syslog2(LOG_DEBUG, "hybrid_retrieval: result filtered by threshold", 
+                       chunk_id=result.chunk.id,
+                       score=result.score,
+                       threshold=threshold)
+        
+        return filtered_results
+
+    def _convert_search_results_to_dicts(self, search_results: List[SearchResult]) -> List[Dict]:
+        """
+        Convert SearchResult objects to chunk dictionaries.
+
+        Args:
+            search_results: List of SearchResult objects
+
+        Returns:
+            List of chunk dictionaries
+        """
+        from src.core.chunk_utils import build_chunk_dict_from_domain_chunk
+        
+        chunk_dicts = []
+        for result in search_results:
             chunk_dict = build_chunk_dict_from_domain_chunk(
                 result.chunk,
                 similarity=result.score,
@@ -588,14 +627,7 @@ class HybridRetrievalService:
             
             chunk_dicts.append(chunk_dict)
         
-        if self.log_level <= LOG_DEBUG:
-            syslog2(LOG_DEBUG, "hybrid_retrieval: retrieve() results", 
-                   total_search_results=len(search_results),
-                   filtered_by_threshold=filtered_count,
-                   chunks_with_text=len(chunk_dicts),
-                   final_count=min(len(chunk_dicts), n_results))
-        
-        return chunk_dicts[:n_results]
+        return chunk_dicts
 
     def search_chunks_basic(self, query: str, n_results: int = 3) -> List[Dict]:
         """

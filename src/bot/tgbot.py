@@ -2121,9 +2121,15 @@ def run_daemon(host: str = "127.0.0.1", port: int = 8000, args: Optional[SimpleN
         )
 
 
-def main():
+def _parse_cli_arguments():
     """
-    Main CLI entry point.
+    Parse CLI arguments and return parsed arguments object.
+    
+    Returns:
+        SimpleNamespace with parsed arguments including bot_command attribute
+        
+    Exits:
+        If help requested or on parse errors
     """
     from src.lib.argparse2 import parse
     from types import SimpleNamespace
@@ -2206,6 +2212,8 @@ def main():
             print(f"Error: unknown command: {cmd}", file=sys.stderr)
             sys.exit(1)
         
+        return parsed_args
+        
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         print("\nUsage:")
@@ -2214,7 +2222,18 @@ def main():
         print("  run [host <host>] [port <port>] [token <token>] [debug-rag] - Run server in foreground")
         print("  daemon [host <host>] [port <port>] [token <token>] - Run server as daemon")
         sys.exit(1)
+
+
+def _execute_bot_command(parsed_args):
+    """
+    Execute bot command based on parsed arguments.
     
+    Args:
+        parsed_args: SimpleNamespace with parsed arguments including bot_command attribute
+        
+    Exits:
+        If token is missing or on execution errors
+    """
     # Get token from args or env
     token = getattr(parsed_args, 'token', None) or os.getenv("TELEGRAM_BOT_TOKEN")
     
@@ -2237,6 +2256,14 @@ def main():
         run_server(parsed_args.host, parsed_args.port, log_level=log_level, debug_rag=debug_rag, args=parsed_args)
     elif parsed_args.bot_command == "daemon":
         run_daemon(parsed_args.host, parsed_args.port, args=parsed_args)
+
+
+def main():
+    """
+    Main CLI entry point.
+    """
+    parsed_args = _parse_cli_arguments()
+    _execute_bot_command(parsed_args)
 
 
 if __name__ == "__main__":
