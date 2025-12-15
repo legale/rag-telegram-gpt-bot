@@ -42,7 +42,7 @@
 
 - [x] file=src/ingestion/pipeline.py func=parse_and_store_messages заменить широкий except Exception на специфичные исключения: обрабатывать FileNotFoundError, json.JSONDecodeError, ValueError отдельно
 
-- [ ] file=src/core/hybrid_retrieval.py func=search заменить широкий except Exception на специфичные исключения: обрабатывать EmbeddingError, VectorIndexError отдельно с fallback на FTS-only
+- [x] file=src/core/hybrid_retrieval.py func=search заменить широкий except Exception на специфичные исключения: обрабатывать EmbeddingError, VectorIndexError отдельно с fallback на FTS-only
 
 - [ ] file=src/bot/core.py func=_call_llm_with_retry заменить широкий except Exception на специфичные исключения: обрабатывать APIError, TimeoutError, RateLimitError отдельно
 

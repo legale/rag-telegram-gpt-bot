@@ -15,6 +15,16 @@ from src.core.distance_utils import similarity_to_distance
 from src.lib.syslog2 import *
 
 
+class EmbeddingError(Exception):
+    """Exception raised when embedding generation fails."""
+    pass
+
+
+class VectorIndexError(Exception):
+    """Exception raised when vector index operations fail."""
+    pass
+
+
 class HybridRetrievalService:
     """
     Hybrid retrieval service: FTS5 candidates → vector rerank → context packing.
@@ -134,10 +144,28 @@ class HybridRetrievalService:
                            rephrased=rephrased_query)
                 
                 query_vector = self.embedder.embed_query(rephrased_query)
-            except Exception as e:
+            except EmbeddingError as e:
+                syslog2(LOG_ERR, "hybrid_retrieval: embedding error", query=query, error=str(e))
                 top_candidates = self._handle_embedding_error(e, query, fts_results, candidate_chunks, rerank_top_k)
+            except Exception as e:
+                # Wrap unexpected embedding errors as EmbeddingError
+                syslog2(LOG_ERR, "hybrid_retrieval: unexpected embedding error", query=query, error=str(e))
+                embedding_error = EmbeddingError(f"Embedding generation failed: {e}") from e
+                top_candidates = self._handle_embedding_error(embedding_error, query, fts_results, candidate_chunks, rerank_top_k)
             else:
-                top_candidates = self._rerank_with_vectors(query_vector, fts_results, candidate_chunks, rerank_top_k)
+                try:
+                    top_candidates = self._rerank_with_vectors(query_vector, fts_results, candidate_chunks, rerank_top_k)
+                except VectorIndexError as e:
+                    syslog2(LOG_ERR, "hybrid_retrieval: vector index error", query=query, error=str(e))
+                    # Fallback to FTS-only if vector index fails
+                    if self.log_level <= LOG_DEBUG:
+                        syslog2(LOG_DEBUG, "hybrid_retrieval: falling back to FTS-only after vector index error")
+                    top_candidates = self._handle_embedding_error(e, query, fts_results, candidate_chunks, rerank_top_k)
+                except Exception as e:
+                    # Wrap unexpected vector errors as VectorIndexError
+                    syslog2(LOG_ERR, "hybrid_retrieval: unexpected vector index error", query=query, error=str(e))
+                    vector_error = VectorIndexError(f"Vector index operation failed: {e}") from e
+                    top_candidates = self._handle_embedding_error(vector_error, query, fts_results, candidate_chunks, rerank_top_k)
 
         if self.log_level <= LOG_DEBUG:
             syslog2(LOG_DEBUG, "hybrid_retrieval: after rerank", count=len(top_candidates))
