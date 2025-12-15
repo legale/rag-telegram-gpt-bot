@@ -144,7 +144,7 @@
 
 - [ ] file=src/core/message_search.py func=search_message_contents упростить: вынести фильтрацию по threshold в _filter_results_by_threshold(), подготовку message parts в _prepare_message_parts_from_results()
 
-- [ ] file=src/core/message_search.py func=search_message_links упростить: вынести получение link info из chunk в _get_link_info_from_chunk(), построение link в _build_message_link()
+- [x] file=src/core/message_search.py func=search_message_links упростить: вынести получение link info из chunk в _get_link_info_from_chunk(), построение link в _build_message_link()
 
 - [ ] file=src/ingestion/parser.py func=parse_file упростить: вынести парсинг JSON в _parse_json_file(), парсинг текстового файла в _parse_text_file()
 
