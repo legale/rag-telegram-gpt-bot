@@ -383,43 +383,24 @@ class HybridRetrievalService:
 
         for chunk, combined_score, vector_score in candidates:
             # Dedup by msg_id
-            if chunk.msg_ids:
-                msg_id_key = f"{chunk.msg_ids[0]}_{chunk.msg_ids[1] if len(chunk.msg_ids) > 1 else chunk.msg_ids[0]}"
-                if msg_id_key in seen_msg_ids:
-                    continue
-                seen_msg_ids.add(msg_id_key)
+            if not self._deduplicate_by_msg_id(chunk, seen_msg_ids):
+                continue
 
             # Check token budget
             chunk_tokens = estimate_tokens(chunk.text)
-            if current_tokens + chunk_tokens > max_tokens:
+            token_check_result = self._check_token_budget(chunk_tokens, current_tokens, max_tokens)
+            if not token_check_result:
                 break
-
             current_tokens += chunk_tokens
 
             # Get topics from metadata (removed - clustering is deprecated)
             topics = []
 
             # Enrich with messages based on output mode
-            original_messages: List[Message] = []
-            if output_mode == "context" and chunk.valid_period:
-                # Get messages around chunk time
-                time_point = chunk.valid_period[0]
-                chat_id = chunk.metadata.get("chat_id") if chunk.metadata else None
-                
-                if chat_id:
-                    messages = self.message_store.get_context(
-                        chat_id=chat_id,
-                        time_point=time_point,
-                        window_sec=message_window_sec
-                    )
-                    # Filter out messages we've already seen
-                    for msg in messages:
-                        if msg.id not in seen_msg_ids:
-                            msg_tokens = estimate_tokens(msg.text or "")
-                            if current_tokens + msg_tokens <= max_tokens:
-                                original_messages.append(msg)
-                                seen_msg_ids.add(msg.id)
-                                current_tokens += msg_tokens
+            original_messages, tokens_added = self._enrich_with_messages(
+                chunk, output_mode, message_window_sec, seen_msg_ids, current_tokens, max_tokens, estimate_tokens
+            )
+            current_tokens += tokens_added
 
             # Create SearchResult
             result = SearchResult(
@@ -431,6 +412,88 @@ class HybridRetrievalService:
             results.append(result)
 
         return results
+
+    def _deduplicate_by_msg_id(self, chunk: Chunk, seen_msg_ids: Set[str]) -> bool:
+        """
+        Check if chunk should be included based on msg_id deduplication.
+        
+        Args:
+            chunk: Chunk to check
+            seen_msg_ids: Set of already seen msg_id keys
+            
+        Returns:
+            True if chunk should be included (not duplicate), False otherwise
+        """
+        if chunk.msg_ids:
+            msg_id_key = f"{chunk.msg_ids[0]}_{chunk.msg_ids[1] if len(chunk.msg_ids) > 1 else chunk.msg_ids[0]}"
+            if msg_id_key in seen_msg_ids:
+                return False
+            seen_msg_ids.add(msg_id_key)
+        return True
+
+    def _check_token_budget(self, chunk_tokens: int, current_tokens: int, max_tokens: int) -> bool:
+        """
+        Check if adding chunk tokens would exceed token budget.
+        
+        Args:
+            chunk_tokens: Number of tokens in the chunk
+            current_tokens: Current token count
+            max_tokens: Maximum allowed tokens
+            
+        Returns:
+            True if chunk can be added without exceeding budget, False otherwise
+        """
+        return current_tokens + chunk_tokens <= max_tokens
+
+    def _enrich_with_messages(
+        self,
+        chunk: Chunk,
+        output_mode: str,
+        message_window_sec: int,
+        seen_msg_ids: Set[str],
+        current_tokens: int,
+        max_tokens: int,
+        estimate_tokens: callable
+    ) -> tuple[List[Message], int]:
+        """
+        Enrich chunk with surrounding messages based on output mode.
+        
+        Args:
+            chunk: Chunk to enrich
+            output_mode: "context" or "evidence"
+            message_window_sec: Time window for neighbors
+            seen_msg_ids: Set of already seen msg_ids
+            current_tokens: Current token count
+            max_tokens: Maximum allowed tokens
+            estimate_tokens: Function to estimate tokens in text
+            
+        Returns:
+            Tuple of (list of messages, total tokens added)
+        """
+        original_messages: List[Message] = []
+        tokens_added = 0
+        
+        if output_mode == "context" and chunk.valid_period:
+            # Get messages around chunk time
+            time_point = chunk.valid_period[0]
+            chat_id = chunk.metadata.get("chat_id") if chunk.metadata else None
+            
+            if chat_id:
+                messages = self.message_store.get_context(
+                    chat_id=chat_id,
+                    time_point=time_point,
+                    window_sec=message_window_sec
+                )
+                # Filter out messages we've already seen
+                for msg in messages:
+                    if msg.id not in seen_msg_ids:
+                        msg_tokens = estimate_tokens(msg.text or "")
+                        if current_tokens + tokens_added + msg_tokens <= max_tokens:
+                            original_messages.append(msg)
+                            seen_msg_ids.add(msg.id)
+                            tokens_added += msg_tokens
+        
+        return original_messages, tokens_added
 
     def retrieve(
         self,

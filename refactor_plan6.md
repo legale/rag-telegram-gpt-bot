@@ -18,7 +18,7 @@
 
 - [x] file=src/core/hybrid_retrieval.py func=search уменьшить цикломатическую сложность: вынести FTS-only режим в _search_fts_only(), векторный reranking в _rerank_with_vectors(), обработку ошибок embedding в _handle_embedding_error()
 
-- [ ] file=src/core/hybrid_retrieval.py func=_pack_context уменьшить цикломатическую сложность: вынести дедупликацию по msg_id в _deduplicate_by_msg_id(), проверку token budget в _check_token_budget(), обогащение сообщениями в _enrich_with_messages()
+- [x] file=src/core/hybrid_retrieval.py func=_pack_context уменьшить цикломатическую сложность: вынести дедупликацию по msg_id в _deduplicate_by_msg_id(), проверку token budget в _check_token_budget(), обогащение сообщениями в _enrich_with_messages()
 
 - [ ] file=src/ingestion/pipeline.py func=parse_and_store_chunks уменьшить цикломатическую сложность: вынести получение сообщений из БД в _load_messages_from_db(), конвертацию в ChatMessage в _convert_to_chat_messages(), сохранение chunks в _save_chunks_to_db()
 
