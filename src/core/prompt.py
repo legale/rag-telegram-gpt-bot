@@ -52,28 +52,18 @@ History:
 {history}
 """
 
-    def construct_prompt(self, context_chunks: List[Dict], chat_history: List[Dict], user_task: str, max_context_chars: int = 8000, custom_template: str = None, log_level: int = LOG_WARNING) -> str:
+    def _build_context_section(self, context_chunks: List[Dict], max_context_chars: int = 8000, log_level: int = LOG_WARNING) -> str:
         """
-        Constructs the full system prompt.
+        Build context section from chunks.
         
         Args:
             context_chunks: List of retrieved chunks with 'text' and 'metadata'.
-            chat_history: List of recent chat messages (dictionaries with 'sender', 'content').
-            user_task: The specific instruction for the bot.
             max_context_chars: Maximum characters for context (to prevent token overflow).
-            custom_template: Optional custom template string overriding the default.
+            log_level: Log level for debugging.
             
         Returns:
-            Formatted prompt string.
+            Formatted context string.
         """
-        # Format context with size limit
-        if log_level <= LOG_DEBUG:
-            syslog2(LOG_DEBUG, "prompt: construct_prompt called", 
-                   context_chunks_count=len(context_chunks),
-                   chat_history_count=len(chat_history),
-                   user_task=user_task[:50],
-                   max_context_chars=max_context_chars)
-        
         context_str = ""
         total_chars = 0
         import json
@@ -139,8 +129,19 @@ History:
                        context_length=len(context_str),
                        total_chars=total_chars,
                        chunks_processed=len(context_chunks) - chunks_without_text)
+        
+        return context_str
+    
+    def _build_history_section(self, chat_history: List[Dict]) -> str:
+        """
+        Build history section from chat messages.
+        
+        Args:
+            chat_history: List of recent chat messages (dictionaries with 'sender', 'content').
             
-        # Format history
+        Returns:
+            Formatted history string.
+        """
         history_str = ""
         for msg in chat_history:
             sender = msg.get('sender', 'Unknown')
@@ -149,12 +150,23 @@ History:
             
         if not history_str:
             history_str = "Нет недавних сообщений."
-            
-        template = custom_template if custom_template else self.SYSTEM_PROMPT_TEMPLATE
         
-        # Ensure template has necessary keys if using custom one? 
-        # For now assume user provides correct format or we handle error if format fails.
-        # But to be safe let's wrap formatted.
+        return history_str
+    
+    def _build_task_section(self, user_task: str, context_str: str, history_str: str, custom_template: Optional[str] = None) -> str:
+        """
+        Build final prompt by combining task, context, and history using template.
+        
+        Args:
+            user_task: The specific instruction for the bot.
+            context_str: Formatted context string.
+            history_str: Formatted history string.
+            custom_template: Optional custom template string overriding the default.
+            
+        Returns:
+            Formatted prompt string.
+        """
+        template = custom_template if custom_template else self.SYSTEM_PROMPT_TEMPLATE
         
         try:
             return template.format(
@@ -164,8 +176,34 @@ History:
             )
         except KeyError as e:
             # Fallback if custom template is broken
-             return f"Error in system prompt template: {e}\nUsing default.\n" + self.SYSTEM_PROMPT_TEMPLATE.format(
+            return f"Error in system prompt template: {e}\nUsing default.\n" + self.SYSTEM_PROMPT_TEMPLATE.format(
                 context=context_str.strip(),
                 history=history_str.strip(),
                 task=user_task
             )
+    
+    def construct_prompt(self, context_chunks: List[Dict], chat_history: List[Dict], user_task: str, max_context_chars: int = 8000, custom_template: str = None, log_level: int = LOG_WARNING) -> str:
+        """
+        Constructs the full system prompt.
+        
+        Args:
+            context_chunks: List of retrieved chunks with 'text' and 'metadata'.
+            chat_history: List of recent chat messages (dictionaries with 'sender', 'content').
+            user_task: The specific instruction for the bot.
+            max_context_chars: Maximum characters for context (to prevent token overflow).
+            custom_template: Optional custom template string overriding the default.
+            log_level: Log level for debugging.
+            
+        Returns:
+            Formatted prompt string.
+        """
+        if log_level <= LOG_DEBUG:
+            syslog2(LOG_DEBUG, "prompt: construct_prompt called", 
+                   context_chunks_count=len(context_chunks),
+                   chat_history_count=len(chat_history),
+                   user_task=user_task[:50],
+                   max_context_chars=max_context_chars)
+        
+        context_str = self._build_context_section(context_chunks, max_context_chars, log_level)
+        history_str = self._build_history_section(chat_history)
+        return self._build_task_section(user_task, context_str, history_str, custom_template)

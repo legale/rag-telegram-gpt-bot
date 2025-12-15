@@ -114,7 +114,7 @@
 
 - [x] file=src/bot/tgbot.py func=run_daemon уменьшить цикломатическую сложность: вынести создание daemon context в _create_daemon_context(), настройку signal handlers в _setup_signal_handlers()
 
-- [ ] file=src/core/prompt.py func=construct_prompt уменьшить цикломатическую сложность: вынести построение context части в _build_context_section(), построение history части в _build_history_section(), построение task части в _build_task_section()
+- [x] file=src/core/prompt.py func=construct_prompt уменьшить цикломатическую сложность: вынести построение context части в _build_context_section(), построение history части в _build_history_section(), построение task части в _build_task_section()
 
 - [ ] file=src/core/prompt.py func=get_system_prompt упростить: использовать единый метод для получения system prompt из BotConfig без дублирования логики
 

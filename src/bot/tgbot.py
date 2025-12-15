@@ -36,6 +36,7 @@ from src.core.message_search import search_message_contents
 from src.bot.admin_commands import ProfileCommands, HelpCommands, IngestCommands, StatsCommands, ControlCommands, SettingsCommands, ModelCommands, SystemPromptCommands
 from src.bot.admin_tasks import TaskManager
 from src.bot.utils import AccessControlService, FrequencyController, ErrorHandler
+from src.bot.utils.response_formatter import ResponseFormatter
 from src.bot.command_parser import parse_find_command_args as parse_find_args_common
 from src.lib.syslog2 import *
 
@@ -1257,7 +1258,7 @@ async def _process_webhook_update(update: Update) -> Optional[str]:
             if update.message:
                 await ctx.telegram_app.bot.send_message(
                     chat_id=update.message.chat_id,
-                    text=f"Ошибка: неверное значение параметра. {str(e)}"
+                    text=ResponseFormatter.format_error_message(f"неверное значение параметра. {str(e)}")
                 )
         except Exception:
             pass  # Ignore errors when sending error message
@@ -1269,7 +1270,7 @@ async def _process_webhook_update(update: Update) -> Optional[str]:
             if update.message:
                 await ctx.telegram_app.bot.send_message(
                     chat_id=update.message.chat_id,
-                    text=f"Ошибка: отсутствует необходимый параметр. {str(e)}"
+                    text=ResponseFormatter.format_error_message(f"отсутствует необходимый параметр. {str(e)}")
                 )
         except Exception:
             pass  # Ignore errors when sending error message
@@ -1281,7 +1282,7 @@ async def _process_webhook_update(update: Update) -> Optional[str]:
             if update.message:
                 await ctx.telegram_app.bot.send_message(
                     chat_id=update.message.chat_id,
-                    text=f"Ошибка: отсутствует необходимый атрибут. {str(e)}"
+                    text=ResponseFormatter.format_error_message(f"отсутствует необходимый атрибут. {str(e)}")
                 )
         except Exception:
             pass  # Ignore errors when sending error message

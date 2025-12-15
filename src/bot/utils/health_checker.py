@@ -13,6 +13,8 @@ import os
 from pathlib import Path
 from typing import List, Tuple
 
+from src.bot.utils.response_formatter import ResponseFormatter
+
 logger = logging.getLogger(__name__)
 
 
@@ -41,7 +43,7 @@ class HealthChecker:
             conn.close()
             return ("База данных", "OK")
         except Exception as e:
-            return ("База данных", f"Ошибка: {e}")
+            return ("База данных", ResponseFormatter.format_error_message(str(e)))
     
     @staticmethod
     def check_vector_store(vector_path: Path) -> Tuple[str, str]:
@@ -74,7 +76,7 @@ class HealthChecker:
             else:
                 return ("LLM API ключ", "Не установлен")
         except Exception as e:
-            return ("LLM API ключ", f"Ошибка: {e}")
+            return ("LLM API ключ", ResponseFormatter.format_error_message(str(e)))
     
     @staticmethod
     def check_embedding_api_key() -> Tuple[str, str]:
@@ -92,7 +94,7 @@ class HealthChecker:
             else:
                 return ("Embedding API ключ", "Не установлен")
         except Exception as e:
-            return ("Embedding API ключ", f"Ошибка: {e}")
+            return ("Embedding API ключ", ResponseFormatter.format_error_message(str(e)))
     
     @staticmethod
     def check_memory() -> Tuple[str, str]:
@@ -110,7 +112,7 @@ class HealthChecker:
             else:
                 return ("Память", f"{memory.percent:.1f}% использовано")
         except Exception as e:
-            return ("Память", f"Ошибка: {e}")
+            return ("Память", ResponseFormatter.format_error_message(str(e)))
     
     @staticmethod
     def check_disk(path: Path) -> Tuple[str, str]:
@@ -131,7 +133,7 @@ class HealthChecker:
             else:
                 return ("Диск", f"{disk.percent:.1f}% использовано")
         except Exception as e:
-            return ("Диск", f"Ошибка: {e}")
+            return ("Диск", ResponseFormatter.format_error_message(str(e)))
     
     @staticmethod
     def run_all_checks(db_path: Path, vector_path: Path, profile_dir: Path) -> List[Tuple[str, str]]:

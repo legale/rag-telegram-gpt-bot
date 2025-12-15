@@ -583,7 +583,8 @@ class LegaleBot:
             return "Ошибка лимита токенов/баланса. Контекст сброшен.\n\n" + response
         except Exception as retry_e:
             syslog2(LOG_ERR, "retry failed", error=str(retry_e))
-            return "Ошибка: Не удалось получить ответ даже после сброса контекста (лимит токенов или баланс исчерпан)."
+            from src.bot.utils.response_formatter import ResponseFormatter
+            return ResponseFormatter.format_error_message("Не удалось получить ответ даже после сброса контекста (лимит токенов или баланс исчерпан).")
     
     def _call_llm_with_retry(
         self, 
