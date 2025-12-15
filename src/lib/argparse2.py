@@ -1,5 +1,7 @@
 # argparse2.py
 
+from typing import Any
+
 def matches(prefix: str, string: str) -> bool:
     if not prefix:
         return True
@@ -22,36 +24,34 @@ def _find_unique(prefix: str, names: list[str]) -> str:
     return hits[0]
 
 
-def parse(argv: list[str], opt_table: dict) -> tuple[dict, list[str]]:
+def parse(argv: Any, opt_table: dict) -> tuple[dict, list[str]]:
+    if argv is None:
+        argv = []
+    elif isinstance(argv, str):
+        argv = split_args(argv)
+    else:
+        argv = list(argv)
+
     i = 0
     opts = {}
     args = []
-    names = list(opt_table.keys())
 
     while i < len(argv):
-        a = argv[i]
-        if a == "--":
-            i += 1
-            break
-        if not a.startswith("-") or a == "-":
-            break
+        tok = argv[i]
 
-        opt = a.lstrip("-")
-        name = _find_unique(opt, names)
-        spec = opt_table[name]
+        if tok in opt_table:
+            spec = opt_table[tok]
+            if spec.get("arg"):
+                if i + 1 >= len(argv):
+                    raise ValueError(f"missing arg for {tok}")
+                opts[tok] = argv[i + 1]
+                i += 2
+            else:
+                opts[tok] = True
+                i += 1
+            continue
 
-        takes_arg = bool(spec.get("arg"))
-        if takes_arg:
-            if i + 1 >= len(argv):
-                raise ValueError(f"missing arg for {a}")
-            opts[name] = argv[i + 1]
-            i += 2
-        else:
-            opts[name] = True
-            i += 1
-
-    while i < len(argv):
-        args.append(argv[i])
+        args.append(tok)
         i += 1
 
     return opts, args
@@ -97,15 +97,62 @@ def gen_help(prog: str, opt_table: dict, cmd_table: dict | None = None) -> str:
     return "\n".join(lines)
 
 
-def cmd_parse(text_or_argv, opt_table: dict) -> tuple[dict, str, list[str]]:
+def cmd_parse(text_or_argv, opt_table: dict, argv_off: int = 0) -> tuple[dict, str, list[str]]:
     if isinstance(text_or_argv, str):
         argv = split_args(text_or_argv)
     else:
         argv = list(text_or_argv)
 
+    if argv_off:
+        if argv_off < 0 or argv_off > len(argv):
+            raise ValueError("argv_off out of range")
+        argv = argv[argv_off:]
+
     opts, args = parse(argv, opt_table)
+    print("cmd_parse_after", opts, argv)
+    opts = DotDict(opts)
 
     if not args:
         return opts, "help", []
 
     return opts, args[0], args[1:]
+
+
+class DotDict(dict):
+    def __init__(self, initial=None, **kwargs):
+        super().__init__()
+        data = {}
+        if initial:
+            data.update(initial)
+        data.update(kwargs)
+        for key, value in data.items():
+            self[key] = self._to_dotdict(value)
+
+    def _to_dotdict(self, value):
+        if isinstance(value, dict):
+            return DotDict(value)
+        return value
+
+    def __getattr__(self, key):
+        try:
+            return self[key]
+        except KeyError:
+            raise AttributeError(key)
+
+    def __setattr__(self, key, value):
+        self[key] = value
+
+    def __delattr__(self, key):
+        try:
+            del self[key]
+        except KeyError:
+            raise AttributeError(key)
+
+    def get(self, key, default=None):
+        return super().get(key, default)
+
+    def set(self, key, value, default=None):
+        if key not in self and default is not None:
+            self[key] = default
+        self[key] = value
+        return self[key]
