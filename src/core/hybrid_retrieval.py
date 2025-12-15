@@ -150,7 +150,7 @@ class HybridRetrievalService:
             except Exception as e:
                 # Wrap unexpected embedding errors as EmbeddingError
                 syslog2(LOG_ERR, "hybrid_retrieval: unexpected embedding error", query=query, error=str(e))
-                embedding_error = EmbeddingError(f"Embedding generation failed: {e}") from e
+                embedding_error = EmbeddingError(f"Embedding generation failed: {e}")
                 top_candidates = self._handle_embedding_error(embedding_error, query, fts_results, candidate_chunks, rerank_top_k)
             else:
                 try:
@@ -164,7 +164,7 @@ class HybridRetrievalService:
                 except Exception as e:
                     # Wrap unexpected vector errors as VectorIndexError
                     syslog2(LOG_ERR, "hybrid_retrieval: unexpected vector index error", query=query, error=str(e))
-                    vector_error = VectorIndexError(f"Vector index operation failed: {e}") from e
+                    vector_error = VectorIndexError(f"Vector index operation failed: {e}")
                     top_candidates = self._handle_embedding_error(vector_error, query, fts_results, candidate_chunks, rerank_top_k)
 
         if self.log_level <= LOG_DEBUG:
