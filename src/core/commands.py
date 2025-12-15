@@ -116,14 +116,12 @@ class ModelCommandHandler(CommandHandler):
 
     def handle(self, context: CommandContext) -> CommandResult:
         try:
-            message = self.bot.get_model()
-            # Save new model to config if admin_manager is available
-            if self.admin_manager:
-                try:
-                    self.admin_manager.config.current_model = self.bot.current_model_name
-                except Exception as e:
-                    from src.lib.syslog2 import syslog2, LOG_WARNING
-                    syslog2(LOG_WARNING, "failed to save model to config", error=str(e))
+            # Switch to next model
+            message = self._switch_model()
+            
+            # Save model to config if admin_manager is available
+            self._save_model_to_config()
+            
             return CommandResult(
                 success=True,
                 message=message,
@@ -137,6 +135,26 @@ class ModelCommandHandler(CommandHandler):
                 message="Ошибка при переключении модели.",
                 error=str(e)
             )
+
+    def _switch_model(self) -> str:
+        """
+        Switch to the next model in the list.
+        
+        Returns:
+            Message with the new model name
+        """
+        return self.bot.get_model()
+
+    def _save_model_to_config(self) -> None:
+        """
+        Save current model to config if admin_manager is available.
+        """
+        if self.admin_manager:
+            try:
+                self.admin_manager.config.current_model = self.bot.current_model_name
+            except Exception as e:
+                from src.lib.syslog2 import syslog2, LOG_WARNING
+                syslog2(LOG_WARNING, "failed to save model to config", error=str(e))
 
 
 class FindCommandHandler(CommandHandler):
@@ -165,15 +183,11 @@ class FindCommandHandler(CommandHandler):
         Returns:
             CommandResult with search results or error
         """
-        from src.bot.command_parser import parse_find_command_args
-        from src.app.bootstrap import create_hybrid_retrieval
-        from src.core.message_search import search_message_contents
-        from src.lib.syslog2 import syslog2, LOG_ERR, LOG_ALERT
+        from src.lib.syslog2 import syslog2, LOG_ERR
 
         try:
             # Parse arguments from context
-            args_text = " ".join(context.args) if context.args else ""
-            rag_method, action, query_or_error = parse_find_command_args(args_text, self.admin_manager)
+            rag_method, action, query_or_error = self._parse_find_args(context)
             
             if rag_method is None:
                 # query_or_error contains error message
@@ -203,58 +217,8 @@ class FindCommandHandler(CommandHandler):
 
             # Perform search
             query = query_or_error
-            
-            # Get paths from bot_instance
-            db_url = self.bot.db.db_url  # Fix: use db.db_url instead of db_url
-            vector_db_path = self.bot.vector_store.persist_directory  # Get from vector_store
-            profile_dir = str(self.bot.profile_dir) if hasattr(self.bot, 'profile_dir') and self.bot.profile_dir else None
-
-            # Create HybridRetrievalService with specified retrieval mode
-            retrieval_service = create_hybrid_retrieval(
-                db_url=db_url,
-                vector_db_path=vector_db_path,
-                embedding_client=self.bot.embedding_client,
-                profile_dir=profile_dir,
-                log_level=self.bot.log_level,
-                retrieval_mode=rag_method,
-                llm_client=self.bot.llm_client if hasattr(self.bot, 'llm_client') else None
-            )
-
-            # Get threshold from config or use default
-            threshold = 1.5
-            if self.admin_manager:
-                threshold = self.admin_manager.config.cosine_distance_thr
-
-            # Perform search using search_message_contents
-            message_parts_list = search_message_contents(
-                retrieval=retrieval_service,
-                db=self.bot.db,
-                query=query,
-                top_k=100,
-                threshold=threshold,
-                debug_rag=self.debug_rag
-            )
-
-            if not message_parts_list:
-                return CommandResult(
-                    success=True,
-                    message=f'по запросу "{query}" ничего не найдено (метод: {rag_method})',
-                    data={"results_count": 0, "rag_method": rag_method}
-                )
-
-            # For Telegram bot, we need to return a special result that will be handled
-            # by the message handler to format and send results properly
-            return CommandResult(
-                success=True,
-                message="",  # Empty message - results will be sent separately
-                data={
-                    "message_parts_list": message_parts_list,
-                    "query": query,
-                    "rag_method": rag_method,
-                    "results_count": len(message_parts_list),
-                    "needs_formatting": True  # Flag to indicate special handling needed
-                }
-            )
+            retrieval_service = self._create_retrieval_service(rag_method)
+            return self._execute_search(retrieval_service, query, rag_method)
 
         except Exception as e:
             syslog2(LOG_ERR, "find command failed", error=str(e))
@@ -263,4 +227,100 @@ class FindCommandHandler(CommandHandler):
                 message=f"Ошибка при выполнении поиска: {e}",
                 error=str(e)
             )
+
+    def _parse_find_args(self, context: CommandContext) -> tuple[Optional[str], str, str]:
+        """
+        Parse find command arguments.
+
+        Args:
+            context: Command context with args
+
+        Returns:
+            Tuple of (rag_method, action, query_or_error)
+            If rag_method is None, query_or_error contains error message
+        """
+        from src.bot.command_parser import parse_find_command_args
+
+        args_text = " ".join(context.args) if context.args else ""
+        rag_method, action, query_or_error = parse_find_command_args(args_text, self.admin_manager)
+        return rag_method, action, query_or_error
+
+    def _create_retrieval_service(self, rag_method: str):
+        """
+        Create HybridRetrievalService with specified retrieval mode.
+
+        Args:
+            rag_method: RAG method to use (hybrid, vector_only, fts_only)
+
+        Returns:
+            HybridRetrievalService instance
+        """
+        from src.app.bootstrap import create_hybrid_retrieval
+
+        # Get paths from bot_instance
+        db_url = self.bot.db.db_url  # Fix: use db.db_url instead of db_url
+        vector_db_path = self.bot.vector_store.persist_directory  # Get from vector_store
+        profile_dir = str(self.bot.profile_dir) if hasattr(self.bot, 'profile_dir') and self.bot.profile_dir else None
+
+        # Create HybridRetrievalService with specified retrieval mode
+        retrieval_service = create_hybrid_retrieval(
+            db_url=db_url,
+            vector_db_path=vector_db_path,
+            embedding_client=self.bot.embedding_client,
+            profile_dir=profile_dir,
+            log_level=self.bot.log_level,
+            retrieval_mode=rag_method,
+            llm_client=self.bot.llm_client if hasattr(self.bot, 'llm_client') else None
+        )
+        return retrieval_service
+
+    def _execute_search(self, retrieval_service, query: str, rag_method: str) -> CommandResult:
+        """
+        Execute search and return formatted results.
+
+        Args:
+            retrieval_service: HybridRetrievalService instance
+            query: Search query
+            rag_method: RAG method used
+
+        Returns:
+            CommandResult with search results
+        """
+        from src.core.message_search import search_message_contents
+
+        # Get threshold from config or use default
+        threshold = 1.5
+        if self.admin_manager:
+            threshold = self.admin_manager.config.cosine_distance_thr
+
+        # Perform search using search_message_contents
+        message_parts_list = search_message_contents(
+            retrieval=retrieval_service,
+            db=self.bot.db,
+            query=query,
+            top_k=100,
+            threshold=threshold,
+            debug_rag=self.debug_rag
+        )
+
+        if not message_parts_list:
+            return CommandResult(
+                success=True,
+                message=f'по запросу "{query}" ничего не найдено (метод: {rag_method})',
+                data={"results_count": 0, "rag_method": rag_method}
+            )
+
+        # For Telegram bot, we need to return a special result that will be handled
+        # by the message handler to format and send results properly
+        return CommandResult(
+            success=True,
+            message="",  # Empty message - results will be sent separately
+            data={
+                "message_parts_list": message_parts_list,
+                "query": query,
+                "rag_method": rag_method,
+                "results_count": len(message_parts_list),
+                "needs_formatting": True  # Flag to indicate special handling needed
+            }
+        )
 

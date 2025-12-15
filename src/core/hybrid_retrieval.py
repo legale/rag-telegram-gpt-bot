@@ -11,7 +11,7 @@ from src.core.interfaces import (
     FTSIndex, VectorIndex, Embedder, ChunkStore, MessageStore, SearchFilters, LLM
 )
 from src.core.query_rewriter import QueryRewriter
-from src.core.distance_utils import similarity_to_distance
+from src.core.distance_utils import similarity_to_distance, cosine_similarity
 from src.lib.syslog2 import *
 
 
@@ -182,20 +182,6 @@ class HybridRetrievalService:
 
         return packed_results
 
-    def _cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
-        """Compute cosine similarity between two vectors."""
-        if len(vec1) != len(vec2):
-            return 0.0
-        
-        dot_product = sum(a * b for a, b in zip(vec1, vec2))
-        norm1 = sum(a * a for a in vec1) ** 0.5
-        norm2 = sum(b * b for b in vec2) ** 0.5
-        
-        if norm1 == 0 or norm2 == 0:
-            return 0.0
-        
-        return dot_product / (norm1 * norm2)
-
     def _search_fts_only(
         self,
         fts_results: List,
@@ -349,7 +335,7 @@ class HybridRetrievalService:
             
             # Cosine similarity
             embedding = candidate_embeddings[chunk.id]
-            similarity = self._cosine_similarity(query_vector, embedding)
+            similarity = cosine_similarity(query_vector, embedding)
             
             # Combine FTS5 score and vector similarity
             # Weight: 0.3 FTS5 + 0.7 vector (can be tuned)

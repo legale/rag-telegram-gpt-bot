@@ -128,7 +128,7 @@
 
 - [ ] file=src/core/commands.py func=FindCommandHandler.handle уменьшить цикломатическую сложность: вынести парсинг аргументов в _parse_find_args(), создание retrieval service в _create_retrieval_service(), выполнение поиска в _execute_search()
 
-- [ ] file=src/core/commands.py func=ModelCommandHandler.handle упростить: вынести переключение модели в _switch_model(), сохранение в config в _save_model_to_config()
+- [x] file=src/core/commands.py func=ModelCommandHandler.handle упростить: вынести переключение модели в _switch_model(), сохранение в config в _save_model_to_config()
 
 - [ ] file=src/core/dispatcher.py func=dispatch упростить: вынести нормализацию command name в _normalize_command_name(), поиск handler в _find_handler(), выполнение handler в _execute_handler()
 
