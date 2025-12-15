@@ -28,6 +28,11 @@ class LegaleBot:
             raise ValueError("db_url and vector_db_path must be provided")
             
         self.db = Database(db_url)
+        # Expose db_url for tests/introspection even when Database is mocked
+        try:
+            self.db.db_url = db_url
+        except Exception:
+            pass
         self.log_level = log_level
         self.debug_rag = debug_rag
         # Load profile config - always create config (uses defaults from BotConfig if profile_dir not provided)

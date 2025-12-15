@@ -32,6 +32,7 @@ from dotenv import load_dotenv
 from src.bot.core import LegaleBot
 from src.bot.admin import AdminManager
 from src.bot.admin_router import AdminCommandRouter
+from src.core.message_search import search_message_contents
 from src.bot.admin_commands import ProfileCommands, HelpCommands, IngestCommands, StatsCommands, ControlCommands, SettingsCommands, ModelCommands, SystemPromptCommands
 from src.bot.admin_tasks import TaskManager
 from src.bot.utils import AccessControlService, FrequencyController
@@ -1047,9 +1048,15 @@ def is_bot_mentioned(message, bot_username: str, bot_id: int) -> bool:
     check if bot is mentioned in message (by @username or text_mention)
     """
     text = message.text or ""
-    entities = message.entities or []
+    entities = getattr(message, "entities", None) or []
     if not entities:
         return False
+
+    if not isinstance(entities, (list, tuple)):
+        try:
+            entities = list(entities)
+        except TypeError:
+            return False
 
     for ent in entities:
         try:
@@ -1329,10 +1336,10 @@ async def _send_search_results(chat_id: int, message_parts_list: List[List[Dict]
     """
     empty_message = f'по запросу "{query}" ничего не найдено' if query else ""
     await _send_message_parts_unified(
-        chat_id=chat_id,
-        message_parts_list=message_parts_list,
-        empty_message=empty_message,
-        log_context={"query": query}
+        chat_id,
+        message_parts_list,
+        empty_message,
+        {"query": query}
     )
 
 
@@ -1369,7 +1376,6 @@ async def _handle_search_mention(message, bot_username: str, bot_id: int, chat_i
     """
     is_search_command, search_query = _parse_search_mention(message, bot_username, bot_id)
     if is_search_command:
-        from src.core.message_search import search_message_contents
         message_parts_list = search_message_contents(bot_instance.retrieval, bot_instance.db, search_query, top_k=3)
         await _send_search_results(chat_id, message_parts_list, search_query)
         return True

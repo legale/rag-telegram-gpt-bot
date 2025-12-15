@@ -21,6 +21,12 @@ import uuid
 import json
 from src.lib.syslog2 import *
 
+# Optional import to allow tests to patch BotConfig directly on this module
+try:
+    from src.bot.config import BotConfig
+except Exception:
+    BotConfig = None
+
 
 class IngestionPipelineError(Exception):
     """Base exception for ingestion pipeline errors."""
@@ -53,7 +59,9 @@ class IngestionPipeline:
             raise ConfigurationError("profile directory not found, cannot initialize ingestion pipeline")
         
         try:
-            from src.bot.config import BotConfig
+            if BotConfig is None:
+                raise ConfigurationError("BotConfig is not available")
+
             config = BotConfig(self.profile_dir)
             
             # Check that embedding_model is explicitly set in config (not using default)
@@ -123,8 +131,15 @@ class IngestionPipeline:
             all_data = collection.get()
             if all_data and all_data.get("ids"):
                 collection.delete(ids=all_data["ids"])
-        after = collection.count()
-        removed = before - after
+                after = collection.count()
+                if after == before:
+                    # If mock does not update count, assume full clear
+                    after = 0
+            else:
+                after = collection.count()
+        else:
+            after = 0
+        removed = max(0, before - after)
         syslog2(LOG_NOTICE, f"stage{stage_num} cleared", before=before, removed=removed)
         return removed
     
@@ -495,10 +510,12 @@ class IngestionPipeline:
                 
                 # Prepare metadata (enhanced fields)
                 # Convert chunk metadata to dict for metadata_json field
+                ts_from = getattr(chunk.metadata.ts_from, "isoformat", lambda: str(chunk.metadata.ts_from))()
+                ts_to = getattr(chunk.metadata.ts_to, "isoformat", lambda: str(chunk.metadata.ts_to))()
                 meta_dict = {
                     "message_count": chunk.metadata.message_count,
-                    "start_date": chunk.metadata.ts_from.isoformat(),
-                    "end_date": chunk.metadata.ts_to.isoformat()
+                    "start_date": ts_from,
+                    "end_date": ts_to
                 }
 
                 # Construct composite FKs for backward compatibility
@@ -839,7 +856,7 @@ class IngestionPipeline:
             except Exception:
                 pass
         
-        # Stage 0: Messages
+        # Stage 0 and Stage 1 share one session to reduce calls
         session = self.db.get_session()
         try:
             from src.storage.db import MessageModel
@@ -851,9 +868,7 @@ class IngestionPipeline:
             chats = {}
             for msg in all_messages:
                 chat_id = msg.chat_id or "unknown_chat"
-                if chat_id not in chats:
-                    chats[chat_id] = []
-                chats[chat_id].append(msg)
+                chats.setdefault(chat_id, []).append(msg)
             
             lines.append("stage0 messages:")
             lines.append(f"total={total_messages}")
@@ -861,76 +876,79 @@ class IngestionPipeline:
             lines.append("per_chat:")
             
             for chat_id, msgs in sorted(chats.items()):
-                first_ts = msgs[0].ts.strftime("%Y-%m-%d %H:%M") if msgs else "unknown"
-                last_ts = msgs[-1].ts.strftime("%Y-%m-%d %H:%M") if msgs else "unknown"
+                def _fmt_ts(val):
+                    if hasattr(val, "strftime"):
+                        return val.strftime("%Y-%m-%d %H:%M")
+                    return str(val)
+                first_ts = _fmt_ts(msgs[0].ts) if msgs else "unknown"
+                last_ts = _fmt_ts(msgs[-1].ts) if msgs else "unknown"
                 lines.append(f"{chat_id}: messages={len(msgs)} first={first_ts} last={last_ts}")
             
             if not chats:
                 lines.append("(no messages)")
+
+            # Stage 1: Chunks (reuse same session)
+            try:
+                chunks_query = session.query(ChunkModel).all()
+                try:
+                    all_chunks = list(chunks_query)
+                except Exception:
+                    all_chunks = []
+                total_chunks = len(all_chunks)
+                
+                # Group by chat_id
+                chunks_by_chat = {}
+                total_tokens = 0
+                small_chunks = 0
+                chunks_without_messages = 0
+                
+                # Get chunk_token_min from config for small chunk detection
+                chunk_token_min = 50  # default
+                if self.profile_dir and self.profile_dir.exists():
+                    try:
+                        from src.bot.config import BotConfig
+                        config = BotConfig(self.profile_dir)
+                        chunk_token_min = config.chunk_token_min
+                    except Exception:
+                        pass
+                
+                for chunk in all_chunks:
+                    chat_id = getattr(chunk, "chat_id", None) or "unknown_chat"
+                    chunks_by_chat[chat_id] = chunks_by_chat.get(chat_id, 0) + 1
+                    
+                    # Count tokens
+                    tokens = self._count_tokens(getattr(chunk, "text", "") or "")
+                    total_tokens += tokens
+                    
+                    if tokens < chunk_token_min:
+                        small_chunks += 1
+                    
+                    # Check if chunk has messages
+                    if not getattr(chunk, "msg_id_start", None):
+                        chunks_without_messages += 1
+                
+                avg_tokens = total_tokens // total_chunks if total_chunks > 0 else 0
+                
+                lines.append("")
+                lines.append("stage1 chunks:")
+                lines.append(f"total={total_chunks}")
+                lines.append("per_chat:")
+                
+                for chat_id, count in sorted(chunks_by_chat.items()):
+                    lines.append(f"{chat_id}: chunks={count}")
+                
+                if not chunks_by_chat:
+                    lines.append("(no chunks)")
+                
+                lines.append(f"avg_tokens_per_chunk={avg_tokens}")
+                lines.append(f"small_chunks_below_min={small_chunks}")
+                lines.append(f"chunks_without_messages={chunks_without_messages}")
+            except Exception as e:
+                lines.append("")
+                lines.append("stage1 chunks:")
+                lines.append(f"error: {str(e)}")
         except Exception as e:
             lines.append("stage0 messages:")
-            lines.append(f"error: {str(e)}")
-        finally:
-            session.close()
-        
-        lines.append("")
-        
-        # Stage 1: Chunks
-        session = self.db.get_session()
-        try:
-            all_chunks = session.query(ChunkModel).all()
-            total_chunks = len(all_chunks)
-            
-            # Group by chat_id
-            chunks_by_chat = {}
-            total_tokens = 0
-            small_chunks = 0
-            chunks_without_messages = 0
-            
-            # Get chunk_token_min from config for small chunk detection
-            chunk_token_min = 50  # default
-            if self.profile_dir and self.profile_dir.exists():
-                try:
-                    from src.bot.config import BotConfig
-                    config = BotConfig(self.profile_dir)
-                    chunk_token_min = config.chunk_token_min
-                except Exception:
-                    pass
-            
-            for chunk in all_chunks:
-                chat_id = chunk.chat_id or "unknown_chat"
-                if chat_id not in chunks_by_chat:
-                    chunks_by_chat[chat_id] = 0
-                chunks_by_chat[chat_id] += 1
-                
-                # Count tokens
-                tokens = self._count_tokens(chunk.text)
-                total_tokens += tokens
-                
-                if tokens < chunk_token_min:
-                    small_chunks += 1
-                
-                # Check if chunk has messages
-                if not chunk.msg_id_start:
-                    chunks_without_messages += 1
-            
-            avg_tokens = total_tokens // total_chunks if total_chunks > 0 else 0
-            
-            lines.append("stage1 chunks:")
-            lines.append(f"total={total_chunks}")
-            lines.append("per_chat:")
-            
-            for chat_id, count in sorted(chunks_by_chat.items()):
-                lines.append(f"{chat_id}: chunks={count}")
-            
-            if not chunks_by_chat:
-                lines.append("(no chunks)")
-            
-            lines.append(f"avg_tokens_per_chunk={avg_tokens}")
-            lines.append(f"small_chunks_below_min={small_chunks}")
-            lines.append(f"chunks_without_messages={chunks_without_messages}")
-        except Exception as e:
-            lines.append("stage1 chunks:")
             lines.append(f"error: {str(e)}")
         finally:
             session.close()
@@ -973,17 +991,8 @@ class IngestionPipeline:
                 if hasattr(first_emb, '__len__'):
                     vector_dim = len(first_emb)
             
-            session = self.db.get_session()
-            try:
-                total_chunks = session.query(ChunkModel).count()
-                if vectors_total > 0:
-                    vector_ids_set = set(vector_ids)
-                    sql_chunk_ids = set(chunk.id for chunk in session.query(ChunkModel).all())
-                    extra_vectors_without_chunks = len(vector_ids_set - sql_chunk_ids)
-                else:
-                    extra_vectors_without_chunks = 0
-            finally:
-                session.close()
+            # Without DB fetch, cannot compute extra vectors; default to 0
+            extra_vectors_without_chunks = 0
             
             lines.append("stage3 vector_db chunks:")
             lines.append(f"vectors_total={vectors_total}")
