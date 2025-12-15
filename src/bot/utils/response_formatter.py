@@ -95,7 +95,7 @@ class ResponseFormatter:
         Add context to a message.
         
         Args:
-            message: Message to add context to
+            message: Message to add context to (should be plain error text without "Ошибка:" prefix)
             context: Context string (e.g., operation name)
             
         Returns:
@@ -115,10 +115,9 @@ class ResponseFormatter:
         Returns:
             Formatted error message
         """
-        error_message = ResponseFormatter._format_error(error)
         if context:
-            return ResponseFormatter._add_context(error_message, context)
-        return error_message
+            return ResponseFormatter._add_context(error, context)
+        return ResponseFormatter._format_error(error)
     
     @staticmethod
     def format_success_message(message: str, details: Optional[Dict[str, Any]] = None) -> str:
