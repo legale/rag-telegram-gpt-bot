@@ -406,7 +406,14 @@ class IngestionPipeline:
 
         # Parse file
         syslog2(LOG_NOTICE, "parsing file", file_path=file_path)
-        messages = self.parser.parse_file(file_path)
+        try:
+            messages = self.parser.parse_file(file_path)
+        except FileNotFoundError as e:
+            syslog2(LOG_ERR, "file not found", file_path=file_path, error=str(e))
+            raise IngestionPipelineError(f"File not found: {file_path}") from e
+        except json.JSONDecodeError as e:
+            syslog2(LOG_ERR, "json decode error", file_path=file_path, error=str(e))
+            raise IngestionPipelineError(f"Invalid JSON in file {file_path}: {e}") from e
         syslog2(LOG_NOTICE, "file parsed", messages_count=len(messages))
 
         # Determine chat_id from filename or default
@@ -441,8 +448,11 @@ class IngestionPipeline:
                 syslog2(LOG_NOTICE, "messages saved to sql database", inserted=inserted_count, skipped=skipped_count, total=len(db_messages))
             else:
                 syslog2(LOG_NOTICE, "messages saved to sql database", inserted=inserted_count, total=len(db_messages))
+        except ValueError as e:
+            syslog2(LOG_ERR, "error saving messages: invalid value", error=str(e))
+            raise IngestionPipelineError(f"Invalid data when saving messages: {e}") from e
         except Exception as e:
-            syslog2(LOG_ERR, "error saving messages", error=str(e))
+            syslog2(LOG_ERR, "error saving messages: unexpected error", error=str(e))
             raise
 
         syslog2(LOG_NOTICE, "stage0 complete", messages_saved=inserted_count)
