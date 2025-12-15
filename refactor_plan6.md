@@ -200,7 +200,7 @@
 
 - [x] file=src/bot/utils/frequency_controller.py func=should_respond упростить: вынести проверку frequency limit в _check_frequency_limit(), обновление счетчика в _update_counter()
 
-- [ ] file=src/bot/utils/database_stats.py func=get_stats упростить: вынести получение stats из БД в _get_database_stats(), форматирование stats в _format_stats()
+- [x] file=src/bot/utils/database_stats.py func=get_stats упростить: вынести получение stats из БД в _get_database_stats(), форматирование stats в _format_stats()
 
 - [ ] file=src/bot/utils/health_checker.py func=check_health упростить: вынести проверку БД в _check_database_health(), проверку vector store в _check_vector_store_health()
 

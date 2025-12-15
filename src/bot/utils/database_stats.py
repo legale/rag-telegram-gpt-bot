@@ -150,6 +150,52 @@ class DatabaseStatsService:
             return False
     
     @staticmethod
+    def _get_database_stats(db_path: Path) -> Dict[str, Any]:
+        """
+        Get raw database statistics from database.
+        
+        Args:
+            db_path: Path to the SQLite database
+            
+        Returns:
+            Dictionary with raw statistics
+        """
+        if not db_path.exists():
+            return {}
+        
+        return {
+            "size_mb": DatabaseStatsService.get_database_size(db_path),
+            "chunk_count": DatabaseStatsService.get_chunk_count(db_path),
+            "date_range": DatabaseStatsService.get_date_range(db_path),
+            "healthy": DatabaseStatsService.check_database_health(db_path),
+        }
+    
+    @staticmethod
+    def _format_stats(db_path: Path, raw_stats: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Format database statistics into final structure.
+        
+        Args:
+            db_path: Path to the SQLite database
+            raw_stats: Raw statistics dictionary
+            
+        Returns:
+            Formatted statistics dictionary
+        """
+        stats = {
+            "exists": db_path.exists(),
+            "size_mb": 0.0,
+            "chunk_count": 0,
+            "date_range": None,
+            "healthy": False,
+        }
+        
+        if raw_stats:
+            stats.update(raw_stats)
+        
+        return stats
+    
+    @staticmethod
     def get_database_stats(db_path: Path) -> Dict[str, Any]:
         """
         Get comprehensive database statistics.
@@ -160,23 +206,8 @@ class DatabaseStatsService:
         Returns:
             Dictionary with statistics
         """
-        stats = {
-            "exists": db_path.exists(),
-            "size_mb": 0.0,
-            "chunk_count": 0,
-            "date_range": None,
-            "healthy": False,
-        }
-        
-        if not db_path.exists():
-            return stats
-        
-        stats["size_mb"] = DatabaseStatsService.get_database_size(db_path)
-        stats["chunk_count"] = DatabaseStatsService.get_chunk_count(db_path)
-        stats["date_range"] = DatabaseStatsService.get_date_range(db_path)
-        stats["healthy"] = DatabaseStatsService.check_database_health(db_path)
-        
-        return stats
+        raw_stats = DatabaseStatsService._get_database_stats(db_path)
+        return DatabaseStatsService._format_stats(db_path, raw_stats)
     
     @staticmethod
     def get_vector_store_stats(vector_path: Path) -> Dict[str, Any]:
