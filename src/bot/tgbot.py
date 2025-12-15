@@ -350,8 +350,7 @@ class MessageHandler:
             # return empty string to signal "handled, but ничего не слать отдельно"
             return ""
         except Exception as e:
-            syslog2(LOG_ERR, "find command failed", error=str(e))
-            return f"Ошибка при выполнении поиска: {e}"
+            return ErrorHandler.handle_error_static(e, "выполнении поиска", user_message=f"Ошибка при выполнении поиска: {e}")
     
     async def handle_find_command(self, text: str, update: Update) -> Optional[str]:
         """Handle /find command."""
