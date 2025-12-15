@@ -25,6 +25,18 @@ def _find_unique(prefix: str, names: list[str]) -> str:
 
 
 def parse(argv: Any, opt_table: dict) -> tuple[dict, list[str]]:
+    """
+    Parse argv according to opt_table.
+
+    Args:
+        argv: list of arguments or string
+        opt_table: dictionary of options
+
+    Returns:
+        tuple of options if matched by opt_table and arguments list
+        if not matched by opt_table, returns empty options and argv as arguments
+        if argv is None, returns empty options and empty arguments
+    """
     if argv is None:
         argv = []
     elif isinstance(argv, str):

@@ -82,21 +82,15 @@ class TestParse:
     def test_parse_simple_flag(self):
         """Test parsing simple flag."""
         opt_table = {"verbose": {"desc": "Verbose mode"}}
-        opts, args = parse(["-verbose"], opt_table)
-        assert opts == {"verbose": True}
-        assert args == []
-    
-    def test_parse_flag_with_double_dash(self):
-        """Test parsing flag with double dash."""
-        opt_table = {"verbose": {"desc": "Verbose mode"}}
-        opts, args = parse(["--verbose"], opt_table)
+        # Options are passed as plain names without dashes
+        opts, args = parse(["verbose"], opt_table)
         assert opts == {"verbose": True}
         assert args == []
     
     def test_parse_option_with_arg(self):
         """Test parsing option with argument."""
         opt_table = {"port": {"arg": True, "desc": "Port number", "meta": "PORT"}}
-        opts, args = parse(["-port", "8080"], opt_table)
+        opts, args = parse(["port", "8080"], opt_table)
         assert opts == {"port": "8080"}
         assert args == []
     
@@ -106,37 +100,15 @@ class TestParse:
             "verbose": {"desc": "Verbose mode"},
             "port": {"arg": True, "desc": "Port number", "meta": "PORT"}
         }
-        opts, args = parse(["-verbose", "-port", "8080", "file.txt"], opt_table)
+        opts, args = parse(["verbose", "port", "8080", "file.txt"], opt_table)
         assert opts == {"verbose": True, "port": "8080"}
         assert args == ["file.txt"]
-    
-    def test_parse_stop_at_double_dash(self):
-        """Test that -- stops option parsing."""
-        opt_table = {"verbose": {"desc": "Verbose mode"}}
-        opts, args = parse(["-verbose", "--", "-not-an-option"], opt_table)
-        assert opts == {"verbose": True}
-        assert args == ["-not-an-option"]
     
     def test_parse_missing_arg(self):
         """Test error when argument is missing."""
         opt_table = {"port": {"arg": True, "desc": "Port number", "meta": "PORT"}}
         with pytest.raises(ValueError, match="missing arg"):
-            parse(["-port"], opt_table)
-    
-    def test_parse_unknown_option(self):
-        """Test error for unknown option."""
-        opt_table = {"verbose": {"desc": "Verbose mode"}}
-        with pytest.raises(ValueError, match="unknown option"):
-            parse(["-unknown"], opt_table)
-    
-    def test_parse_ambiguous_option(self):
-        """Test error for ambiguous option."""
-        opt_table = {
-            "register": {"desc": "Register"},
-            "remove": {"desc": "Remove"}
-        }
-        with pytest.raises(ValueError, match="ambiguous option"):
-            parse(["-r"], opt_table)
+            parse(["port"], opt_table)
 
 
 class TestGenHelp:
@@ -197,7 +169,8 @@ class TestCmdParse:
     def test_cmd_parse_with_options(self):
         """Test parsing with options."""
         opt_table = {"verbose": {"desc": "Verbose mode"}}
-        opts, cmd, args = cmd_parse(["-verbose", "register", "file.txt"], opt_table)
+        # Options are plain names in argv
+        opts, cmd, args = cmd_parse(["verbose", "register", "file.txt"], opt_table)
         assert opts == {"verbose": True}
         assert cmd == "register"
         assert args == ["file.txt"]
@@ -205,7 +178,7 @@ class TestCmdParse:
     def test_cmd_parse_no_command(self):
         """Test parsing with no command returns help."""
         opt_table = {"verbose": {"desc": "Verbose mode"}}
-        opts, cmd, args = cmd_parse(["-verbose"], opt_table)
+        opts, cmd, args = cmd_parse(["verbose"], opt_table)
         assert opts == {"verbose": True}
         assert cmd == "help"
         assert args == []

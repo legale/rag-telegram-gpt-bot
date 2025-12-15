@@ -485,6 +485,7 @@ def cmd_telegram(argv: list[str], profile_manager: ProfileManager) -> None:
         "limit": {"arg": True, "desc": "Limit messages", "meta": "N"},
         "output": {"arg": True, "desc": "Output file or dir", "meta": "PATH"},
         "model": {"arg": True, "desc": "Embedding model", "meta": "NAME"},
+        "batch_size": {"arg": True, "desc": "Batch size", "meta": "N"},
         "batch-size": {"arg": True, "desc": "Batch size (alias)", "meta": "N"},
     }
     cmd_table = {
