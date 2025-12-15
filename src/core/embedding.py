@@ -70,15 +70,39 @@ class EmbeddingClient:
             base_url=self.base_url,
         )
 
-    def get_embeddings(self, texts: List[str]) -> List[List[float]]:
-        """single api call for given batch"""
-        cleaned_texts = [text.replace("\n", " ") for text in texts]
+    def _clean_texts(self, texts: List[str]) -> List[str]:
+        """
+        Clean texts for embedding generation.
+        
+        Args:
+            texts: List of texts to clean
+            
+        Returns:
+            List of cleaned texts
+        """
+        return [text.replace("\n", " ") for text in texts]
+    
+    def _call_embedding_api(self, cleaned_texts: List[str]) -> List[List[float]]:
+        """
+        Call embedding API with cleaned texts.
+        
+        Args:
+            cleaned_texts: List of cleaned texts
+            
+        Returns:
+            List of embedding vectors
+        """
         resp = self.client.embeddings.create(
             input=cleaned_texts,
             model=self.model,
             timeout=60.0  # Longer timeout for batch embeddings
         )
         return [d.embedding for d in resp.data]
+
+    def get_embeddings(self, texts: List[str]) -> List[List[float]]:
+        """single api call for given batch"""
+        cleaned_texts = self._clean_texts(texts)
+        return self._call_embedding_api(cleaned_texts)
 
     def _get_embeddings_with_retry(
         self,

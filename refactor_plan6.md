@@ -212,7 +212,7 @@
 
 - [x] file=src/core/llm.py func=count_tokens упростить: вынести подсчет токенов для одного message в _count_message_tokens()
 
-- [ ] file=src/core/embedding.py func=get_embeddings упростить: вынести очистку текста в _clean_texts(), вызов API в _call_embedding_api()
+- [x] file=src/core/embedding.py func=get_embeddings упростить: вынести очистку текста в _clean_texts(), вызов API в _call_embedding_api()
 
 - [ ] file=src/core/embedding.py func=get_embeddings_batched упростить: вынести обработку одного батча в _process_batch(), обновление прогресса в _update_progress()
 
