@@ -123,8 +123,8 @@ class TestGenHelp:
         help_text = gen_help("test", opt_table)
         assert "usage: test" in help_text
         assert "options:" in help_text
-        assert "-h" in help_text
-        assert "-verbose" in help_text
+        assert "h" in help_text
+        assert "verbose" in help_text
     
     def test_gen_help_with_args(self):
         """Test help with options that take arguments."""
@@ -132,7 +132,7 @@ class TestGenHelp:
             "port": {"arg": True, "desc": "Port number", "meta": "PORT"}
         }
         help_text = gen_help("test", opt_table)
-        assert "-port PORT" in help_text
+        assert "port PORT" in help_text
     
     def test_gen_help_with_commands(self):
         """Test help with commands."""

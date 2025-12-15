@@ -1219,3 +1219,198 @@ class TestGetRagDebugInfo:
             assert info["chunks_count"] == 2
             assert info["token_count"] == 200
 
+
+class TestRAGContextCache:
+    """Tests for RAG context caching and reuse"""
+    
+    def test_context_reuse(self, tmp_path):
+        """Test that first chat creates RAG context, second reuses it"""
+        db_url = f"sqlite:///{tmp_path}/test.db"
+        vector_db_path = str(tmp_path / "vector")
+        
+        with patch('src.bot.core.Database') as mock_db, \
+             patch('src.bot.core.VectorStore') as mock_vector, \
+             patch('src.bot.core.create_embedding_client') as mock_embed, \
+             patch('src.bot.core.LLMClient') as mock_llm, \
+             patch('src.bot.core.create_hybrid_retrieval') as mock_retrieval, \
+             patch('src.bot.core.PromptEngine') as mock_prompt, \
+             patch('src.bot.config.BotConfig') as mock_config, \
+             patch('src.bot.core.LegaleBot._load_available_models') as mock_load:
+            mock_load.return_value = ["model1"]
+            mock_llm_instance = Mock()
+            mock_llm_instance.model_name = "model1"
+            mock_llm_instance.complete.return_value = "Bot response"
+            mock_llm_instance.count_tokens.return_value = 100
+            mock_llm.return_value = mock_llm_instance
+            mock_config.return_value.embedding_generator = "local"
+            mock_config.return_value.embedding_model = "model"
+            mock_config.return_value.fts5_score_thr = 0.5
+            mock_retrieval_instance = Mock()
+            # First call returns good context (score >= 0.3)
+            mock_retrieval_instance.retrieve.return_value = [
+                {"id": "chunk1", "score": 0.8, "text": "test"}
+            ]
+            mock_retrieval.return_value = mock_retrieval_instance
+            mock_prompt_instance = Mock()
+            mock_prompt_instance.construct_prompt.return_value = "System prompt"
+            mock_prompt.return_value = mock_prompt_instance
+            
+            bot = LegaleBot(db_url=db_url, vector_db_path=vector_db_path)
+            bot.retrieval_service = mock_retrieval_instance
+            
+            # First chat call
+            result1 = bot.chat("ключевой запрос", n_results=3)
+            assert result1 == "Bot response"
+            assert bot.active_context_chunks is not None
+            assert bot.active_context_query == "ключевой запрос"
+            assert len(mock_retrieval_instance.retrieve.call_args_list) == 1
+            
+            # Second chat call - should reuse context
+            result2 = bot.chat("уточнение", n_results=3)
+            assert result2 == "Bot response"
+            # retrieve should NOT be called again
+            assert len(mock_retrieval_instance.retrieve.call_args_list) == 1
+    
+    def test_no_cache_on_bad_context(self, tmp_path):
+        """Test that empty/weak context is not cached"""
+        db_url = f"sqlite:///{tmp_path}/test.db"
+        vector_db_path = str(tmp_path / "vector")
+        
+        with patch('src.bot.core.Database') as mock_db, \
+             patch('src.bot.core.VectorStore') as mock_vector, \
+             patch('src.bot.core.create_embedding_client') as mock_embed, \
+             patch('src.bot.core.LLMClient') as mock_llm, \
+             patch('src.bot.core.create_hybrid_retrieval') as mock_retrieval, \
+             patch('src.bot.core.PromptEngine') as mock_prompt, \
+             patch('src.bot.config.BotConfig') as mock_config, \
+             patch('src.bot.core.LegaleBot._load_available_models') as mock_load:
+            mock_load.return_value = ["model1"]
+            mock_llm_instance = Mock()
+            mock_llm_instance.model_name = "model1"
+            mock_llm_instance.complete.return_value = "Bot response"
+            mock_llm_instance.count_tokens.return_value = 100
+            mock_llm.return_value = mock_llm_instance
+            mock_config.return_value.embedding_generator = "local"
+            mock_config.return_value.embedding_model = "model"
+            mock_config.return_value.fts5_score_thr = 0.5
+            mock_retrieval_instance = Mock()
+            # Return weak context (score < 0.3)
+            mock_retrieval_instance.retrieve.return_value = [
+                {"id": "chunk1", "score": 0.1, "text": "test"}
+            ]
+            mock_retrieval.return_value = mock_retrieval_instance
+            mock_prompt_instance = Mock()
+            mock_prompt_instance.construct_prompt.return_value = "System prompt"
+            mock_prompt.return_value = mock_prompt_instance
+            
+            bot = LegaleBot(db_url=db_url, vector_db_path=vector_db_path)
+            bot.retrieval_service = mock_retrieval_instance
+            
+            # First call with weak context
+            result1 = bot.chat("query", n_results=3)
+            assert result1 == "Bot response"
+            # Context should not be cached
+            assert bot.active_context_chunks is None
+            
+            # Second call should trigger retrieve again
+            result2 = bot.chat("another query", n_results=3)
+            assert result2 == "Bot response"
+            assert len(mock_retrieval_instance.retrieve.call_args_list) == 2
+    
+    def test_reset_clears_cache(self, tmp_path):
+        """Test that reset_context clears both history and cache"""
+        db_url = f"sqlite:///{tmp_path}/test.db"
+        vector_db_path = str(tmp_path / "vector")
+        
+        with patch('src.bot.core.Database') as mock_db, \
+             patch('src.bot.core.VectorStore') as mock_vector, \
+             patch('src.bot.core.create_embedding_client') as mock_embed, \
+             patch('src.bot.core.LLMClient') as mock_llm, \
+             patch('src.bot.core.create_hybrid_retrieval') as mock_retrieval, \
+             patch('src.bot.core.PromptEngine') as mock_prompt, \
+             patch('src.bot.config.BotConfig') as mock_config, \
+             patch('src.bot.core.LegaleBot._load_available_models') as mock_load:
+            mock_load.return_value = ["model1"]
+            mock_llm_instance = Mock()
+            mock_llm_instance.model_name = "model1"
+            mock_llm_instance.complete.return_value = "Bot response"
+            mock_llm_instance.count_tokens.return_value = 100
+            mock_llm.return_value = mock_llm_instance
+            mock_config.return_value.embedding_generator = "local"
+            mock_config.return_value.embedding_model = "model"
+            mock_config.return_value.fts5_score_thr = 0.5
+            mock_retrieval_instance = Mock()
+            mock_retrieval_instance.retrieve.return_value = [
+                {"id": "chunk1", "score": 0.8, "text": "test"}
+            ]
+            mock_retrieval.return_value = mock_retrieval_instance
+            mock_prompt_instance = Mock()
+            mock_prompt_instance.construct_prompt.return_value = "System prompt"
+            mock_prompt.return_value = mock_prompt_instance
+            
+            bot = LegaleBot(db_url=db_url, vector_db_path=vector_db_path)
+            bot.retrieval_service = mock_retrieval_instance
+            
+            # Create context
+            bot.chat("query", n_results=3)
+            assert bot.active_context_chunks is not None
+            assert len(bot.chat_history) > 0
+            
+            # Reset context
+            result = bot.reset_context()
+            assert "Контекст сброшен" in result
+            assert bot.chat_history == []
+            assert bot.active_context_chunks is None
+            assert bot.active_context_query is None
+            assert bot.active_context_score is None
+    
+    def test_auto_limit_clears_cache(self, tmp_path):
+        """Test that auto reset on token limit clears cache"""
+        db_url = f"sqlite:///{tmp_path}/test.db"
+        vector_db_path = str(tmp_path / "vector")
+        
+        with patch('src.bot.core.Database') as mock_db, \
+             patch('src.bot.core.VectorStore') as mock_vector, \
+             patch('src.bot.core.create_embedding_client') as mock_embed, \
+             patch('src.bot.core.LLMClient') as mock_llm, \
+             patch('src.bot.core.create_hybrid_retrieval') as mock_retrieval, \
+             patch('src.bot.core.PromptEngine') as mock_prompt, \
+             patch('src.bot.config.BotConfig') as mock_config, \
+             patch('src.bot.core.LegaleBot._load_available_models') as mock_load:
+            mock_load.return_value = ["model1"]
+            mock_llm_instance = Mock()
+            mock_llm_instance.model_name = "model1"
+            mock_llm_instance.complete.return_value = "Bot response"
+            # Return tokens >= max_context_tokens to trigger auto reset
+            mock_llm_instance.count_tokens.return_value = 1000
+            mock_llm.return_value = mock_llm_instance
+            mock_config.return_value.embedding_generator = "local"
+            mock_config.return_value.embedding_model = "model"
+            mock_config.return_value.fts5_score_thr = 0.5
+            mock_retrieval_instance = Mock()
+            mock_retrieval_instance.retrieve.return_value = [
+                {"id": "chunk1", "score": 0.8, "text": "test"}
+            ]
+            mock_retrieval.return_value = mock_retrieval_instance
+            mock_prompt_instance = Mock()
+            mock_prompt_instance.construct_prompt.return_value = "System prompt"
+            mock_prompt.return_value = mock_prompt_instance
+            
+            bot = LegaleBot(db_url=db_url, vector_db_path=vector_db_path)
+            bot.max_context_tokens = 1000
+            bot.retrieval_service = mock_retrieval_instance
+            bot.chat_history = [{"role": "user", "content": "test"}]
+            
+            # Create active context
+            bot.active_context_chunks = [{"id": "chunk1"}]
+            bot.active_context_query = "test query"
+            bot.active_context_score = 0.8
+            
+            # Trigger auto reset
+            warning = bot._ensure_context_limit()
+            assert "сброшен" in warning
+            assert bot.chat_history == []
+            assert bot.active_context_chunks is None
+            assert bot.active_context_query is None
+            assert bot.active_context_score is None
+

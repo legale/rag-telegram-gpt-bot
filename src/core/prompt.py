@@ -26,7 +26,7 @@ class PromptEngine:
 
     
     SYSTEM_PROMPT_TEMPLATE = """
-You are a librarian assistant. Be short, precise, and consistent. Speak in the same language as the user.
+You are a librarian assistant. Be short, precise, and consistent. Write in the russian language.
 
 context = retrieved RAG chunks selected for relevance
 history = last chat messages showing the current situation

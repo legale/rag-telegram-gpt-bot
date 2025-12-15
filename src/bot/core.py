@@ -143,6 +143,11 @@ class LegaleBot:
         # Simple in-memory history for the current session
         self.chat_history: List[Dict[str, str]] = []
         
+        # RAG context cache for reuse across messages
+        self.active_context_chunks: Optional[List[Dict]] = None
+        self.active_context_query: Optional[str] = None
+        self.active_context_score: Optional[float] = None
+        
         # Token limit configuration
         self.max_context_tokens = int(os.getenv("MAX_CONTEXT_TOKENS", "14000"))
     
@@ -229,6 +234,110 @@ class LegaleBot:
         current_model = self.available_models[self.current_model_index]
         return f"Текущая модель: {current_model}\n({self.current_model_index + 1}/{len(self.available_models)})"
         
+    def _clear_active_context(self, reason: str) -> None:
+        """
+        Clear the active RAG context cache.
+        
+        Args:
+            reason: Reason for clearing (for logging)
+        """
+        self.active_context_chunks = None
+        self.active_context_query = None
+        self.active_context_score = None
+        if self.log_level <= LOG_INFO:
+            syslog2(LOG_NOTICE, "rag_context_cleared", reason=reason)
+    
+    def _is_good_context(self, context_chunks: List[Dict]) -> tuple[bool, float]:
+        """
+        Evaluate if RAG context is good enough to cache.
+        
+        Args:
+            context_chunks: List of retrieved chunk dictionaries
+            
+        Returns:
+            Tuple of (is_good, max_score)
+        """
+        if not context_chunks:
+            if self.log_level <= LOG_DEBUG:
+                syslog2(LOG_DEBUG, "rag_context_evaluated", good=False, max_score=0.0, chunks=0)
+            return (False, 0.0)
+        
+        # Extract scores from chunks
+        # Chunks from HybridRetrievalService have 'score' field (similarity 0.0-1.0)
+        scores = []
+        for chunk in context_chunks:
+            score = chunk.get("score")
+            if score is not None:
+                scores.append(float(score))
+        
+        if not scores:
+            if self.log_level <= LOG_DEBUG:
+                syslog2(LOG_DEBUG, "rag_context_evaluated", good=False, max_score=0.0, chunks=len(context_chunks), note="no_scores")
+            return (False, 0.0)
+        
+        max_score = max(scores)
+        
+        # Use threshold from config
+        # cosine_distance_thr in config is distance (higher = worse), but chunks have similarity (0.0-1.0, higher = better)
+        # For similarity scores, we want at least some reasonable quality
+        # Default threshold: 0.3 similarity (reasonable quality)
+        threshold = 0.3
+        
+        # Check if we have at least one chunk with good similarity
+        is_good = max_score >= threshold and len(context_chunks) > 0
+        
+        if self.log_level <= LOG_DEBUG:
+            syslog2(LOG_DEBUG, "rag_context_evaluated", good=is_good, max_score=max_score, chunks=len(context_chunks), threshold=threshold)
+        
+        return (is_good, max_score)
+    
+    def _should_refresh_context(self) -> bool:
+        """
+        Determine if RAG context should be refreshed.
+        
+        Returns:
+            True if context should be refreshed (no active context), False otherwise
+        """
+        return self.active_context_chunks is None
+    
+    def _get_or_build_context(self, user_input: str, n_results: int) -> List[Dict]:
+        """
+        Get cached RAG context or build new one if needed.
+        
+        Args:
+            user_input: User query string
+            n_results: Number of chunks to retrieve
+            
+        Returns:
+            List of context chunk dictionaries
+        """
+        if self._should_refresh_context():
+            # Need to build new context
+            context_chunks = self.retrieval_service.retrieve(
+                user_input, n_results=n_results, score_threshold=self.config.fts5_score_thr
+            )
+            
+            # Evaluate context quality
+            is_good, max_score = self._is_good_context(context_chunks)
+            
+            if is_good:
+                # Cache the context
+                self.active_context_chunks = context_chunks
+                self.active_context_query = user_input
+                self.active_context_score = max_score
+                syslog2(LOG_NOTICE, "rag_context_new", query=user_input[:80], chunks=len(context_chunks), max_score=max_score)
+            else:
+                # Context not good enough, don't cache but still use it once
+                self._clear_active_context(reason="context_not_good")
+                if self.log_level <= LOG_DEBUG:
+                    syslog2(LOG_DEBUG, "rag_context_not_cached", query=user_input[:80], chunks=len(context_chunks), max_score=max_score)
+            
+            return context_chunks
+        else:
+            # Reuse cached context
+            syslog2(LOG_NOTICE, "rag_context_reused", source_query=self.active_context_query[:80] if self.active_context_query else None, chunks=len(self.active_context_chunks))
+            return self.active_context_chunks
+    
     def reset_context(self) -> str:
         """
         Reset the chat history/context.
@@ -237,6 +346,7 @@ class LegaleBot:
             Confirmation message.
         """
         self.chat_history = []
+        self._clear_active_context(reason="manual_reset")
         return "Контекст сброшен!"
     
     def _build_history_for_prompt(self, max_messages: int = 5) -> List[Dict[str, str]]:
@@ -345,10 +455,11 @@ class LegaleBot:
         token_usage = self.get_token_usage()
         # можно сбрасывать не по 100%, а, например, по 0.8 * лимита
         if token_usage["current_tokens"] >= self.max_context_tokens:
+            had_active_context = self.active_context_chunks is not None
             self.reset_context()
             warning = "Контекст был автоматически сброшен из-за достижения лимита токенов.\n\n"
             if self.log_level <= LOG_INFO:
-                syslog2(LOG_WARNING, "auto reset context", token_usage=f"{token_usage['current_tokens']}/{self.max_context_tokens}")
+                syslog2(LOG_WARNING, "auto reset context", token_usage=f"{token_usage['current_tokens']}/{self.max_context_tokens}", had_active_context=had_active_context)
             return warning
         return ""
     
@@ -450,10 +561,11 @@ class LegaleBot:
             self.chat_history.append({"role": "user", "content": user_input})
             return ""
 
-        syslog2(LOG_NOTICE, "retrieving context", retrieval_type=self.retrieval_type)
-        context_chunks = self.retrieval_service.retrieve(
-            user_input, n_results=n_results, score_threshold=self.config.fts5_score_thr
-        )
+        if self.debug_rag and self.log_level <= LOG_DEBUG:
+            syslog2(LOG_DEBUG, "rag_debug_state", has_active_context=self.active_context_chunks is not None, active_query=self.active_context_query[:80] if self.active_context_query else None)
+        
+        syslog2(LOG_NOTICE, "retrieving context", retrieval_type=self.retrieval_type, cached=self.active_context_chunks is not None)
+        context_chunks = self._get_or_build_context(user_input, n_results)
 
         # системный промпт: контекст + история + инструкции, но без дублирования user_input
         system_prompt, _ = self._build_prompt_and_history(
@@ -517,5 +629,7 @@ class LegaleBot:
             "chunks": context_chunks,
             "prompt": system_prompt,
             "token_count": token_usage["current_tokens"],
-            "chunks_count": len(context_chunks)
+            "chunks_count": len(context_chunks),
+            "had_active_context": self.active_context_chunks is not None,
+            "active_context_query": self.active_context_query
         }
