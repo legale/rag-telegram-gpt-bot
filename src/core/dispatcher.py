@@ -178,6 +178,38 @@ class CommandDispatcher:
         # Execute handler
         return self._execute_handler(handler, context)
 
+    def _find_async_handler(self, command_name: str) -> Optional[AsyncCommandHandler]:
+        """
+        Find async handler for normalized command name.
+        
+        Args:
+            command_name: Normalized command name
+            
+        Returns:
+            AsyncCommandHandler instance or None if not found
+        """
+        return self.async_handlers.get(command_name)
+    
+    async def _execute_async_handler(self, handler: AsyncCommandHandler, context: CommandContext) -> CommandResult:
+        """
+        Execute async handler and handle exceptions.
+        
+        Args:
+            handler: AsyncCommandHandler instance
+            context: Command context
+            
+        Returns:
+            CommandResult from handler or error result if exception occurred
+        """
+        try:
+            return await handler.handle(context)
+        except Exception as e:
+            return CommandResult(
+                success=False,
+                message=f"Ошибка при выполнении команды: {e}",
+                error=str(e)
+            )
+    
     async def dispatch_async(self, context: CommandContext) -> CommandResult:
         """
         Dispatch a command to its async handler.
@@ -188,32 +220,18 @@ class CommandDispatcher:
         Returns:
             CommandResult from handler, or error result if command not found
         """
-        # Normalize command name
-        command_name = context.command_name.lstrip("/").lower()
+        # Normalize command name using shared method
+        command_name = self._normalize_command_name(context.command_name)
 
         # Find async handler first
-        async_handler = self.async_handlers.get(command_name)
+        async_handler = self._find_async_handler(command_name)
         if async_handler:
-            try:
-                return await async_handler.handle(context)
-            except Exception as e:
-                return CommandResult(
-                    success=False,
-                    message=f"Ошибка при выполнении команды: {e}",
-                    error=str(e)
-                )
+            return await self._execute_async_handler(async_handler, context)
 
         # Fallback to sync handler if no async handler found
-        handler = self.handlers.get(command_name)
+        handler = self._find_handler(command_name)
         if handler:
-            try:
-                return handler.handle(context)
-            except Exception as e:
-                return CommandResult(
-                    success=False,
-                    message=f"Ошибка при выполнении команды: {e}",
-                    error=str(e)
-                )
+            return self._execute_handler(handler, context)
 
         # Command not found
         return CommandResult(

@@ -98,7 +98,7 @@
 
 - [x] file=src/bot/core.py func=_is_token_limit_error упростить: использовать регулярное выражение или список ключевых слов вместо множественных проверок строк
 
-- [ ] file=src/core/hybrid_retrieval.py func=_cosine_similarity вынести в отдельный модуль src/core/distance_utils.py для переиспользования (уже есть similarity_to_distance, добавить обратную функцию)
+- [x] file=src/core/hybrid_retrieval.py func=_cosine_similarity вынести в отдельный модуль src/core/distance_utils.py для переиспользования (уже есть similarity_to_distance, добавить обратную функцию)
 
 - [x] file=src/ingestion/pipeline.py func=_prepare_chunk_data_for_vector_store уменьшить цикломатическую сложность: вынести парсинг embedding_json в _parse_chunk_embedding(), подготовку metadata в _prepare_chunk_metadata()
 
@@ -130,9 +130,9 @@
 
 - [x] file=src/core/commands.py func=ModelCommandHandler.handle упростить: вынести переключение модели в _switch_model(), сохранение в config в _save_model_to_config()
 
-- [ ] file=src/core/dispatcher.py func=dispatch упростить: вынести нормализацию command name в _normalize_command_name(), поиск handler в _find_handler(), выполнение handler в _execute_handler()
+- [x] file=src/core/dispatcher.py func=dispatch упростить: вынести нормализацию command name в _normalize_command_name(), поиск handler в _find_handler(), выполнение handler в _execute_handler()
 
-- [ ] file=src/core/dispatcher.py func=dispatch_async упростить: использовать общие методы нормализации и поиска handler из dispatch()
+- [x] file=src/core/dispatcher.py func=dispatch_async упростить: использовать общие методы нормализации и поиска handler из dispatch()
 
 - [ ] file=src/storage/vector_store.py func=add_documents_with_embeddings уменьшить цикломатическую сложность: вынести валидацию входных данных в _validate_batch_inputs(), обработку батчей в _process_batch()
 
