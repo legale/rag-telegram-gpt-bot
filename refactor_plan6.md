@@ -160,7 +160,7 @@
 
 - [x] file=src/bot/tgbot.py func=_ensure_handler_available упростить: вынести выполнение handler в _execute_handler(), отправку response в _send_handler_response()
 
-- [ ] file=src/bot/tgbot.py func=_handle_public_commands уменьшить цикломатическую сложность: вынести обработку каждой команды в отдельные функции _handle_id_command(), _handle_help_command(), _handle_admin_set_command()
+- [x] file=src/bot/tgbot.py func=_handle_public_commands уменьшить цикломатическую сложность: вынести обработку каждой команды в отдельные функции _handle_id_command(), _handle_help_command(), _handle_admin_set_command()
 
 - [x] file=src/bot/tgbot.py func=_map_log_level_to_constant упростить: использовать словарь для маппинга вместо множественных if-elif
 
