@@ -26,7 +26,7 @@
 
 - [x] file=src/app/bootstrap.py убрать дублирование логики создания embedding_client: вынести в отдельную функцию _create_embedding_client_from_config() и использовать её в create_hybrid_search() и create_hybrid_retrieval()
 
-- [ ] file=src/bot/core.py file=src/app/bootstrap.py убрать дублирование логики создания embedding_client из BotConfig: использовать единую функцию из bootstrap.py
+- [x] file=src/bot/core.py file=src/app/bootstrap.py убрать дублирование логики создания embedding_client из BotConfig: использовать единую функцию из bootstrap.py
 
 - [ ] file=src/bot/tgbot.py file=src/bot/admin_router.py убрать дублирование логики обработки ошибок: использовать единый метод handle_error() из BaseAdminCommand или создать ErrorHandler utility
 

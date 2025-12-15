@@ -6,7 +6,7 @@ from src.core.embedding import EmbeddingClient, LocalEmbeddingClient, create_emb
 from src.core.hybrid_retrieval import HybridRetrievalService
 from src.core.prompt import PromptEngine
 from src.core.llm import LLMClient
-from src.app.bootstrap import create_hybrid_retrieval
+from src.app.bootstrap import create_hybrid_retrieval, create_embedding_client_from_config
 import os
 from src.lib.syslog2 import *
 
@@ -24,38 +24,29 @@ class LegaleBot:
             Tuple of (embedding_client, config)
         """
         from src.bot.config import BotConfig
-        embedding_client = None
         
+        # Determine profile path
         if profile_dir:
             profile_path = Path(profile_dir)
-            if profile_path.exists():
-                try:
-                    config = BotConfig(profile_path)
-                    embedding_client = create_embedding_client(
-                        generator=config.embedding_generator,
-                        model=config.embedding_model
-                    )
-                except Exception as e:
-                    if self.log_level <= LOG_INFO:
-                        syslog2(LOG_WARNING, "profile config load failed", error=str(e), action="using default embedding client")
-                    # Create config with defaults even if load failed
-                    config = BotConfig(profile_path)
-            else:
+            if not profile_path.exists():
                 # Profile dir doesn't exist, create config with defaults
                 profile_path.mkdir(parents=True, exist_ok=True)
-                config = BotConfig(profile_path)
         else:
             # No profile_dir provided, use default profile path
-            default_profile_path = Path("profiles/default")
-            default_profile_path.mkdir(parents=True, exist_ok=True)
-            config = BotConfig(default_profile_path)
+            profile_path = Path("profiles/default")
+            profile_path.mkdir(parents=True, exist_ok=True)
         
-        # Use profile embedding client or create default
-        if embedding_client is None:
-            embedding_client = create_embedding_client(
-                generator=config.embedding_generator,
-                model=config.embedding_model
-            )
+        # Load config (always needed for bot configuration)
+        try:
+            config = BotConfig(profile_path)
+        except Exception as e:
+            if self.log_level <= LOG_INFO:
+                syslog2(LOG_WARNING, "profile config load failed", error=str(e), action="using default config")
+            # Create config with defaults even if load failed
+            config = BotConfig(profile_path)
+        
+        # Use unified function from bootstrap.py to create embedding client
+        embedding_client = create_embedding_client_from_config(None, profile_path)
         
         return embedding_client, config
 

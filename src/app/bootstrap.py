@@ -20,7 +20,7 @@ from src.core.llm import LLMClient
 from src.lib.syslog2 import *
 
 
-def _create_embedding_client_from_config(
+def create_embedding_client_from_config(
     embedding_client: Optional[EmbeddingClient | LocalEmbeddingClient],
     profile_dir: Optional[str | Path]
 ) -> EmbeddingClient | LocalEmbeddingClient:
@@ -79,7 +79,7 @@ def create_hybrid_search(
         Configured HybridSearch use case instance
     """
     # Create or use provided embedding client
-    embedding_client = _create_embedding_client_from_config(embedding_client, profile_dir)
+    embedding_client = create_embedding_client_from_config(embedding_client, profile_dir)
 
     # Create infrastructure instances
     database = Database(db_url)
@@ -137,7 +137,7 @@ def create_hybrid_retrieval(
         Configured HybridRetrievalService instance
     """
     # Create or use provided embedding client
-    embedding_client = _create_embedding_client_from_config(embedding_client, profile_dir)
+    embedding_client = create_embedding_client_from_config(embedding_client, profile_dir)
 
     # Create infrastructure instances
     database = Database(db_url)
