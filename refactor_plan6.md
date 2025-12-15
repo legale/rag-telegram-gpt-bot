@@ -24,7 +24,7 @@
 
 - [x] file=src/ingestion/pipeline.py func=generate_embeddings уменьшить цикломатическую сложность: вынести получение chunks без embeddings в _get_chunks_without_embeddings(), генерацию embeddings батчами в _generate_embeddings_batch(), сохранение embeddings в _save_embeddings_to_db()
 
-- [ ] file=src/app/bootstrap.py убрать дублирование логики создания embedding_client: вынести в отдельную функцию _create_embedding_client_from_config() и использовать её в create_hybrid_search() и create_hybrid_retrieval()
+- [x] file=src/app/bootstrap.py убрать дублирование логики создания embedding_client: вынести в отдельную функцию _create_embedding_client_from_config() и использовать её в create_hybrid_search() и create_hybrid_retrieval()
 
 - [ ] file=src/bot/core.py file=src/app/bootstrap.py убрать дублирование логики создания embedding_client из BotConfig: использовать единую функцию из bootstrap.py
 

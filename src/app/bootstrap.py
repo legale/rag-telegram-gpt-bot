@@ -20,6 +20,42 @@ from src.core.llm import LLMClient
 from src.lib.syslog2 import *
 
 
+def _create_embedding_client_from_config(
+    embedding_client: Optional[EmbeddingClient | LocalEmbeddingClient],
+    profile_dir: Optional[str | Path]
+) -> EmbeddingClient | LocalEmbeddingClient:
+    """
+    Create embedding client from config or use provided one.
+    
+    Args:
+        embedding_client: Optional pre-configured embedding client
+        profile_dir: Optional profile directory for loading embedding config
+        
+    Returns:
+        EmbeddingClient or LocalEmbeddingClient instance
+    """
+    if embedding_client is not None:
+        return embedding_client
+    
+    # Try to load from profile config if available
+    if profile_dir:
+        profile_path = Path(profile_dir)
+        if profile_path.exists():
+            try:
+                from src.bot.config import BotConfig
+                config = BotConfig(profile_path)
+                return create_embedding_client(
+                    generator=config.embedding_generator,
+                    model=config.embedding_model
+                )
+            except Exception:
+                # Fall back to default if config load fails
+                return EmbeddingClient()
+    
+    # Default fallback
+    return EmbeddingClient()
+
+
 def create_hybrid_search(
     db_url: str,
     vector_db_path: str,
@@ -42,31 +78,15 @@ def create_hybrid_search(
     Returns:
         Configured HybridSearch use case instance
     """
+    # Create or use provided embedding client
+    embedding_client = _create_embedding_client_from_config(embedding_client, profile_dir)
+
     # Create infrastructure instances
     database = Database(db_url)
     vector_store = VectorStore(
         persist_directory=vector_db_path,
-        embedding_client=embedding_client  # Pass through if provided
+        embedding_client=embedding_client
     )
-
-    # Create or use provided embedding client
-    if embedding_client is None:
-        # Try to load from profile config if available
-        if profile_dir:
-            profile_path = Path(profile_dir)
-            if profile_path.exists():
-                try:
-                    from src.bot.config import BotConfig
-                    config = BotConfig(profile_path)
-                    embedding_client = create_embedding_client(
-                        generator=config.embedding_generator,
-                        model=config.embedding_model
-                    )
-                except Exception:
-                    # Fall back to default if config load fails
-                    embedding_client = EmbeddingClient()
-        else:
-            embedding_client = EmbeddingClient()
 
     # Create adapters
     message_store = SqliteMessageStore(database)
@@ -116,31 +136,15 @@ def create_hybrid_retrieval(
     Returns:
         Configured HybridRetrievalService instance
     """
+    # Create or use provided embedding client
+    embedding_client = _create_embedding_client_from_config(embedding_client, profile_dir)
+
     # Create infrastructure instances
     database = Database(db_url)
     vector_store = VectorStore(
         persist_directory=vector_db_path,
-        embedding_client=embedding_client  # Pass through if provided
+        embedding_client=embedding_client
     )
-
-    # Create or use provided embedding client
-    if embedding_client is None:
-        # Try to load from profile config if available
-        if profile_dir:
-            profile_path = Path(profile_dir)
-            if profile_path.exists():
-                try:
-                    from src.bot.config import BotConfig
-                    config = BotConfig(profile_path)
-                    embedding_client = create_embedding_client(
-                        generator=config.embedding_generator,
-                        model=config.embedding_model
-                    )
-                except Exception:
-                    # Fall back to default if config load fails
-                    embedding_client = EmbeddingClient()
-        else:
-            embedding_client = EmbeddingClient()
 
     # Create adapters
     message_store = SqliteMessageStore(database)
