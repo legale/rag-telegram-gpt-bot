@@ -12,6 +12,7 @@ from src.core.interfaces import (
 )
 from src.core.query_rewriter import QueryRewriter
 from src.core.distance_utils import similarity_to_distance, cosine_similarity
+from src.core.chunk_utils import build_chunk_dict_from_domain_chunk
 from src.lib.syslog2 import *
 
 
@@ -629,6 +630,45 @@ class HybridRetrievalService:
         
         return chunk_dicts
 
+    def _convert_to_basic_format(self, search_results: List) -> List[Dict]:
+        """
+        Convert search results to basic format with distance.
+        
+        Args:
+            search_results: List of SearchResult objects
+            
+        Returns:
+            List of dictionaries with keys: id, distance, metadata
+        """
+        from src.core.chunk_utils import build_chunk_dict_from_domain_chunk
+        from src.core.distance_utils import similarity_to_distance
+        
+        results = []
+        for result in search_results:
+            chunk_dict = build_chunk_dict_from_domain_chunk(
+                result.chunk,
+                similarity=result.score,
+                source="hybrid_retrieval"
+            )
+            # Add distance (convert from similarity)
+            distance = similarity_to_distance(result.score)
+            chunk_dict["distance"] = distance
+            results.append(chunk_dict)
+        
+        return results
+    
+    def _sort_by_distance(self, results: List[Dict]) -> List[Dict]:
+        """
+        Sort results by distance in ascending order.
+        
+        Args:
+            results: List of result dictionaries
+            
+        Returns:
+            Sorted list of results
+        """
+        return sorted(results, key=lambda x: x.get("distance", 1.0))
+    
     def search_chunks_basic(self, query: str, n_results: int = 3) -> List[Dict]:
         """
         Simple chunk search without LLM processing (compatibility method).
@@ -650,23 +690,10 @@ class HybridRetrievalService:
         )
         
         # Convert to basic format
-        from src.core.chunk_utils import build_chunk_dict_from_domain_chunk
-        from src.core.distance_utils import similarity_to_distance
-        
-        results = []
-        for result in search_results:
-            chunk_dict = build_chunk_dict_from_domain_chunk(
-                result.chunk,
-                similarity=result.score,
-                source="hybrid_retrieval"
-            )
-            # Add distance (convert from similarity)
-            distance = similarity_to_distance(result.score)
-            chunk_dict["distance"] = distance
-            results.append(chunk_dict)
+        results = self._convert_to_basic_format(search_results)
         
         # Sort by distance (ascending)
-        results.sort(key=lambda x: x.get("distance", 1.0))
+        results = self._sort_by_distance(results)
         
         return results[:n_results]
 

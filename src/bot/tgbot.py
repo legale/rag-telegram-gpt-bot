@@ -657,9 +657,8 @@ def _create_legale_bot(paths: Dict, model_name: str, log_level: int, debug_rag: 
     return bot_instance_local
 
 
-def _register_profile_commands(admin_router_local: AdminCommandRouter) -> None:
+def _register_profile_commands(admin_router_local: AdminCommandRouter, ctx: RuntimeContext) -> None:
     """Register profile commands."""
-    ctx = get_runtime_context()
     profile_commands = ProfileCommands(ctx.profile_manager)
     _register_command_group(
         admin_router_local,
@@ -676,9 +675,8 @@ def _register_profile_commands(admin_router_local: AdminCommandRouter) -> None:
     )
 
 
-def _register_ingest_commands(admin_router_local: AdminCommandRouter, task_manager_local: TaskManager) -> IngestCommands:
+def _register_ingest_commands(admin_router_local: AdminCommandRouter, task_manager_local: TaskManager, ctx: RuntimeContext) -> IngestCommands:
     """Register ingest commands."""
-    ctx = get_runtime_context()
     ingest_commands_local = IngestCommands(ctx.profile_manager, task_manager_local)
     _register_command_group(
         admin_router_local,
@@ -693,33 +691,32 @@ def _register_ingest_commands(admin_router_local: AdminCommandRouter, task_manag
     return ingest_commands_local
 
 
-def _register_stats_commands(admin_router_local: AdminCommandRouter) -> None:
+def _register_stats_commands(admin_router_local: AdminCommandRouter, ctx: RuntimeContext) -> None:
     """Register stats commands."""
-    ctx = get_runtime_context()
     stats_commands = StatsCommands(ctx.profile_manager)
     admin_router_local.register("stats", stats_commands.show_stats)
     admin_router_local.register("health", stats_commands.health_check)
     admin_router_local.register("logs", stats_commands.show_logs)
 
 
-def _register_admin_commands(admin_router_local: AdminCommandRouter, bot_instance_local: LegaleBot) -> Tuple[TaskManager, IngestCommands]:
+def _register_admin_commands(admin_router_local: AdminCommandRouter, bot_instance_local: LegaleBot, ctx: RuntimeContext) -> Tuple[TaskManager, IngestCommands]:
     """
     Register all admin commands in the router.
     
     Args:
         admin_router_local: AdminCommandRouter instance
         bot_instance_local: LegaleBot instance
+        ctx: RuntimeContext instance
         
     Returns:
         Tuple of (task_manager, ingest_commands)
     """
-    ctx = get_runtime_context()
     task_manager_local = TaskManager()
 
     # Register command groups
-    _register_profile_commands(admin_router_local)
-    ingest_commands_local = _register_ingest_commands(admin_router_local, task_manager_local)
-    _register_stats_commands(admin_router_local)
+    _register_profile_commands(admin_router_local, ctx)
+    ingest_commands_local = _register_ingest_commands(admin_router_local, task_manager_local, ctx)
+    _register_stats_commands(admin_router_local, ctx)
 
     # control commands – сюда прокидываем колбэк hot-reload
     control_commands = ControlCommands(ctx.profile_manager, reload_callback=reload_for_current_profile)

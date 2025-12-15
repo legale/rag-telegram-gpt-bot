@@ -176,7 +176,7 @@
 
 - [x] file=src/core/hybrid_retrieval.py func=retrieve упростить: вынести конвертацию SearchResult в dict в _convert_search_results_to_dicts(), фильтрацию по threshold в _filter_by_threshold()
 
-- [ ] file=src/core/hybrid_retrieval.py func=search_chunks_basic упростить: вынести конвертацию результатов в _convert_to_basic_format(), сортировку по distance в _sort_by_distance()
+- [w] file=src/core/hybrid_retrieval.py func=search_chunks_basic упростить: вынести конвертацию результатов в _convert_to_basic_format(), сортировку по distance в _sort_by_distance()
 
 - [x] file=src/storage/db.py func=get_messages_by_chunk уменьшить цикломатическую сложность: вынести получение start message в _get_start_message(), получение end message в _get_end_message(), получение messages в диапазоне в _get_messages_in_range()
 
