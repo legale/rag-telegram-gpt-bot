@@ -152,10 +152,23 @@ class BotConfig:
     def response_frequency(self) -> int:
         return self.data.get("response_frequency", 0)
         
+    def _validate_response_frequency(self, value: int) -> int:
+        """
+        Validate response_frequency value.
+        
+        Args:
+            value: Response frequency value
+            
+        Returns:
+            Validated value (clamped to >= 0)
+        """
+        if value < 0:
+            return 0
+        return value
+    
     @response_frequency.setter
     def response_frequency(self, value: int):
-        if value < 0:
-            value = 0
+        value = self._validate_response_frequency(value)
         self.data["response_frequency"] = value
         self.save()
 
@@ -203,21 +216,53 @@ class BotConfig:
     def embedding_generator(self) -> str:
         return self.data.get("embedding_generator", "local")
 
-    @embedding_generator.setter
-    def embedding_generator(self, value: str):
+    def _validate_embedding_generator(self, value: str) -> str:
+        """
+        Validate embedding_generator value.
+        
+        Args:
+            value: Embedding generator name
+            
+        Returns:
+            Validated lowercase value
+            
+        Raises:
+            ValueError: If value is not one of allowed generators
+        """
         if value.lower() not in ["openrouter", "openai", "local"]:
             raise ValueError(f"embedding_generator must be one of: openrouter, openai, local")
-        self.data["embedding_generator"] = value.lower()
+        return value.lower()
+    
+    @embedding_generator.setter
+    def embedding_generator(self, value: str):
+        value = self._validate_embedding_generator(value)
+        self.data["embedding_generator"] = value
         self.save()
     
     @property
     def chunk_token_min(self) -> int:
         return self.data.get("chunk_token_min", 50)
     
-    @chunk_token_min.setter
-    def chunk_token_min(self, value: int):
+    def _validate_chunk_token_min(self, value: int) -> int:
+        """
+        Validate chunk_token_min value.
+        
+        Args:
+            value: Minimum chunk token count
+            
+        Returns:
+            Validated value
+            
+        Raises:
+            ValueError: If value is not a positive integer
+        """
         if not isinstance(value, int) or value < 1:
             raise ValueError("chunk_token_min must be a positive integer")
+        return value
+    
+    @chunk_token_min.setter
+    def chunk_token_min(self, value: int):
+        value = self._validate_chunk_token_min(value)
         self.data["chunk_token_min"] = value
         self.save()
 
@@ -225,10 +270,26 @@ class BotConfig:
     def chunk_token_max(self) -> int:
         return self.data.get("chunk_token_max", 400)
     
-    @chunk_token_max.setter
-    def chunk_token_max(self, value: int):
+    def _validate_chunk_token_max(self, value: int) -> int:
+        """
+        Validate chunk_token_max value.
+        
+        Args:
+            value: Maximum chunk token count
+            
+        Returns:
+            Validated value
+            
+        Raises:
+            ValueError: If value is not a positive integer
+        """
         if not isinstance(value, int) or value < 1:
             raise ValueError("chunk_token_max must be a positive integer")
+        return value
+    
+    @chunk_token_max.setter
+    def chunk_token_max(self, value: int):
+        value = self._validate_chunk_token_max(value)
         self.data["chunk_token_max"] = value
         self.save()
 
@@ -236,32 +297,80 @@ class BotConfig:
     def chunk_overlap_ratio(self) -> float:
         return self.data.get("chunk_overlap_ratio", 0.3)
     
-    @chunk_overlap_ratio.setter
-    def chunk_overlap_ratio(self, value: float):
+    def _validate_chunk_overlap_ratio(self, value: float) -> float:
+        """
+        Validate chunk_overlap_ratio value.
+        
+        Args:
+            value: Chunk overlap ratio (0.0-1.0)
+            
+        Returns:
+            Validated float value
+            
+        Raises:
+            ValueError: If value is not a float between 0 and 1
+        """
         if not isinstance(value, (int, float)) or value < 0 or value > 1:
             raise ValueError("chunk_overlap_ratio must be a float between 0 and 1")
-        self.data["chunk_overlap_ratio"] = float(value)
+        return float(value)
+    
+    @chunk_overlap_ratio.setter
+    def chunk_overlap_ratio(self, value: float):
+        value = self._validate_chunk_overlap_ratio(value)
+        self.data["chunk_overlap_ratio"] = value
         self.save()
 
     @property
     def cosine_distance_thr(self) -> float:
         return self.data.get("cosine_distance_thr", 1.5)
     
-    @cosine_distance_thr.setter
-    def cosine_distance_thr(self, value: float):
+    def _validate_cosine_distance_thr(self, value: float) -> float:
+        """
+        Validate cosine_distance_thr value.
+        
+        Args:
+            value: Cosine distance threshold
+            
+        Returns:
+            Validated float value
+            
+        Raises:
+            ValueError: If value is not a non-negative float
+        """
         if not isinstance(value, (int, float)) or value < 0:
             raise ValueError("cosine_distance_thr must be a non-negative float")
-        self.data["cosine_distance_thr"] = float(value)
+        return float(value)
+    
+    @cosine_distance_thr.setter
+    def cosine_distance_thr(self, value: float):
+        value = self._validate_cosine_distance_thr(value)
+        self.data["cosine_distance_thr"] = value
         self.save()
 
     @property
     def rag_ntop(self) -> int:
         return self.data.get("rag_ntop", 0)
     
-    @rag_ntop.setter
-    def rag_ntop(self, value: int):
+    def _validate_rag_ntop(self, value: int) -> int:
+        """
+        Validate rag_ntop value.
+        
+        Args:
+            value: RAG top N value
+            
+        Returns:
+            Validated value
+            
+        Raises:
+            ValueError: If value is not a non-negative integer
+        """
         if not isinstance(value, int) or value < 0:
             raise ValueError("rag_ntop must be a non-negative integer")
+        return value
+    
+    @rag_ntop.setter
+    def rag_ntop(self, value: int):
+        value = self._validate_rag_ntop(value)
         self.data["rag_ntop"] = value
         self.save()
 
@@ -269,10 +378,26 @@ class BotConfig:
     def fts5_score_thr(self) -> float:
         return self.data.get("fts5_score_thr", 0.2)
     
-    @fts5_score_thr.setter
-    def fts5_score_thr(self, value: float):
+    def _validate_fts5_score_thr(self, value: float) -> float:
+        """
+        Validate fts5_score_thr value.
+        
+        Args:
+            value: FTS5 score threshold (0.0-1.0)
+            
+        Returns:
+            Validated float value
+            
+        Raises:
+            ValueError: If value is not a float between 0 and 1
+        """
         if not isinstance(value, (int, float)) or value < 0 or value > 1:
             raise ValueError("fts5_score_thr must be a float between 0 and 1")
-        self.data["fts5_score_thr"] = float(value)
+        return float(value)
+    
+    @fts5_score_thr.setter
+    def fts5_score_thr(self, value: float):
+        value = self._validate_fts5_score_thr(value)
+        self.data["fts5_score_thr"] = value
         self.save()
 

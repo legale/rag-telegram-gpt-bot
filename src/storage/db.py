@@ -412,6 +412,55 @@ class Database:
         finally:
             session.close()
 
+    def _get_start_message(self, session, msg_id_start: str) -> Optional[MessageModel]:
+        """
+        Get start message by msg_id.
+        
+        Args:
+            session: Database session
+            msg_id_start: Start message ID
+            
+        Returns:
+            MessageModel instance or None if not found
+        """
+        return session.query(MessageModel).filter(
+            MessageModel.msg_id == msg_id_start
+        ).first()
+    
+    def _get_end_message(self, session, msg_id_end: str) -> Optional[MessageModel]:
+        """
+        Get end message by msg_id.
+        
+        Args:
+            session: Database session
+            msg_id_end: End message ID
+            
+        Returns:
+            MessageModel instance or None if not found
+        """
+        return session.query(MessageModel).filter(
+            MessageModel.msg_id == msg_id_end
+        ).first()
+    
+    def _get_messages_in_range(self, session, chat_id: int, start_msg: MessageModel, end_msg: MessageModel) -> List[MessageModel]:
+        """
+        Get all messages between start and end (inclusive) by timestamp.
+        
+        Args:
+            session: Database session
+            chat_id: Chat ID
+            start_msg: Start message
+            end_msg: End message
+            
+        Returns:
+            List of MessageModel instances, ordered by timestamp
+        """
+        return session.query(MessageModel).filter(
+            MessageModel.chat_id == chat_id,
+            MessageModel.ts >= start_msg.ts,
+            MessageModel.ts <= end_msg.ts
+        ).order_by(MessageModel.ts).all()
+    
     def get_messages_by_chunk(self, chunk_id: str) -> List[MessageModel]:
         """
         Get all messages included in a chunk.
@@ -429,27 +478,16 @@ class Database:
                 return []
             
             # Get start message
-            start_msg = session.query(MessageModel).filter(
-                MessageModel.msg_id == chunk.msg_id_start
-            ).first()
-            
+            start_msg = self._get_start_message(session, chunk.msg_id_start)
             if not start_msg:
                 return []
             
             # If msg_id_end is specified, get messages in range
             if chunk.msg_id_end:
-                end_msg = session.query(MessageModel).filter(
-                    MessageModel.msg_id == chunk.msg_id_end
-                ).first()
-                
+                end_msg = self._get_end_message(session, chunk.msg_id_end)
                 if end_msg:
                     # Get all messages between start and end (inclusive) by timestamp
-                    messages = session.query(MessageModel).filter(
-                        MessageModel.chat_id == chunk.chat_id,
-                        MessageModel.ts >= start_msg.ts,
-                        MessageModel.ts <= end_msg.ts
-                    ).order_by(MessageModel.ts).all()
-                    return messages
+                    return self._get_messages_in_range(session, chunk.chat_id, start_msg, end_msg)
                 else:
                     # End message not found, return just start message
                     return [start_msg]
