@@ -106,13 +106,7 @@ class HybridSearch:
             topics = []
             if chunk.metadata:
                 # Look for topic information in metadata
-                topic_l1 = chunk.metadata.get("topic_l1_title") or chunk.metadata.get("topic_l1")
-                topic_l2 = chunk.metadata.get("topic_l2_title") or chunk.metadata.get("topic_l2")
-                
-                if topic_l2:
-                    topics.append(str(topic_l2))
-                if topic_l1:
-                    topics.append(str(topic_l1))
+                # topic_l1 and topic_l2 removed - clustering is deprecated
                 
                 # Also check for topic_ids list
                 topic_ids = chunk.metadata.get("topic_ids", [])

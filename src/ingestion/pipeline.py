@@ -42,7 +42,7 @@ except ImportError:
 
 
 class IngestionPipeline:
-    def __init__(self, db_url: str, vector_db_path: str, collection_name: str = "embed-l1", profile_dir: Optional[str] = None):
+    def __init__(self, db_url: str, vector_db_path: str, collection_name: str = "embed-chunks", profile_dir: Optional[str] = None):
         self.parser = ChatParser()
         self.db = Database(db_url)
         self.profile_dir = Path(profile_dir) if profile_dir else None
@@ -175,37 +175,13 @@ class IngestionPipeline:
         """Clear stage3: chunks from vector_db collection."""
         return self._clear_vector_collection(self.vector_store.collection, 3, "vector_db chunks")
 
-    def clear_stage4(self) -> int:
-        """Clear stage4: L1 clustering results (topics_l1) and topic_l1_id assignments."""
-        syslog2(LOG_NOTICE, "clearing stage4: topics_l1 and assignments")
-        updated = self.db.clear_chunk_topic_l1_assignments()
-        deleted = self.db.clear_topics_l1()
-        syslog2(LOG_NOTICE, "stage4 cleared", updated=updated, deleted=deleted)
-        return updated + deleted
+    # clear_stage4 and clear_stage5 removed - clustering is deprecated
 
-    def clear_stage5(self) -> int:
-        """Clear stage5: L1 topics from vector_db collection."""
-        return self._clear_vector_collection(self.vector_store.topics_l1_collection, 5, "vector_db topics_l1")
-
-    def clear_stage6(self) -> int:
-        """Clear stage6: L2 clustering results (topics_l2) and topic_l2_id assignments."""
-        syslog2(LOG_NOTICE, "clearing stage6: topics_l2 and assignments")
-        updated = self.db.clear_chunk_topic_l2_assignments()
-        deleted = self.db.clear_topics_l2()
-        syslog2(LOG_NOTICE, "stage6 cleared", updated=updated, deleted=deleted)
-        return updated + deleted
-
-    def clear_stage7(self) -> int:
-        """Clear stage7: L2 topics from vector_db collection."""
-        return self._clear_vector_collection(self.vector_store.topics_l2_collection, 7, "vector_db topics_l2")
+    # clear_stage6 and clear_stage7 removed - L2 topics are deprecated
 
     def clear_all(self):
         """Clear all stages."""
         # Clear in reverse order to maintain referential integrity
-        self.clear_stage7()
-        self.clear_stage6()
-        self.clear_stage5()
-        self.clear_stage4()
         self.clear_stage3()
         self.clear_stage2()
         self.clear_stage1()
@@ -272,11 +248,7 @@ class IngestionPipeline:
                     meta_dict = json.loads(chunk.metadata_json)
                 except:
                     pass
-            # Add topic assignments to metadata for chroma_db filtering
-            if chunk.topic_l1_id is not None:
-                meta_dict["topic_l1_id"] = chunk.topic_l1_id
-            if chunk.topic_l2_id is not None:
-                meta_dict["topic_l2_id"] = chunk.topic_l2_id
+            # topic_l1_id and topic_l2_id removed - clustering is deprecated
             metadatas.append(meta_dict)
         
         dimension = len(embeddings[0]) if embeddings else 0
@@ -375,182 +347,9 @@ class IngestionPipeline:
             syslog2(LOG_ERR, "failed to load model from profile config", error=str(e))
             raise ConfigurationError(f"failed to load model from profile config: {e}") from e
 
-    def run_stage4(self, **clustering_params):
-        """Run stage4: L1 clustering - cluster chunk embeddings into topics_l1 (HDBSCAN clustering).
-        Reads embeddings from SQLite, saves center_vec_json to SQLite, does NOT write to vector_db."""
-        from src.ai.clustering import TopicClusterer
-        
-        # LLM client not needed for clustering
-        clusterer = TopicClusterer(
-            db=self.db,
-            vector_store=self.vector_store,
-            llm_client=None
-        )
-        
-        # Default parameters if not provided
-        params = {
-            'min_cluster_size': clustering_params.get('min_cluster_size', 2),
-            'min_samples': clustering_params.get('min_samples', 1),
-            'metric': clustering_params.get('metric', 'cosine'),
-            'cluster_selection_method': clustering_params.get('cluster_selection_method', 'eom'),
-            'cluster_selection_epsilon': clustering_params.get('cluster_selection_epsilon', 0.0)
-        }
-        
-        # Perform clustering and get assignments
-        assignments = clusterer.perform_l1_clustering(**params)
-        # Assign topics to chunks
-        clusterer.assign_l1_topics_to_chunks(show_progress=True)
-        # Store assignments for potential future use (though they're already assigned)
-        self._stage4_assignments = assignments
+    # run_stage4 and run_stage5 removed - clustering is deprecated
 
-    def run_stage5(self):
-        """Run stage5: sync L1 topics from SQLite (center_vec_json) to vector_db."""
-        syslog2(LOG_NOTICE, "starting stage5: syncing l1 topics to vector database")
-        
-        # Get all L1 topics with center_vec_json from SQLite
-        l1_topics = self.db.get_all_topics_l1()
-        
-        if not l1_topics:
-            syslog2(LOG_NOTICE, "no l1 topics found in sqlite")
-            return
-        
-        # Prepare data for vector store
-        ids = []
-        embeddings = []
-        metadatas = []
-        
-        for topic in l1_topics:
-            if not topic.center_vec_json:
-                syslog2(LOG_WARNING, "l1 topic missing center_vec_json", topic_id=topic.id)
-                continue
-            
-            # Parse center_vec from JSON
-            try:
-                center_vec = json.loads(topic.center_vec_json)
-            except (json.JSONDecodeError, TypeError) as e:
-                syslog2(LOG_WARNING, "failed to parse center_vec_json for l1 topic", topic_id=topic.id, error=str(e))
-                continue
-            
-            l1_topic_id = f"l1-{topic.id}"
-            ids.append(l1_topic_id)
-            embeddings.append(center_vec)
-            metadatas.append({
-                "topic_l1_id": topic.id,
-                "title": topic.title or "unknown",
-                "chunk_count": topic.chunk_count,
-                "msg_count": topic.msg_count
-            })
-        
-        if not ids:
-            syslog2(LOG_WARNING, "no valid l1 topic centroids found to sync")
-            return
-        
-        # Sync to vector store (add or update)
-        # ChromaDB will update existing IDs automatically
-        batch_size = 100
-        for i in range(0, len(ids), batch_size):
-            batch_ids = ids[i:i + batch_size]
-            batch_embeddings = embeddings[i:i + batch_size]
-            batch_metadatas = metadatas[i:i + batch_size]
-            
-            self.vector_store.topics_l1_collection.add(
-                ids=batch_ids,
-                embeddings=batch_embeddings,
-                metadatas=batch_metadatas
-            )
-            
-            if i % (batch_size * 10) == 0:
-                print(f"\rSyncing L1 topics: {min(i + batch_size, len(ids))}/{len(ids)}", flush=True, end="")
-        
-        print()  # Newline after progress
-        syslog2(LOG_NOTICE, "l1 topics synced to vector database", count=len(ids))
-        syslog2(LOG_NOTICE, "stage5 complete")
-
-    def run_stage6(self, **clustering_params):
-        """Run stage6: L2 clustering - cluster L1 topics into L2 topics.
-        Reads L1 centroids from SQLite, saves center_vec_json to SQLite, does NOT write to vector_db."""
-        from src.ai.clustering import TopicClusterer
-        
-        # LLM client not needed for clustering
-        clusterer = TopicClusterer(
-            db=self.db,
-            vector_store=self.vector_store,
-            llm_client=None
-        )
-        
-        # Default parameters if not provided
-        l2_params = {
-            'min_cluster_size': clustering_params.get('min_cluster_size', 2),
-            'min_samples': clustering_params.get('min_samples', 1),
-            'metric': clustering_params.get('metric', 'cosine'),
-            'cluster_selection_method': clustering_params.get('cluster_selection_method', 'eom'),
-            'cluster_selection_epsilon': clustering_params.get('cluster_selection_epsilon', 0.0)
-        }
-        
-        syslog2(LOG_NOTICE, "clustering l1 topics into l2 topics")
-        clusterer.perform_l2_clustering(**l2_params)
-
-    def run_stage7(self):
-        """Run stage7: sync L2 topics from SQLite (center_vec_json) to vector_db."""
-        syslog2(LOG_NOTICE, "starting stage7: syncing l2 topics to vector database")
-        
-        # Get all L2 topics with center_vec_json from SQLite
-        l2_topics = self.db.get_all_topics_l2()
-        
-        if not l2_topics:
-            syslog2(LOG_NOTICE, "no l2 topics found in sqlite")
-            return
-        
-        # Prepare data for vector store
-        ids = []
-        embeddings = []
-        metadatas = []
-        
-        for topic in l2_topics:
-            if not topic.center_vec_json:
-                syslog2(LOG_WARNING, "l2 topic missing center_vec_json", topic_id=topic.id)
-                continue
-            
-            # Parse center_vec from JSON
-            try:
-                center_vec = json.loads(topic.center_vec_json)
-            except (json.JSONDecodeError, TypeError) as e:
-                syslog2(LOG_WARNING, "failed to parse center_vec_json for l2 topic", topic_id=topic.id, error=str(e))
-                continue
-            
-            l2_topic_id = f"l2-{topic.id}"
-            ids.append(l2_topic_id)
-            embeddings.append(center_vec)
-            metadatas.append({
-                "topic_l2_id": topic.id,
-                "title": topic.title or "unknown",
-                "chunk_count": topic.chunk_count
-            })
-        
-        if not ids:
-            syslog2(LOG_WARNING, "no valid l2 topic centroids found to sync")
-            return
-        
-        # Sync to vector store (add or update)
-        # ChromaDB will update existing IDs automatically
-        batch_size = 100
-        for i in range(0, len(ids), batch_size):
-            batch_ids = ids[i:i + batch_size]
-            batch_embeddings = embeddings[i:i + batch_size]
-            batch_metadatas = metadatas[i:i + batch_size]
-            
-            self.vector_store.topics_l2_collection.add(
-                ids=batch_ids,
-                embeddings=batch_embeddings,
-                metadatas=batch_metadatas
-            )
-            
-            if i % (batch_size * 10) == 0:
-                print(f"\rSyncing L2 topics: {min(i + batch_size, len(ids))}/{len(ids)}", flush=True, end="")
-        
-        print()  # Newline after progress
-        syslog2(LOG_NOTICE, "l2 topics synced to vector database", count=len(ids))
-        syslog2(LOG_NOTICE, "stage7 complete")
+    # run_stage6 and run_stage7 removed - L2 topics are deprecated
 
     def run_all(self, file_path: str, model: Optional[str] = None, batch_size: int = 128, **clustering_params):
         """
@@ -965,46 +764,33 @@ class IngestionPipeline:
 
     def show_topic(self, topic_id: int) -> None:
         """
-        Show detailed information about a topic (L1 or L2).
+        Show detailed information about a topic (L1 only).
         
         Args:
             topic_id: Topic ID to show
         """
         try:
-            # Try L2 first
-            l2 = next((t for t in self.db.get_all_topics_l2() if t.id == topic_id), None)
+            # Get L1 topic
+            l1_topics = self.db.get_all_topics_l1()
+            l1 = next((t for t in l1_topics if t.id == topic_id), None)
             
-            if l2:
-                print(f"=== Super-Topic L2-{l2.id} ===")
-                print(f"Title: {l2.title}")
-                print(f"Description: {l2.descr}")
-                print(f"Chunks: {l2.chunk_count}")
-                
-                subtopics = self.db.get_l1_topics_by_l2(l2.id)
-                print(f"\nSub-topics ({len(subtopics)}):")
-                for sub in subtopics:
-                    print(f"  L1-{sub.id}: {sub.title} ({sub.chunk_count} chunks)")
-                return
-
-            # Try L1
-            l1 = next((t for t in self.db.get_all_topics_l1() if t.id == topic_id), None)
             if l1:
                 print(f"=== Topic L1-{l1.id} ===")
                 print(f"Title: {l1.title}")
                 print(f"Description: {l1.descr}")
-                print(f"Parent L2: {l1.parent_l2_id}")
                 print(f"Chunks: {l1.chunk_count}")
                 print(f"Messages: {l1.msg_count}")
                 print(f"Time: {l1.ts_from} - {l1.ts_to}")
                 
-                chunks = self.db.get_chunks_by_topic_l1(l1.id)
+                # get_chunks_by_topic_l1 removed - clustering is deprecated
+                chunks = []
                 print(f"\nSample Content ({min(3, len(chunks))} of {len(chunks)}):")
                 for i, c in enumerate(chunks[:3]):
                     print(f"--- Chunk {i+1} ---")
                     print(c.text[:200].replace('\n', ' ') + "...")
                 return
                 
-            print(f"Topic ID {topic_id} not found in L1 or L2 tables.")
+            print(f"Topic ID {topic_id} not found in L1 topics.")
                 
         except ValueError:
             print(f"Error: topic id must be an integer")
@@ -1209,88 +995,11 @@ class IngestionPipeline:
         
         lines.append("")
         
-        # Stage 4: Topics L1 (SQLite)
-        session = self.db.get_session()
-        try:
-            from src.storage.db import TopicL1Model
-            l1_topics = session.query(TopicL1Model).all()
-            topics_l1_count = len(l1_topics)
-            
-            # Count chunks with topic_l1_id
-            chunks_with_topic_l1 = session.query(ChunkModel).filter(ChunkModel.topic_l1_id.isnot(None)).count()
-            total_chunks = session.query(ChunkModel).count()
-            chunks_without_topic_l1 = total_chunks - chunks_with_topic_l1
-            
-            # Count topics with center_vec_json
-            topics_with_centroids = session.query(TopicL1Model).filter(
-                TopicL1Model.center_vec_json.isnot(None)
-            ).count()
-            
-            lines.append("stage4 topics_l1 (sqlite):")
-            lines.append(f"topics={topics_l1_count}")
-            lines.append(f"topics_with_centroids={topics_with_centroids}")
-            lines.append(f"chunks_with_topic_l1={chunks_with_topic_l1}")
-            lines.append(f"chunks_without_topic_l1={chunks_without_topic_l1}")
-        except Exception as e:
-            lines.append("stage4 topics_l1 (sqlite):")
-            lines.append(f"error: {str(e)}")
-        finally:
-            session.close()
+        # Stage 4 and Stage 5 removed - clustering is deprecated
         
         lines.append("")
         
-        # Stage 5: Vector DB Topics L1
-        try:
-            l1_vector_data = self.vector_store.topics_l1_collection.get()
-            l1_vectors_total = len(l1_vector_data.get("ids", [])) if l1_vector_data.get("ids") else 0
-            
-            lines.append("stage5 vector_db topics_l1:")
-            lines.append(f"vectors_total={l1_vectors_total}")
-        except Exception as e:
-            lines.append("stage5 vector_db topics_l1:")
-            lines.append(f"error: {str(e)}")
-        
-        lines.append("")
-        
-        # Stage 6: Topics L2 (SQLite)
-        session = self.db.get_session()
-        try:
-            from src.storage.db import TopicL2Model, TopicL1Model
-            l2_topics = session.query(TopicL2Model).all()
-            topics_l2_count = len(l2_topics)
-            
-            # Count L1 topics with parent_l2_id
-            l1_with_parent = session.query(TopicL1Model).filter(TopicL1Model.parent_l2_id.isnot(None)).count()
-            l1_without_parent = session.query(TopicL1Model).filter(TopicL1Model.parent_l2_id.is_(None)).count()
-            
-            # Count topics with center_vec_json
-            topics_with_centroids = session.query(TopicL2Model).filter(
-                TopicL2Model.center_vec_json.isnot(None)
-            ).count()
-            
-            lines.append("stage6 topics_l2 (sqlite):")
-            lines.append(f"topics={topics_l2_count}")
-            lines.append(f"topics_with_centroids={topics_with_centroids}")
-            lines.append(f"l1_with_parent_l2={l1_with_parent}")
-            lines.append(f"l1_without_parent_l2={l1_without_parent}")
-        except Exception as e:
-            lines.append("stage6 topics_l2 (sqlite):")
-            lines.append(f"error: {str(e)}")
-        finally:
-            session.close()
-        
-        lines.append("")
-        
-        # Stage 7: Vector DB Topics L2
-        try:
-            l2_vector_data = self.vector_store.topics_l2_collection.get()
-            l2_vectors_total = len(l2_vector_data.get("ids", [])) if l2_vector_data.get("ids") else 0
-            
-            lines.append("stage7 vector_db topics_l2:")
-            lines.append(f"vectors_total={l2_vectors_total}")
-        except Exception as e:
-            lines.append("stage7 vector_db topics_l2:")
-            lines.append(f"error: {str(e)}")
+        # stage6 and stage7 removed - L2 topics are deprecated
         
         lines.append("")
         

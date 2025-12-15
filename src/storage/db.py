@@ -50,56 +50,12 @@ class ChunkModel(Base):
     ts_from = Column(DateTime, nullable=True, index=True)
     ts_to = Column(DateTime, nullable=True)
     
-    # Topic assignments
-    topic_l1_id = Column(Integer, ForeignKey('topics_l1.id', ondelete='SET NULL'), nullable=True, index=True)
-    topic_l2_id = Column(Integer, ForeignKey('topics_l2.id', ondelete='SET NULL'), nullable=True, index=True)
+    # Topic assignments removed - clustering is deprecated
     
     # Embedding indicator
     embedding_dim = Column(Integer, nullable=True, index=True)
     # Embedding storage (JSON array of floats)
     embedding_json = Column(Text, nullable=True)
-
-    # Relationships
-    topic_l1 = relationship("TopicL1Model", back_populates="chunks")
-    topic_l2 = relationship("TopicL2Model", back_populates="chunks")
-
-
-class TopicL1Model(Base):
-    """L1 topics (fine-grained topics from chunk clustering)."""
-    __tablename__ = 'topics_l1'
-    
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    title = Column(Text, nullable=False)
-    descr = Column(Text, nullable=False)
-    parent_l2_id = Column(Integer, ForeignKey('topics_l2.id', ondelete='SET NULL'), nullable=True, index=True)
-    chunk_count = Column(Integer, nullable=False, default=0)
-    msg_count = Column(Integer, nullable=False, default=0)
-    ts_from = Column(DateTime, nullable=True)
-    ts_to = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    # Center vector storage (JSON array of floats)
-    center_vec_json = Column(Text, nullable=True)
-
-    # Relationships
-    chunks = relationship("ChunkModel", back_populates="topic_l1")
-    parent_l2 = relationship("TopicL2Model", back_populates="topics_l1")
-
-
-class TopicL2Model(Base):
-    """L2 topics (super-topics from L1 clustering)."""
-    __tablename__ = 'topics_l2'
-    
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    title = Column(Text, nullable=False)
-    descr = Column(Text, nullable=False)
-    chunk_count = Column(Integer, nullable=False, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    # Center vector storage (JSON array of floats)
-    center_vec_json = Column(Text, nullable=True)
-
-    # Relationships
-    chunks = relationship("ChunkModel", back_populates="topic_l2")
-    topics_l1 = relationship("TopicL1Model", back_populates="parent_l2")
 
 
 # ============================================================================
@@ -215,26 +171,7 @@ class Database:
                 except Exception as e:
                     syslog2(LOG_WARNING, "schema update warning (chunks 14.2)", error=str(e))
 
-            # Check chunks table for topic_l1_id (Phase 14.3)
-            try:
-                conn.execute(text("SELECT topic_l1_id FROM chunks LIMIT 1"))
-            except Exception:
-                try:
-                    conn.execute(text("ALTER TABLE chunks ADD COLUMN topic_l1_id INTEGER"))
-                    conn.execute(text("ALTER TABLE chunks ADD COLUMN topic_l2_id INTEGER"))
-                    conn.commit()
-                except Exception as e:
-                    syslog2(LOG_WARNING, "schema update warning (chunks 14.3)", error=str(e))
-
-            # Check topics_l1 table for parent_l2_id
-            try:
-                conn.execute(text("SELECT parent_l2_id FROM topics_l1 LIMIT 1"))
-            except Exception:
-                try:
-                    conn.execute(text("ALTER TABLE topics_l1 ADD COLUMN parent_l2_id INTEGER"))
-                    conn.commit()
-                except Exception as e:
-                     syslog2(LOG_WARNING, "schema update warning (topics_l1)", error=str(e))
+            # topic_l1_id and topic_l2_id removed - clustering is deprecated
             
             # Check chunks table for msg_id_start_raw/msg_id_end_raw (refactoring)
             try:
@@ -267,25 +204,7 @@ class Database:
                 except Exception as e:
                     syslog2(LOG_WARNING, "schema update warning (chunks embedding_json)", error=str(e))
             
-            # Check topics_l1 table for center_vec_json (refactoring - stage4)
-            try:
-                conn.execute(text("SELECT center_vec_json FROM topics_l1 LIMIT 1"))
-            except Exception:
-                try:
-                    conn.execute(text("ALTER TABLE topics_l1 ADD COLUMN center_vec_json TEXT"))
-                    conn.commit()
-                except Exception as e:
-                    syslog2(LOG_WARNING, "schema update warning (topics_l1 center_vec_json)", error=str(e))
-            
-            # Check topics_l2 table for center_vec_json (refactoring - stage6)
-            try:
-                conn.execute(text("SELECT center_vec_json FROM topics_l2 LIMIT 1"))
-            except Exception:
-                try:
-                    conn.execute(text("ALTER TABLE topics_l2 ADD COLUMN center_vec_json TEXT"))
-                    conn.commit()
-                except Exception as e:
-                    syslog2(LOG_WARNING, "schema update warning (topics_l2 center_vec_json)", error=str(e))
+            # topics_l1 and topics_l2 tables removed - clustering is deprecated
             
             # Create message_meta table if it doesn't exist (refactoring - stage0)
             try:
@@ -345,31 +264,9 @@ class Database:
         finally:
             session.close()
 
-    def clear_chunk_topic_l1_assignments(self) -> int:
-        """Clear topic_l1_id assignments in chunks (stage3)."""
-        session = self.get_session()
-        try:
-            updated = session.query(ChunkModel).update({ChunkModel.topic_l1_id: None}, synchronize_session=False)
-            session.commit()
-            return updated
-        except Exception as e:
-            session.rollback()
-            raise e
-        finally:
-            session.close()
+    # clear_chunk_topic_l1_assignments removed - clustering is deprecated
 
-    def clear_chunk_topic_l2_assignments(self) -> int:
-        """Clear topic_l2_id assignments in chunks (stage4)."""
-        session = self.get_session()
-        try:
-            updated = session.query(ChunkModel).update({ChunkModel.topic_l2_id: None}, synchronize_session=False)
-            session.commit()
-            return updated
-        except Exception as e:
-            session.rollback()
-            raise e
-        finally:
-            session.close()
+    # clear_chunk_topic_l2_assignments removed - L2 topics are deprecated
 
     def get_chunk_text(self, chunk_id: str) -> str:
         """Helper to get text for a chunk."""
@@ -412,20 +309,7 @@ class Database:
         finally:
             session.close()
 
-    def update_chunk_topics(self, chunk_id: str, topic_l1_id: Optional[int], topic_l2_id: Optional[int]) -> None:
-        """Update topic assignments for a chunk."""
-        session = self.get_session()
-        try:
-            chunk = session.query(ChunkModel).filter(ChunkModel.id == chunk_id).first()
-            if chunk:
-                chunk.topic_l1_id = topic_l1_id
-                chunk.topic_l2_id = topic_l2_id
-                session.commit()
-        except Exception as e:
-            session.rollback()
-            raise e
-        finally:
-            session.close()
+    # update_chunk_topics removed - clustering is deprecated
 
     def get_chunk(self, chunk_id: str) -> Optional[ChunkModel]:
         """Get a single chunk by ID."""
@@ -657,354 +541,12 @@ class Database:
             session.close()
 
     # ========================================================================
-    # Topic L1 Methods
+    # Topic L1 Methods - REMOVED (clustering is deprecated)
     # ========================================================================
 
-    def create_topic_l1(
-        self,
-        title: str,
-        descr: str,
-        chunk_count: int,
-        msg_count: int,
-        center_vec: Optional[List[float]] = None,
-        ts_from: Optional[datetime] = None,
-        ts_to: Optional[datetime] = None,
-        parent_l2_id: Optional[int] = None,
-        vector_store: Optional[Any] = None
-    ) -> int:
-        """
-        Create a new L1 topic and return its ID.
-        
-        Args:
-            title: Topic title
-            descr: Topic description
-            chunk_count: Number of chunks in this topic
-            msg_count: Number of messages in this topic
-            center_vec: Center vector for the topic (stored in SQLite as JSON, optionally synced to chroma_db)
-            ts_from: Start timestamp
-            ts_to: End timestamp
-            parent_l2_id: Parent L2 topic ID
-            vector_store: VectorStore instance for saving center_vec to chroma_db (optional, for stage5)
-            
-        Returns:
-            Topic ID
-        """
-        session = self.get_session()
-        try:
-            # Convert center_vec to JSON string for storage in SQLite
-            center_vec_json = None
-            if center_vec is not None:
-                center_vec_list = center_vec if isinstance(center_vec, list) else center_vec.tolist() if hasattr(center_vec, 'tolist') else list(center_vec)
-                center_vec_json = json.dumps(center_vec_list)
-            
-            # Store center_vec_json in SQLite
-            topic = TopicL1Model(
-                title=title,
-                descr=descr,
-                chunk_count=chunk_count,
-                msg_count=msg_count,
-                ts_from=ts_from,
-                ts_to=ts_to,
-                parent_l2_id=parent_l2_id,
-                center_vec_json=center_vec_json
-            )
-            session.add(topic)
-            session.commit()
-            topic_id = topic.id
-            
-            # Optionally save center_vec to chroma_db if vector_store is provided (for stage5 sync)
-            if center_vec is not None and vector_store is not None:
-                try:
-                    l1_topic_id = f"l1-{topic_id}"
-                    center_vec_list = center_vec if isinstance(center_vec, list) else center_vec.tolist() if hasattr(center_vec, 'tolist') else list(center_vec)
-                    syslog2(LOG_DEBUG, "saving l1 topic to chroma_db", 
-                           topic_id=topic_id, 
-                           l1_topic_id=l1_topic_id,
-                           center_vec_type=type(center_vec).__name__,
-                           center_vec_dim=len(center_vec_list))
-                    
-                    vector_store.topics_l1_collection.add(
-                        ids=[l1_topic_id],
-                        embeddings=[center_vec_list],
-                        metadatas=[{
-                            "topic_l1_id": topic_id,
-                            "title": title,
-                            "chunk_count": chunk_count,
-                            "msg_count": msg_count
-                        }]
-                    )
-                    syslog2(LOG_DEBUG, "l1 topic saved to chroma_db successfully", 
-                           topic_id=topic_id, l1_topic_id=l1_topic_id)
-                except Exception as e:
-                    # Log error but don't fail the transaction
-                    syslog2(LOG_WARNING, "failed to save l1 topic to chroma_db", 
-                           topic_id=topic_id, 
-                           l1_topic_id=f"l1-{topic_id}",
-                           error=str(e),
-                           center_vec_type=type(center_vec).__name__ if center_vec is not None else None)
-            
-            return topic_id
-        except Exception as e:
-            session.rollback()
-            raise e
-        finally:
-            session.close()
-
-    def get_all_topics_l1(self) -> List[TopicL1Model]:
-        """Get all L1 topics."""
-        session = self.get_session()
-        try:
-            return session.query(TopicL1Model).all()
-        finally:
-            session.close()
-
-    def get_topic_l1(self, topic_id: int) -> Optional[TopicL1Model]:
-        """Get a single L1 topic by ID."""
-        session = self.get_session()
-        try:
-            return session.query(TopicL1Model).filter(TopicL1Model.id == topic_id).first()
-        finally:
-            session.close()
-
-    def get_chunks_by_topic_l1(self, topic_l1_id: int) -> List[ChunkModel]:
-        """Get all chunks assigned to an L1 topic."""
-        session = self.get_session()
-        try:
-            return session.query(ChunkModel).filter(ChunkModel.topic_l1_id == topic_l1_id).all()
-        finally:
-            session.close()
-
-    def clear_topics_l1(self) -> int:
-        """Delete all L1 topics and return count (stage2 - without clearing assignments)."""
-        session = self.get_session()
-        try:
-            # Delete all L1 topics (without clearing assignments - that's stage3)
-            deleted = session.query(TopicL1Model).delete()
-            session.commit()
-            return deleted
-        except Exception as e:
-            session.rollback()
-            raise e
-        finally:
-            session.close()
-
-    def update_topic_l1_parent(self, topic_l1_id: int, parent_l2_id: Optional[int]) -> None:
-        """Update the parent L2 topic for an L1 topic."""
-        session = self.get_session()
-        try:
-            topic = session.query(TopicL1Model).filter(TopicL1Model.id == topic_l1_id).first()
-            if topic:
-                topic.parent_l2_id = parent_l2_id
-                session.commit()
-        except Exception as e:
-            session.rollback()
-            raise e
-        finally:
-            session.close()
-
-    def update_topic_l1_info(self, topic_l1_id: int, title: str, descr: str) -> None:
-        """Update L1 topic title and description."""
-        session = self.get_session()
-        try:
-            topic = session.query(TopicL1Model).filter(TopicL1Model.id == topic_l1_id).first()
-            if topic:
-                topic.title = title
-                topic.descr = descr
-                session.commit()
-        except Exception as e:
-            session.rollback()
-            raise e
-        finally:
-            session.close()
-
     # ========================================================================
-    # Topic L2 Methods
+    # Topic L2 Methods - REMOVED (L2 topics are deprecated)
     # ========================================================================
-
-    def create_topic_l2(
-        self,
-        title: str,
-        descr: str,
-        chunk_count: int,
-        center_vec: Optional[List[float]] = None,
-        vector_store: Optional[Any] = None
-    ) -> int:
-        """
-        Create a new L2 topic and return its ID.
-        
-        Args:
-            title: Topic title
-            descr: Topic description
-            chunk_count: Number of chunks in this topic
-            center_vec: Center vector for the topic (stored in SQLite as JSON, optionally synced to chroma_db)
-            vector_store: VectorStore instance for saving center_vec to chroma_db (optional, for stage7)
-            
-        Returns:
-            Topic ID
-        """
-        session = self.get_session()
-        try:
-            # Convert center_vec to JSON string for storage in SQLite
-            center_vec_json = None
-            if center_vec is not None:
-                center_vec_list = center_vec if isinstance(center_vec, list) else center_vec.tolist() if hasattr(center_vec, 'tolist') else list(center_vec)
-                center_vec_json = json.dumps(center_vec_list)
-            
-            # Store center_vec_json in SQLite
-            topic = TopicL2Model(
-                title=title,
-                descr=descr,
-                chunk_count=chunk_count,
-                center_vec_json=center_vec_json
-            )
-            session.add(topic)
-            session.commit()
-            topic_id = topic.id
-            
-            # Optionally save center_vec to chroma_db if vector_store is provided (for stage7 sync)
-            if center_vec is not None and vector_store is not None:
-                try:
-                    l2_topic_id = f"l2-{topic_id}"
-                    center_vec_list = center_vec if isinstance(center_vec, list) else center_vec.tolist() if hasattr(center_vec, 'tolist') else list(center_vec)
-                    syslog2(LOG_DEBUG, "saving l2 topic to chroma_db", 
-                           topic_id=topic_id, 
-                           l2_topic_id=l2_topic_id,
-                           center_vec_type=type(center_vec).__name__,
-                           center_vec_dim=len(center_vec_list))
-                    
-                    vector_store.topics_l2_collection.add(
-                        ids=[l2_topic_id],
-                        embeddings=[center_vec_list],
-                        metadatas=[{
-                            "topic_l2_id": topic_id,
-                            "title": title,
-                            "chunk_count": chunk_count
-                        }]
-                    )
-                    syslog2(LOG_DEBUG, "l2 topic saved to chroma_db successfully", 
-                           topic_id=topic_id, l2_topic_id=l2_topic_id)
-                except Exception as e:
-                    # Log error but don't fail the transaction
-                    syslog2(LOG_WARNING, "failed to save l2 topic to chroma_db", 
-                           topic_id=topic_id, 
-                           l2_topic_id=f"l2-{topic_id}",
-                           error=str(e),
-                           center_vec_type=type(center_vec).__name__ if center_vec is not None else None)
-            
-            return topic_id
-        except Exception as e:
-            session.rollback()
-            raise e
-        finally:
-            session.close()
-
-    def get_all_topics_l2(self) -> List[TopicL2Model]:
-        """Get all L2 topics."""
-        session = self.get_session()
-        try:
-            return session.query(TopicL2Model).all()
-        finally:
-            session.close()
-
-    def get_topic_l2(self, topic_id: int) -> Optional[TopicL2Model]:
-        """Get a single L2 topic by ID."""
-        session = self.get_session()
-        try:
-            return session.query(TopicL2Model).filter(TopicL2Model.id == topic_id).first()
-        finally:
-            session.close()
-
-    def get_chunks_by_topic_l2(self, topic_l2_id: int) -> List[ChunkModel]:
-        """Get all chunks assigned to an L2 topic (via L1)."""
-        session = self.get_session()
-        try:
-            return session.query(ChunkModel).filter(ChunkModel.topic_l2_id == topic_l2_id).all()
-        finally:
-            session.close()
-
-    def update_chunks_parent_l2(self, topic_l1_id: int, topic_l2_id: Optional[int]) -> int:
-        """Updates all chunks belonging to an L1 topic to have a specific L2 topic."""
-        session = self.get_session()
-        try:
-            # We use synchronize_session=False for performance on bulk updates
-            result = session.query(ChunkModel).filter(ChunkModel.topic_l1_id == topic_l1_id).update(
-                {ChunkModel.topic_l2_id: topic_l2_id}, synchronize_session=False
-            )
-            session.commit()
-            return result
-        except Exception as e:
-            session.rollback()
-            raise e
-        finally:
-            session.close()
-
-    def get_l1_topics_by_l2(self, topic_l2_id: int) -> List[TopicL1Model]:
-        """Get all L1 topics that belong to an L2 topic."""
-        session = self.get_session()
-        try:
-            return session.query(TopicL1Model).filter(TopicL1Model.parent_l2_id == topic_l2_id).all()
-        finally:
-            session.close()
-
-    def clear_topics_l2(self) -> int:
-        """Delete all L2 topics and return count (stage4 - without clearing assignments)."""
-        session = self.get_session()
-        try:
-            # Clear L2 references in L1 topics
-            session.query(TopicL1Model).update({TopicL1Model.parent_l2_id: None})
-            # Delete all L2 topics (without clearing assignments in chunks - that's stage4)
-            deleted = session.query(TopicL2Model).delete()
-            session.commit()
-            return deleted
-        except Exception as e:
-            session.rollback()
-            raise e
-        finally:
-            session.close()
-
-    def update_topic_l2_info(
-        self, 
-        topic_l2_id: int, 
-        title: str, 
-        descr: str,
-        vector_store: Optional[Any] = None
-    ) -> None:
-        """
-        Update L2 topic title and description.
-        
-        Args:
-            topic_l2_id: Topic ID
-            title: New title
-            descr: New description
-            vector_store: VectorStore instance for updating metadata in chroma_db
-        """
-        session = self.get_session()
-        try:
-            topic = session.query(TopicL2Model).filter(TopicL2Model.id == topic_l2_id).first()
-            if topic:
-                topic.title = title
-                topic.descr = descr
-                session.commit()
-                
-                # Update metadata in chroma_db if vector_store is provided
-                if vector_store is not None:
-                    try:
-                        vector_store.topics_l2_collection.update(
-                            ids=[f"l2-{topic_l2_id}"],
-                            metadatas=[{
-                                "topic_l2_id": topic_l2_id,
-                                "title": title,
-                                "chunk_count": topic.chunk_count
-                            }]
-                        )
-                    except Exception as e:
-                        # Log error but don't fail the transaction
-                        syslog2(LOG_WARNING, "failed to update l2 topic metadata in chroma_db", topic_id=topic_l2_id, error=str(e))
-        except Exception as e:
-            session.rollback()
-            raise e
-        finally:
-            session.close()
 
     def get_database_info(self) -> dict:
         """
@@ -1026,15 +568,7 @@ class Database:
             except Exception:
                 info['chunks'] = 0
             
-            try:
-                info['topics_l1'] = session.query(TopicL1Model).count()
-            except Exception:
-                info['topics_l1'] = 0
-            
-            try:
-                info['topics_l2'] = session.query(TopicL2Model).count()
-            except Exception:
-                info['topics_l2'] = 0
+            # topics_l1 and topics_l2 removed - clustering is deprecated
             
             return info
         finally:

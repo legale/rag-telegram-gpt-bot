@@ -317,12 +317,8 @@ class HybridRetrievalService:
 
             current_tokens += chunk_tokens
 
-            # Get topics from metadata
+            # Get topics from metadata (removed - clustering is deprecated)
             topics = []
-            if chunk.metadata:
-                topic_l1 = chunk.metadata.get("topic_l1_title") or chunk.metadata.get("topic_l1")
-                if topic_l1:
-                    topics.append(str(topic_l1))
 
             # Enrich with messages based on output mode
             original_messages: List[Message] = []

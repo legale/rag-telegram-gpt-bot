@@ -1,7 +1,8 @@
 # src/core/rag_search.py
 
 from typing import List, Dict, Optional, Tuple, Any
-from src.storage.db import Database, ChunkModel, MessageModel, TopicL1Model, TopicL2Model
+from src.storage.db import Database, ChunkModel, MessageModel
+# TopicL1Model and TopicL2Model removed - clustering is deprecated
 from src.storage.vector_store import VectorStore
 from src.core.embedding import EmbeddingClient
 from src.lib.syslog2 import *
@@ -48,8 +49,6 @@ class RAGSearch:
             {
                 "chunk": ChunkModel,
                 "messages": List[MessageModel],
-                "topic_l1": Optional[TopicL1Model],
-                "topic_l2": Optional[TopicL2Model],
                 "link_info": Tuple[chat_id, msg_id, chat_username],
                 "similarity": float  # 1 - distance (higher is better)
             }
@@ -80,22 +79,6 @@ class RAGSearch:
                 # Get messages for this chunk
                 messages = self._get_chunk_messages(session, chunk)
                 
-                # Get topics
-                topic_l1 = None
-                topic_l2 = None
-                if chunk.topic_l1_id:
-                    topic_l1 = session.query(TopicL1Model).filter(
-                        TopicL1Model.id == chunk.topic_l1_id
-                    ).first()
-                    if topic_l1 and topic_l1.parent_l2_id:
-                        topic_l2 = session.query(TopicL2Model).filter(
-                            TopicL2Model.id == topic_l1.parent_l2_id
-                        ).first()
-                elif chunk.topic_l2_id:
-                    topic_l2 = session.query(TopicL2Model).filter(
-                        TopicL2Model.id == chunk.topic_l2_id
-                    ).first()
-                
                 # Get link info
                 link_info = self.db.get_chunk_link_info(chunk_id)
                 
@@ -105,8 +88,6 @@ class RAGSearch:
                 results.append({
                     "chunk": chunk,
                     "messages": messages,
-                    "topic_l1": topic_l1,
-                    "topic_l2": topic_l2,
                     "link_info": link_info,
                     "similarity": similarity
                 })

@@ -17,7 +17,7 @@ class VectorStore:
     def __init__(
         self,
         persist_directory: str,
-        collection_name: str = "embed-l1",
+        collection_name: str = "embed-chunks",
         max_batch_size: int = 5000,
         embedding_client: Optional[Union[EmbeddingClient, LocalEmbeddingClient]] = None,
     ):
@@ -41,19 +41,7 @@ class VectorStore:
         self.max_batch_size = max_batch_size
         self.embedding_client = embedding_client or EmbeddingClient()
         
-        # Initialize topics_l2 collection
-        self.topics_l2_collection = self.client.get_or_create_collection(
-            name="embed-l2",
-            embedding_function=None,  # embeddings always provided explicitly
-            metadata={"hnsw:space": "cosine"}  # Use cosine similarity instead of L2
-        )
-        
-        # Initialize topics_l1 collection
-        self.topics_l1_collection = self.client.get_or_create_collection(
-            name="embed-l1-topics",
-            embedding_function=None,  # embeddings always provided explicitly
-            metadata={"hnsw:space": "cosine"}  # Use cosine similarity instead of L2
-        )
+        # topics_l1_collection and topics_l2_collection removed - clustering is deprecated
 
     def add_documents_with_embeddings(
         self,

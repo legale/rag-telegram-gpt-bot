@@ -102,8 +102,7 @@ History:
                 
             # Format topic header
             topic_header = ""
-            l2_title = meta.get('topic_l2_title')
-            l1_title = meta.get('topic_l1_title')
+            # topic_l1_title and topic_l2_title removed - clustering is deprecated
             
             if l2_title:
                 topic_header += f"Category: {l2_title} > "

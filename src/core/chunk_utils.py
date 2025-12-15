@@ -23,7 +23,7 @@ def build_chunk_dict_from_model(
         chunk: ChunkModel instance
         similarity: Similarity score (0.0-1.0)
         distance: Original distance value (optional)
-        source: Source of the chunk ("vector", "two_stage", "topic_l1", "topic_l2")
+        source: Source of the chunk ("vector", "two_stage", "hybrid", "fts")
         
     Returns:
         Dictionary with chunk data
@@ -35,12 +35,7 @@ def build_chunk_dict_from_model(
         except json.JSONDecodeError:
             pass
     
-    if chunk.topic_l1:
-        meta["topic_l1_id"] = chunk.topic_l1.id
-        meta["topic_l1_title"] = chunk.topic_l1.title
-    if chunk.topic_l2:
-        meta["topic_l2_id"] = chunk.topic_l2.id
-        meta["topic_l2_title"] = chunk.topic_l2.title
+    # topic_l1 and topic_l2 removed - clustering is deprecated
     
     result = {
         "id": chunk.id,
@@ -69,7 +64,7 @@ def build_chunk_dict_from_domain_chunk(
         chunk: Chunk domain object
         similarity: Similarity score (0.0-1.0)
         distance: Original distance value (optional)
-        source: Source of the chunk ("vector", "two_stage", "topic_l1", "topic_l2")
+        source: Source of the chunk ("vector", "two_stage", "hybrid", "fts")
         
     Returns:
         Dictionary with chunk data

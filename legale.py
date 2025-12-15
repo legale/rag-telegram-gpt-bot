@@ -347,90 +347,6 @@ def cmd_ingest(args, profile_manager: ProfileManager):
         pipeline.run_stage3()
         syslog2(LOG_NOTICE, "stage3 complete")
         
-    elif ingest_command == 'stage4':
-        # Check if there are chunks with embeddings
-        from src.storage.db import Database, ChunkModel
-        db = Database(paths['db_url'])
-        session = db.get_session()
-        try:
-            chunks_with_embeddings = session.query(ChunkModel).filter(
-                ChunkModel.embedding_json.isnot(None)
-            ).count()
-            if chunks_with_embeddings == 0:
-                syslog2(LOG_ERR, "no embeddings found, run ingest stage2 first")
-                sys.exit(1)
-        finally:
-            session.close()
-        
-        # Get clustering parameters
-        clustering_params = {}
-        if hasattr(args, 'min_cluster_size') and args.min_cluster_size:
-            clustering_params['min_cluster_size'] = args.min_cluster_size
-        if hasattr(args, 'min_samples') and args.min_samples:
-            clustering_params['min_samples'] = args.min_samples
-        if hasattr(args, 'metric') and args.metric:
-            clustering_params['metric'] = args.metric
-        if hasattr(args, 'cluster_selection_method') and args.cluster_selection_method:
-            clustering_params['cluster_selection_method'] = args.cluster_selection_method
-        if hasattr(args, 'cluster_selection_epsilon') and args.cluster_selection_epsilon is not None:
-            clustering_params['cluster_selection_epsilon'] = args.cluster_selection_epsilon
-        
-        syslog2(LOG_NOTICE, "running stage4: L1 clustering")
-        pipeline.run_stage4(**clustering_params)
-        syslog2(LOG_NOTICE, "stage4 complete")
-        
-    elif ingest_command == 'stage5':
-        # Check if there are L1 topics
-        from src.storage.db import Database
-        db = Database(paths['db_url'])
-        l1_topics = db.get_all_topics_l1()
-        if not l1_topics:
-            syslog2(LOG_ERR, "no l1 topics found, run ingest stage4 first")
-            sys.exit(1)
-        
-        syslog2(LOG_NOTICE, "running stage5: sync L1 topics to vector database")
-        pipeline.run_stage5()
-        syslog2(LOG_NOTICE, "stage5 complete")
-        
-    elif ingest_command == 'stage6':
-        # Check if there are L1 topics
-        from src.storage.db import Database
-        db = Database(paths['db_url'])
-        l1_topics = db.get_all_topics_l1()
-        if not l1_topics:
-            syslog2(LOG_ERR, "no l1 topics found, run ingest stage4 first")
-            sys.exit(1)
-        
-        # Get clustering parameters
-        clustering_params = {}
-        if hasattr(args, 'min_cluster_size') and args.min_cluster_size:
-            clustering_params['min_cluster_size'] = args.min_cluster_size
-        if hasattr(args, 'min_samples') and args.min_samples:
-            clustering_params['min_samples'] = args.min_samples
-        if hasattr(args, 'metric') and args.metric:
-            clustering_params['metric'] = args.metric
-        if hasattr(args, 'cluster_selection_method') and args.cluster_selection_method:
-            clustering_params['cluster_selection_method'] = args.cluster_selection_method
-        if hasattr(args, 'cluster_selection_epsilon') and args.cluster_selection_epsilon is not None:
-            clustering_params['cluster_selection_epsilon'] = args.cluster_selection_epsilon
-        
-        syslog2(LOG_NOTICE, "running stage6: L2 clustering")
-        pipeline.run_stage6(**clustering_params)
-        syslog2(LOG_NOTICE, "stage6 complete")
-        
-    elif ingest_command == 'stage7':
-        # Check if there are L2 topics
-        from src.storage.db import Database
-        db = Database(paths['db_url'])
-        l2_topics = db.get_all_topics_l2()
-        if not l2_topics:
-            syslog2(LOG_ERR, "no l2 topics found, run ingest stage6 first")
-            sys.exit(1)
-        
-        syslog2(LOG_NOTICE, "running stage7: sync L2 topics to vector database")
-        pipeline.run_stage7()
-        syslog2(LOG_NOTICE, "stage7 complete")
-        
     elif ingest_command == 'clear_all':
         syslog2(LOG_NOTICE, "clearing all stages")
         pipeline.clear_all()
@@ -455,26 +371,6 @@ def cmd_ingest(args, profile_manager: ProfileManager):
         syslog2(LOG_NOTICE, "clearing stage3: vector_db chunks")
         removed = pipeline.clear_stage3()
         syslog2(LOG_NOTICE, "stage3 cleared", vectors_removed=removed)
-        
-    elif ingest_command == 'clear_stage4':
-        syslog2(LOG_NOTICE, "clearing stage4: L1 topics and assignments")
-        result = pipeline.clear_stage4()
-        syslog2(LOG_NOTICE, "stage4 cleared", items_cleared=result)
-        
-    elif ingest_command == 'clear_stage5':
-        syslog2(LOG_NOTICE, "clearing stage5: vector_db L1 topics")
-        removed = pipeline.clear_stage5()
-        syslog2(LOG_NOTICE, "stage5 cleared", vectors_removed=removed)
-        
-    elif ingest_command == 'clear_stage6':
-        syslog2(LOG_NOTICE, "clearing stage6: L2 topics and assignments")
-        result = pipeline.clear_stage6()
-        syslog2(LOG_NOTICE, "stage6 cleared", items_cleared=result)
-        
-    elif ingest_command == 'clear_stage7':
-        syslog2(LOG_NOTICE, "clearing stage7: vector_db L2 topics")
-        removed = pipeline.clear_stage7()
-        syslog2(LOG_NOTICE, "stage7 cleared", vectors_removed=removed)
         
     else:
         # Should not happen due to routing logic, but handle gracefully
@@ -811,54 +707,8 @@ def parse_ingest_stage3(stream: ArgStream) -> dict:
     return {"profile": profile, "ingest_command": "stage3"}
 
 
-def parse_ingest_stage4(stream: ArgStream) -> dict:
-    """Parse ingest stage4 command."""
-    min_cluster_size = parse_int_option(stream, "min-cluster-size", 2)
-    min_samples = parse_int_option(stream, "min-samples", 1)
-    metric = parse_option(stream, "metric")
-    cluster_selection_method = parse_option(stream, "cluster-selection-method")
-    cluster_selection_epsilon = parse_float_option(stream, "cluster-selection-epsilon", 0.0)
-    profile = parse_option(stream, "profile")
-    return {
-        "min_cluster_size": min_cluster_size,
-        "min_samples": min_samples,
-        "metric": metric,
-        "cluster_selection_method": cluster_selection_method,
-        "cluster_selection_epsilon": cluster_selection_epsilon,
-        "profile": profile,
-        "ingest_command": "stage4"
-    }
 
 
-def parse_ingest_stage5(stream: ArgStream) -> dict:
-    """Parse ingest stage5 command."""
-    profile = parse_option(stream, "profile")
-    return {"profile": profile, "ingest_command": "stage5"}
-
-
-def parse_ingest_stage6(stream: ArgStream) -> dict:
-    """Parse ingest stage6 command."""
-    min_cluster_size = parse_int_option(stream, "min-cluster-size", 2)
-    min_samples = parse_int_option(stream, "min-samples", 1)
-    metric = parse_option(stream, "metric")
-    cluster_selection_method = parse_option(stream, "cluster-selection-method")
-    cluster_selection_epsilon = parse_float_option(stream, "cluster-selection-epsilon", 0.0)
-    profile = parse_option(stream, "profile")
-    return {
-        "min_cluster_size": min_cluster_size,
-        "min_samples": min_samples,
-        "metric": metric,
-        "cluster_selection_method": cluster_selection_method,
-        "cluster_selection_epsilon": cluster_selection_epsilon,
-        "profile": profile,
-        "ingest_command": "stage6"
-    }
-
-
-def parse_ingest_stage7(stream: ArgStream) -> dict:
-    """Parse ingest stage7 command."""
-    profile = parse_option(stream, "profile")
-    return {"profile": profile, "ingest_command": "stage7"}
 
 
 def parse_ingest_stage8(stream: ArgStream) -> dict:
@@ -917,28 +767,8 @@ def parse_ingest_clear_stage3(stream: ArgStream) -> dict:
     return {"profile": profile, "ingest_command": "clear_stage3"}
 
 
-def parse_ingest_clear_stage4(stream: ArgStream) -> dict:
-    """Parse ingest clear stage4 command."""
-    profile = parse_option(stream, "profile")
-    return {"profile": profile, "ingest_command": "clear_stage4"}
 
 
-def parse_ingest_clear_stage5(stream: ArgStream) -> dict:
-    """Parse ingest clear stage5 command."""
-    profile = parse_option(stream, "profile")
-    return {"profile": profile, "ingest_command": "clear_stage5"}
-
-
-def parse_ingest_clear_stage6(stream: ArgStream) -> dict:
-    """Parse ingest clear stage6 command."""
-    profile = parse_option(stream, "profile")
-    return {"profile": profile, "ingest_command": "clear_stage6"}
-
-
-def parse_ingest_clear_stage7(stream: ArgStream) -> dict:
-    """Parse ingest clear stage7 command."""
-    profile = parse_option(stream, "profile")
-    return {"profile": profile, "ingest_command": "clear_stage7"}
 
 
 def parse_ingest_info(stream: ArgStream) -> dict:
@@ -954,7 +784,7 @@ def parse_ingest(stream: ArgStream) -> dict:
     
     # Check if first argument is a subcommand
     first = stream.peek().lower()
-    if first in ("all", "stage0", "stage1", "stage2", "stage3", "stage4", "stage5", "stage6", "stage7", "stage8", "stage9", "clear", "info"):
+    if first in ("all", "stage0", "stage1", "stage2", "stage3", "clear", "info"):
         raise CLIError(f"ingest subcommand '{first}' requires explicit subcommand syntax")
     
     # Treat as 'all' with file path
@@ -1002,7 +832,7 @@ def parse_chat(stream: ArgStream) -> dict:
     """Parse chat command."""
     chunks = parse_int_option(stream, "chunks")
     debug_rag = parse_flag(stream, "debug-rag")
-    retrieval_type = parse_choice_option(stream, "retrieval-type", ["legacy", "hybrid", "vector_only", "fts_only"], "legacy")
+    retrieval_type = parse_choice_option(stream, "retrieval-type", ["hybrid", "fts_only"], "hybrid")
     profile = parse_option(stream, "profile")
     return {"chunks": chunks, "debug_rag": debug_rag, "retrieval_type": retrieval_type, "profile": profile}
 
@@ -1030,7 +860,7 @@ def parse_bot_run(stream: ArgStream) -> dict:
     port = parse_int_option(stream, "port", 8000)
     profile = parse_option(stream, "profile")
     debug_rag = parse_flag(stream, "debug-rag")
-    retrieval_type = parse_choice_option(stream, "retrieval-type", ["legacy", "hybrid", "vector_only", "fts_only"], "legacy")
+    retrieval_type = parse_choice_option(stream, "retrieval-type", ["hybrid", "fts_only"], "hybrid")
     return {"host": host, "port": port, "profile": profile, "debug_rag": debug_rag, "retrieval_type": retrieval_type, "bot_command": "run"}
 
 
@@ -1068,39 +898,7 @@ def parse_clustering_params(stream: ArgStream, prefix: str) -> dict:
     }
 
 
-def parse_topics_cluster_l1(stream: ArgStream) -> dict:
-    """Parse topics cluster-l1 command."""
-    params = parse_clustering_params(stream, "l1")
-    profile = parse_option(stream, "profile")
-    params.update({"profile": profile, "topic_command": "cluster-l1"})
-    return params
-
-
-def parse_topics_cluster_l2(stream: ArgStream) -> dict:
-    """Parse topics cluster-l2 command."""
-    params = parse_clustering_params(stream, "l2")
-    profile = parse_option(stream, "profile")
-    params.update({"profile": profile, "topic_command": "cluster-l2"})
-    return params
-
-
-def parse_topics_name(stream: ArgStream) -> dict:
-    """Parse topics name command."""
-    only_unnamed = parse_flag(stream, "only-unnamed")
-    rebuild = parse_flag(stream, "rebuild")
-    target = parse_choice_option(stream, "target", ["l1", "l2", "both"], "both")
-    profile = parse_option(stream, "profile")
-    return {"only_unnamed": only_unnamed, "rebuild": rebuild, "target": target, "profile": profile, "topic_command": "name"}
-
-
-def parse_topics_build(stream: ArgStream) -> dict:
-    """Parse topics build command."""
-    params = {}
-    params.update(parse_clustering_params(stream, "l1"))
-    params.update(parse_clustering_params(stream, "l2"))
-    profile = parse_option(stream, "profile")
-    params.update({"profile": profile, "topic_command": "build"})
-    return params
+# parse_topics_cluster_l1, parse_topics_cluster_l2, parse_topics_name, parse_topics_build removed - clustering is deprecated
 
 
 def parse_topics_list(stream: ArgStream) -> dict:
@@ -1180,14 +978,6 @@ def _parse_ingest_subcommand(stream: ArgStream) -> dict:
         return parse_ingest_stage2(stream)
     elif subcmd == "stage3":
         return parse_ingest_stage3(stream)
-    elif subcmd == "stage4":
-        return parse_ingest_stage4(stream)
-    elif subcmd == "stage5":
-        return parse_ingest_stage5(stream)
-    elif subcmd == "stage6":
-        return parse_ingest_stage6(stream)
-    elif subcmd == "stage7":
-        return parse_ingest_stage7(stream)
     elif subcmd == "stage8":
         return parse_ingest_stage8(stream)
     elif subcmd == "stage9":
@@ -1207,20 +997,12 @@ def _parse_ingest_subcommand(stream: ArgStream) -> dict:
             return parse_ingest_clear_stage2(stream)
         elif clear_subcmd == "stage3":
             return parse_ingest_clear_stage3(stream)
-        elif clear_subcmd == "stage4":
-            return parse_ingest_clear_stage4(stream)
-        elif clear_subcmd == "stage5":
-            return parse_ingest_clear_stage5(stream)
-        elif clear_subcmd == "stage6":
-            return parse_ingest_clear_stage6(stream)
-        elif clear_subcmd == "stage7":
-            return parse_ingest_clear_stage7(stream)
         elif clear_subcmd == "stage8":
             return parse_ingest_clear_stage8(stream)
         elif clear_subcmd == "stage9":
             return parse_ingest_clear_stage9(stream)
         else:
-            raise CLIError(f"unknown clear subcommand: {clear_subcmd}. Use: all, stage0, stage1, stage2, stage3, stage4, stage5, stage6, stage7, stage8, stage9")
+            raise CLIError(f"unknown clear subcommand: {clear_subcmd}. Use: all, stage0, stage1, stage2, stage3")
     elif subcmd == "info":
         return parse_ingest_info(stream)
     else:
@@ -1329,24 +1111,11 @@ def _parse_config_subcommand_with_args(args):
 def _parse_topics_subcommand(stream: ArgStream) -> dict:
     """Parse topics subcommand."""
     if not stream.has_next():
-        raise CLIError("topics subcommand required (cluster-l1, cluster-l2, name, build, list, show)")
+        raise CLIError("topics subcommand required (list, show)")
     subcmd = stream.next().lower()
     
-    result = None
-    if subcmd == "cluster-l1":
-        result = parse_topics_cluster_l1(stream)
-    elif subcmd == "cluster-l2":
-        result = parse_topics_cluster_l2(stream)
-    elif subcmd == "name":
-        result = parse_topics_name(stream)
-    elif subcmd == "build":
-        result = parse_topics_build(stream)
-    elif subcmd == "list":
-        result = parse_topics_list(stream)
-    elif subcmd == "show":
-        result = parse_topics_show(stream)
-    else:
-        raise CLIError(f"unknown topics subcommand: {subcmd}")
+    # All topics commands removed - clustering is deprecated
+    raise CLIError("topics commands are no longer available - clustering has been removed")
     
     # topic_command already set by parsers
     return result
@@ -1378,7 +1147,7 @@ def main():
         CommandSpec(
             "ingest", 
             lambda s: _parse_ingest_subcommand(s),
-            help_text="ingest <subcommand>\n\nSubcommands:\n  all <file> [model <name>] [batch-size <n>] [profile <name>] - Run all stages (0-9)\n  stage0 <file> [profile <name>] - Parse and store messages\n  stage1 [profile <name>] - Create and store chunks\n  stage2 [model <name>] [batch-size <n>] [profile <name>] - Generate embeddings for chunks (save to SQLite)\n  stage3 [profile <name>] - Sync chunks to vector database\n  stage4 [min-cluster-size <n>] [min-samples <n>] [metric <name>] [cluster-selection-method <name>] [cluster-selection-epsilon <f>] [profile <name>] - L1 clustering (save to SQLite)\n  stage5 [profile <name>] - Sync L1 topics to vector database\n  stage6 [min-cluster-size <n>] [min-samples <n>] [metric <name>] [cluster-selection-method <name>] [cluster-selection-epsilon <f>] [profile <name>] - L2 clustering (save to SQLite)\n  stage7 [profile <name>] - Sync L2 topics to vector database\n  stage8 [only-unnamed] [rebuild] [profile <name>] - Name L1 topics\n  stage9 [only-unnamed] [rebuild] [profile <name>] - Name L2 topics\n  clear all [profile <name>] - Clear all stages\n  clear stage0 [profile <name>] - Clear messages\n  clear stage1 [profile <name>] - Clear chunks\n  clear stage2 [profile <name>] - Clear chunk embeddings (SQLite)\n  clear stage3 [profile <name>] - Clear vector_db chunks\n  clear stage4 [profile <name>] - Clear L1 topics and assignments\n  clear stage5 [profile <name>] - Clear vector_db L1 topics\n  clear stage6 [profile <name>] - Clear L2 topics and assignments\n  clear stage7 [profile <name>] - Clear vector_db L2 topics\n  clear stage8 [profile <name>] - Clear L1 topic names\n  clear stage9 [profile <name>] - Clear L2 topic names\n  info [profile <name>] - Show database statistics"
+            help_text="ingest <subcommand>\n\nSubcommands:\n  all <file> [model <name>] [batch-size <n>] [profile <name>] - Run all stages (0-3)\n  stage0 <file> [profile <name>] - Parse and store messages\n  stage1 [profile <name>] - Create and store chunks\n  stage2 [model <name>] [batch-size <n>] [profile <name>] - Generate embeddings for chunks (save to SQLite)\n  stage3 [profile <name>] - Sync chunks to vector database\n  clear all/stage0/stage1/stage2/stage3 [profile <name>] - Clear stages\n  info [profile <name>] - Show database statistics"
         ),
         
         # Telegram commands
@@ -1522,234 +1291,9 @@ def cmd_topics(args, profile_manager: ProfileManager):
         
     db = Database(paths['db_url'])
     
-    # For 'list' and 'show' commands, we don't need VectorStore or LLMClient
-    # Initialize them only for commands that need clustering/naming
-    needs_clustering = args.topic_command in ('cluster-l1', 'cluster-l2', 'name', 'build')
-    
-    if needs_clustering:
-        vector_store = VectorStore(persist_directory=str(paths['vector_db_path']))
-        
-        # Init LLM Client
-        config = BotConfig(paths['profile_dir'])
-        model_name = config.current_model
-        if not model_name:
-             # Fallback to models.txt
-             try:
-                 if os.path.exists("models.txt"):
-                     with open("models.txt", "r") as f:
-                         model_name = f.readline().strip()
-             except:
-                 pass
-        if not model_name:
-            model_name = "openai/gpt-3.5-turbo"
-            
-        # For topic naming, always use LOG_WARNING to suppress raw LLM output
-        # This ensures clean progress bar output without HTTP request/response spam
-        llm_client = LLMClient(model=model_name, log_level=LOG_WARNING)
-        clusterer = TopicClusterer(db, vector_store, llm_client)
-    else:
-        clusterer = None
-
-    # Helper function to get clustering parameters
-    def get_clustering_params(prefix):
-        return {
-            'min_cluster_size': getattr(args, f'{prefix}_min_size', 2),
-            'min_samples': getattr(args, f'{prefix}_min_samples', 1),
-            'metric': getattr(args, f'{prefix}_metric', 'cosine'),
-            'cluster_selection_method': getattr(args, f'{prefix}_method', 'eom'),
-            'cluster_selection_epsilon': getattr(args, f'{prefix}_epsilon', 0.0)
-        }
-    
-    # Helper function to validate clustering parameters
-    def validate_clustering_params(prefix):
-        min_size = getattr(args, f'{prefix}_min_size', 2)
-        if min_size < 2:
-            syslog2(LOG_ERR, "min-size must be at least 2 (hdbscan requirement)", prefix=prefix, got=min_size)
-            sys.exit(1)
-    
-    # Progress bar callback for naming
-    def show_progress(current, total, stage):
-        """Display progress bar for topic naming."""
-        percentage = int((current / total * 100)) if total > 0 else 0
-        bar_width = 30
-        filled = int((current / total * bar_width)) if total > 0 else 0
-        bar = "█" * filled + "░" * (bar_width - filled)
-        stage_name = "L1 Topics" if stage == 'l1' else "L2 Topics"
-        syslog2(LOG_DEBUG, "progress", stage=stage_name, current=current, total=total, percentage=percentage)
-        if current == total:
-            syslog2(LOG_DEBUG, "progress complete", stage=stage_name)
-
-    if args.topic_command == 'cluster-l1':
-        syslog2(LOG_NOTICE, "running l1 clustering", profile=profile_name)
-        validate_clustering_params('l1')
-        params = get_clustering_params('l1')
-        syslog2(LOG_NOTICE, "l1 clustering parameters", min_cluster_size=params['min_cluster_size'], min_samples=params['min_samples'], metric=params['metric'], method=params['cluster_selection_method'], epsilon=params['cluster_selection_epsilon'])
-        try:
-            clusterer.perform_l1_clustering(**params)
-            syslog2(LOG_NOTICE, "l1 clustering complete, run topics cluster-l2 for super-topics")
-        except ValueError as e:
-            syslog2(LOG_ERR, "error", error=str(e))
-            sys.exit(1)
-            
-    elif args.topic_command == 'cluster-l2':
-        syslog2(LOG_NOTICE, "running l2 clustering", profile=profile_name)
-        # Check if L1 topics exist
-        l1_topics = db.get_all_topics_l1()
-        if not l1_topics:
-            syslog2(LOG_ERR, "no l1 topics found, run topics cluster-l1 first")
-            sys.exit(1)
-        validate_clustering_params('l2')
-        params = get_clustering_params('l2')
-        syslog2(LOG_NOTICE, "l2 clustering parameters", min_cluster_size=params['min_cluster_size'], min_samples=params['min_samples'], metric=params['metric'], method=params['cluster_selection_method'], epsilon=params['cluster_selection_epsilon'])
-        try:
-            clusterer.perform_l2_clustering(**params)
-            syslog2(LOG_NOTICE, "l2 clustering complete, run topics name to generate topic names")
-        except ValueError as e:
-            syslog2(LOG_ERR, "error", error=str(e))
-            sys.exit(1)
-            
-    elif args.topic_command == 'name':
-        syslog2(LOG_NOTICE, "generating topic names", profile=profile_name)
-        # Check if topics exist
-        l1_topics = db.get_all_topics_l1()
-        l2_topics = db.get_all_topics_l2()
-        if not l1_topics and not l2_topics:
-            syslog2(LOG_ERR, "no topics found, run topics cluster-l1 first")
-            sys.exit(1)
-        
-        only_unnamed = getattr(args, 'only_unnamed', False)
-        rebuild = getattr(args, 'rebuild', False)
-        target = getattr(args, 'target', 'both')
-        
-        syslog2(LOG_NOTICE, "naming topics (llm)")
-        clusterer.name_topics(
-            progress_callback=show_progress,
-            only_unnamed=only_unnamed,
-            rebuild=rebuild,
-            target=target
-        )
-        syslog2(LOG_NOTICE, "topic naming complete")
-        
-    elif args.topic_command == 'build':
-        syslog2(LOG_NOTICE, "building topics", profile=profile_name)
-        
-        # Validate parameters
-        validate_clustering_params('l1')
-        validate_clustering_params('l2')
-        
-        # Get clustering parameters
-        l1_params = get_clustering_params('l1')
-        l2_params = get_clustering_params('l2')
-        
-        syslog2(LOG_NOTICE, "l1 parameters", min_cluster_size=l1_params['min_cluster_size'], min_samples=l1_params['min_samples'], metric=l1_params['metric'], method=l1_params['cluster_selection_method'], epsilon=l1_params['cluster_selection_epsilon'])
-        syslog2(LOG_NOTICE, "1. running l1 clustering (fine-grained)")
-        try:
-            clusterer.perform_l1_clustering(**l1_params)
-        except ValueError as e:
-            syslog2(LOG_ERR, "error", error=str(e))
-            sys.exit(1)
-        
-        syslog2(LOG_NOTICE, "l2 parameters", min_cluster_size=l2_params['min_cluster_size'], min_samples=l2_params['min_samples'], metric=l2_params['metric'], method=l2_params['cluster_selection_method'], epsilon=l2_params['cluster_selection_epsilon'])
-        syslog2(LOG_NOTICE, "2. running l2 clustering (super-topics)")
-        try:
-            clusterer.perform_l2_clustering(**l2_params)
-        except ValueError as e:
-            syslog2(LOG_ERR, "error", error=str(e))
-            sys.exit(1)
-        
-        syslog2(LOG_NOTICE, "3. naming topics (llm)")
-        clusterer.name_topics(progress_callback=show_progress)
-        
-        syslog2(LOG_NOTICE, "topic build complete")
-            
-    elif args.topic_command == 'list':
-        try:
-            l2_topics = db.get_all_topics_l2()
-            l1_topics = db.get_all_topics_l1()
-            
-            if not l1_topics and not l2_topics:
-                syslog2(LOG_ERR, "no topics found, run legale ingest stage2 or legale topics build first")
-                return
-            
-            # Group L1 topics by L2 parent
-            l1_by_l2 = {}
-            orphans = []
-            for t in l1_topics:
-                if t.parent_l2_id:
-                    if t.parent_l2_id not in l1_by_l2:
-                        l1_by_l2[t.parent_l2_id] = []
-                    l1_by_l2[t.parent_l2_id].append(t)
-                else:
-                    orphans.append(t)
-            
-            # Show L2 topics with their L1 children
-            if l2_topics:
-                syslog2(LOG_NOTICE, "l2 topics header")
-                
-                for l2 in l2_topics:
-                    children = l1_by_l2.get(l2.id, [])
-                    chunks_count = sum(c.chunk_count for c in children)
-                    title = l2.title or "unknown"
-                    syslog2(LOG_NOTICE, "l2 topic", id=l2.id, title=title, l1_count=len(children), chunks=chunks_count)
-                    
-                    # Show L1 topics under each L2 topic
-                    if children:
-                        for l1 in children:
-                            l1_title = l1.title
-                            syslog2(LOG_NOTICE, "  l1 subtopic", id=l1.id, title=l1_title, chunks=l1.chunk_count)
-            
-            # Show orphaned L1 topics
-            if orphans:
-                if l2_topics:
-                    syslog2(LOG_NOTICE, "orphaned l1 topics (no super-topic)")
-                else:
-                    syslog2(LOG_NOTICE, "l1 topics header")
-                for t in orphans:
-                    title = t.title
-                    syslog2(LOG_NOTICE, "orphaned l1 topic", id=t.id, title=title, chunks=t.chunk_count)
-            
-            # If no L2 topics but L1 topics exist, show all L1 topics
-            if not l2_topics and l1_topics:
-                syslog2(LOG_NOTICE, "l1 topics (no l2)")
-                for t in l1_topics:
-                    title = t.title
-                    syslog2(LOG_NOTICE, "l1 topic", id=t.id, title=title, chunks=t.chunk_count)
-
-                
-        except Exception as e:
-                syslog2(LOG_ERR, "error listing topics", error=str(e))
-                
-    elif args.topic_command == 'show':
-        try:
-            tid = int(args.id)
-            l2 = next((t for t in db.get_all_topics_l2() if t.id == tid), None)
-            
-            if l2:
-                syslog2(LOG_NOTICE, "super-topic l2", id=l2.id, title=l2.title, description=l2.descr)
-                subtopics = db.get_l1_topics_by_l2(l2.id)
-                syslog2(LOG_NOTICE, "sub-topics count", count=len(subtopics))
-                
-                for sub in subtopics:
-                    syslog2(LOG_NOTICE, "subtopic", id=sub.id, title=sub.title, chunks=sub.chunk_count)
-                return
-
-            l1 = next((t for t in db.get_all_topics_l1() if t.id == tid), None)
-            if l1:
-                syslog2(LOG_NOTICE, "topic l1", id=l1.id, title=l1.title, description=l1.descr, parent_l2_id=l1.parent_l2_id, chunks=l1.chunk_count, messages=l1.msg_count, time_from=str(l1.ts_from), time_to=str(l1.ts_to))
-                
-                chunks = db.get_chunks_by_topic_l1(l1.id)
-                syslog2(LOG_NOTICE, "sample content", count=min(3, len(chunks)), total=len(chunks))
-                for i, c in enumerate(chunks[:3]):
-                    chunk_preview = c.text[:200].replace('\n', ' ') + "..."
-                    syslog2(LOG_NOTICE, "chunk sample", number=i+1, preview=chunk_preview)
-                return
-                
-            syslog2(LOG_ERR, "topic not found", id=tid)
-                
-        except ValueError:
-            syslog2(LOG_ERR, "topic id must be an integer")
-        except Exception as e:
-            syslog2(LOG_ERR, "error showing topic", error=str(e))
+    # All topic commands removed - clustering is deprecated
+    syslog2(LOG_ERR, "topics commands are no longer available - clustering has been removed")
+    sys.exit(1)
 
 
 

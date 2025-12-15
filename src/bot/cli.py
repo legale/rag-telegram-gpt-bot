@@ -228,7 +228,7 @@ def main():
     # Parse other options
     chunks = parse_int_option(stream, "--chunks") or 5
     debug_rag = parse_flag(stream, "--debug-rag")
-    retrieval_type = parse_option(stream, "--retrieval-type") or "legacy"
+    retrieval_type = parse_option(stream, "--retrieval-type") or "hybrid"
     
     # Count -v flags for log level (need to check before stream consumes them)
     verbose = 0

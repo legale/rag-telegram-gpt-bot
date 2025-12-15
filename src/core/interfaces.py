@@ -29,7 +29,7 @@ class SearchFilters:
     time_from: Optional[datetime] = None
     time_to: Optional[datetime] = None
     chat_id: Optional[str] = None
-    topic_l1_id: Optional[int] = None  # optional for analytics
+    # topic_l1_id removed - clustering is deprecated
 
 
 class MessageStore(Protocol):
@@ -59,31 +59,7 @@ class ChunkStore(Protocol):
     def clear(self) -> None:
         ...
 
-    def get_by_topic_l1(self, topic_id: int, limit: int) -> List[Chunk]:
-        """
-        Get chunks assigned to an L1 topic.
-
-        Args:
-            topic_id: L1 topic ID
-            limit: Maximum number of chunks to return
-
-        Returns:
-            List of Chunk objects
-        """
-        ...
-
-    def get_by_topic_l2(self, topic_id: int, limit: int) -> List[Chunk]:
-        """
-        Get chunks assigned to an L2 topic.
-
-        Args:
-            topic_id: L2 topic ID
-            limit: Maximum number of chunks to return
-
-        Returns:
-            List of Chunk objects
-        """
-        ...
+    # get_by_topic_l1 and get_by_topic_l2 removed - clustering is deprecated
 
 
 class VectorIndex(Protocol):

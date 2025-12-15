@@ -566,12 +566,12 @@ def _get_bot_configuration(admin_manager_local: AdminManager, args: Optional[Sim
     log_level = getattr(args, 'log_level', LOG_WARNING) if args else LOG_WARNING
     log_level = _map_log_level_to_constant(log_level)
     
-    retrieval_type = getattr(args, 'retrieval_type', 'legacy') if args else 'legacy'
+    retrieval_type = getattr(args, 'retrieval_type', 'hybrid') if args else 'hybrid'
     
     return model_name, debug_rag, log_level, retrieval_type
 
 
-def _create_legale_bot(paths: Dict, model_name: str, log_level: int, debug_rag: bool, profile_dir: str, retrieval_type: str = "legacy") -> LegaleBot:
+def _create_legale_bot(paths: Dict, model_name: str, log_level: int, debug_rag: bool, profile_dir: str, retrieval_type: str = "hybrid") -> LegaleBot:
     """
     Create and initialize LegaleBot instance.
     
@@ -581,7 +581,7 @@ def _create_legale_bot(paths: Dict, model_name: str, log_level: int, debug_rag: 
         log_level: Logging level
         debug_rag: Debug RAG flag
         profile_dir: Profile directory path
-        retrieval_type: Retrieval type ("legacy", "hybrid", "vector_only", "fts_only")
+        retrieval_type: Retrieval type ("hybrid", "fts_only")
         
     Returns:
         Initialized LegaleBot instance
