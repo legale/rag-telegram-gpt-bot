@@ -13,31 +13,19 @@ from src.lib.syslog2 import *
 class LegaleBot:
     """Main bot class orchestrating the RAG pipeline."""
     
-    def __init__(
-        self,
-        db_url: str,
-        vector_db_path: str,
-        model_name: Optional[str] = None,
-        log_level: int = LOG_WARNING,
-        debug_rag: bool = False,
-        profile_dir: Optional[Union[str, Path]] = None,
-        retrieval_type: str = "hybrid"  # "hybrid" | "fts_only" | "vector_only"
-    ):
-        # Initialize components
-        if not db_url or not vector_db_path:
-            raise ValueError("db_url and vector_db_path must be provided")
+    def _create_embedding_client(self, profile_dir: Optional[Union[str, Path]] = None) -> Tuple[EmbeddingClient, object]:
+        """
+        Create embedding client and load profile config.
+        
+        Args:
+            profile_dir: Optional profile directory path
             
-        self.db = Database(db_url)
-        # Expose db_url for tests/introspection even when Database is mocked
-        try:
-            self.db.db_url = db_url
-        except Exception:
-            pass
-        self.log_level = log_level
-        self.debug_rag = debug_rag
-        # Load profile config - always create config (uses defaults from BotConfig if profile_dir not provided)
+        Returns:
+            Tuple of (embedding_client, config)
+        """
         from src.bot.config import BotConfig
         embedding_client = None
+        
         if profile_dir:
             profile_path = Path(profile_dir)
             if profile_path.exists():
@@ -69,14 +57,100 @@ class LegaleBot:
                 model=config.embedding_model
             )
         
-        self.config = config
-        self.embedding_client = embedding_client
+        return embedding_client, config
+
+    def _create_retrieval_service(
+        self,
+        db_url: str,
+        vector_db_path: str,
+        profile_dir: Optional[Union[str, Path]],
+        retrieval_type: str,
+        llm_client: LLMClient
+    ):
+        """
+        Create retrieval service based on retrieval type.
+        
+        Args:
+            db_url: Database URL
+            vector_db_path: Vector database path
+            profile_dir: Optional profile directory path
+            retrieval_type: Retrieval type ("hybrid", "fts_only", "vector_only")
+            llm_client: LLM client instance
+            
+        Returns:
+            Retrieval service instance
+        """
+        if retrieval_type == "hybrid":
+            # Use new hybrid retrieval (FTS5 + vector rerank)
+            retrieval_service = create_hybrid_retrieval(
+                db_url=db_url,
+                vector_db_path=vector_db_path,
+                embedding_client=self.embedding_client,
+                profile_dir=profile_dir,
+                log_level=self.log_level,
+                fts_only=False,  # Explicitly set for hybrid
+                llm_client=llm_client,  # Pass LLM for query rephrasing
+                retrieval_mode="hybrid",
+            )
+        elif retrieval_type == "fts_only":
+            # FTS-only mode: skip vector reranking
+            retrieval_service = create_hybrid_retrieval(
+                db_url=db_url,
+                vector_db_path=vector_db_path,
+                embedding_client=self.embedding_client,
+                profile_dir=profile_dir,
+                log_level=self.log_level,
+                fts_only=True,  # Explicitly set for fts_only
+                llm_client=None,  # No LLM needed for FTS-only
+                retrieval_mode="fts_only",
+            )
+        elif retrieval_type == "vector_only":
+            # Vector-only mode: skip FTS5, use only vector search
+            retrieval_service = create_hybrid_retrieval(
+                db_url=db_url,
+                vector_db_path=vector_db_path,
+                embedding_client=self.embedding_client,
+                profile_dir=profile_dir,
+                log_level=self.log_level,
+                fts_only=False,
+                llm_client=llm_client,  # Pass LLM for query rephrasing
+                retrieval_mode="vector_only",
+            )
+        else:
+            raise ValueError(f"Unknown retrieval_type: {retrieval_type}. Use: hybrid, fts_only, vector_only")
+        
+        return retrieval_service
+
+    def __init__(
+        self,
+        db_url: str,
+        vector_db_path: str,
+        model_name: Optional[str] = None,
+        log_level: int = LOG_WARNING,
+        debug_rag: bool = False,
+        profile_dir: Optional[Union[str, Path]] = None,
+        retrieval_type: str = "hybrid"  # "hybrid" | "fts_only" | "vector_only"
+    ):
+        # Initialize components
+        if not db_url or not vector_db_path:
+            raise ValueError("db_url and vector_db_path must be provided")
+            
+        self.db = Database(db_url)
+        # Expose db_url for tests/introspection even when Database is mocked
+        try:
+            self.db.db_url = db_url
+        except Exception:
+            pass
+        self.log_level = log_level
+        self.debug_rag = debug_rag
+        
+        # Create embedding client and load config
+        self.embedding_client, self.config = self._create_embedding_client(profile_dir)
+        
         self.vector_store = VectorStore(
             persist_directory=vector_db_path,
-            embedding_client=embedding_client
+            embedding_client=self.embedding_client
         )
-        # self.llm_client moved to after model selection logic
-
         
         # Model getting support (needed before creating retrieval service)
         self.available_models = self._load_available_models()
@@ -94,50 +168,17 @@ class LegaleBot:
              
         self.llm_client = LLMClient(model=model_name, log_level=log_level)
         
-        # Initialize services using bootstrap based on retrieval_type
+        # Initialize retrieval service
         self.retrieval_type = retrieval_type
+        self.retrieval_service = self._create_retrieval_service(
+            db_url=db_url,
+            vector_db_path=vector_db_path,
+            profile_dir=profile_dir,
+            retrieval_type=retrieval_type,
+            llm_client=self.llm_client
+        )
+        self.retrieval = self.retrieval_service
         
-        if retrieval_type == "hybrid":
-            # Use new hybrid retrieval (FTS5 + vector rerank)
-            self.retrieval_service = create_hybrid_retrieval(
-                db_url=db_url,
-                vector_db_path=vector_db_path,
-                embedding_client=self.embedding_client,
-                profile_dir=profile_dir,
-                log_level=log_level,
-                fts_only=False,  # Explicitly set for hybrid
-                llm_client=self.llm_client,  # Pass LLM for query rephrasing
-                retrieval_mode="hybrid",
-            )
-            self.retrieval = self.retrieval_service
-        elif retrieval_type == "fts_only":
-            # FTS-only mode: skip vector reranking
-            self.retrieval_service = create_hybrid_retrieval(
-                db_url=db_url,
-                vector_db_path=vector_db_path,
-                embedding_client=self.embedding_client,
-                profile_dir=profile_dir,
-                log_level=log_level,
-                fts_only=True,  # Explicitly set for fts_only
-                llm_client=None,  # No LLM needed for FTS-only
-                retrieval_mode="fts_only",
-            )
-            self.retrieval = self.retrieval_service
-        elif retrieval_type == "vector_only":
-            # Vector-only mode: skip FTS5, use only vector search
-            self.retrieval_service = create_hybrid_retrieval(
-                db_url=db_url,
-                vector_db_path=vector_db_path,
-                embedding_client=self.embedding_client,
-                profile_dir=profile_dir,
-                log_level=log_level,
-                fts_only=False,
-                llm_client=self.llm_client,  # Pass LLM for query rephrasing
-                retrieval_mode="vector_only",
-            )
-            self.retrieval = self.retrieval_service
-        else:
-            raise ValueError(f"Unknown retrieval_type: {retrieval_type}. Use: hybrid, fts_only, vector_only")
         self.prompt_engine = PromptEngine()
         
         # Simple in-memory history for the current session
