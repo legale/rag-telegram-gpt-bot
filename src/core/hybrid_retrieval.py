@@ -115,59 +115,7 @@ class HybridRetrievalService:
 
         # FTS-only mode: skip vector reranking and return FTS results directly
         if self.fts_only:
-            if self.log_level <= LOG_DEBUG:
-                syslog2(LOG_DEBUG, "hybrid_retrieval: FTS-only mode, skipping vector reranking")
-            
-            # Get chunks from FTS results
-            candidate_ids = [doc.id for doc in fts_results]
-            if self.log_level <= LOG_DEBUG:
-                syslog2(LOG_DEBUG, "hybrid_retrieval: FTS results", 
-                       count=len(fts_results), 
-                       ids=candidate_ids[:5],
-                       scores=[doc.score for doc in fts_results[:5]])
-            
-            candidate_chunks = self.chunk_store.get_by_ids(candidate_ids)
-            
-            if not candidate_chunks:
-                if self.log_level <= LOG_DEBUG:
-                    syslog2(LOG_DEBUG, "hybrid_retrieval: no chunks found for FTS results")
-                return []
-            
-            # Normalize FTS scores relative to max score in results (better than fixed division)
-            max_fts_score = max((doc.score for doc in fts_results), default=1.0)
-            if self.log_level <= LOG_DEBUG:
-                syslog2(LOG_DEBUG, "hybrid_retrieval: FTS score normalization", 
-                       max_score=max_fts_score,
-                       raw_scores=[doc.score for doc in fts_results[:5]])
-            
-            # Create scored candidates from FTS results only
-            scored_candidates = []
-            for doc in fts_results:
-                chunk = next((c for c in candidate_chunks if c.id == doc.id), None)
-                if chunk:
-                    # Normalize FTS score to 0-1 range using relative normalization
-                    if max_fts_score > 0:
-                        normalized_fts = doc.score / max_fts_score
-                    else:
-                        normalized_fts = 0.0
-                    
-                    if self.log_level <= LOG_DEBUG:
-                        syslog2(LOG_DEBUG, "hybrid_retrieval: FTS score normalized", 
-                               chunk_id=chunk.id,
-                               raw_score=doc.score,
-                               normalized_score=normalized_fts,
-                               max_score=max_fts_score)
-                    
-                    scored_candidates.append((chunk, normalized_fts, 0.0))  # vector_score = 0.0 for FTS-only
-            
-            # Sort by FTS score
-            scored_candidates.sort(key=lambda x: x[1], reverse=True)
-            top_candidates = scored_candidates[:rerank_top_k]
-            
-            if self.log_level <= LOG_DEBUG:
-                syslog2(LOG_DEBUG, "hybrid_retrieval: FTS-only top candidates", 
-                       count=len(top_candidates),
-                       scores=[(c[0].id, c[1]) for c in top_candidates[:5]])
+            top_candidates = self._search_fts_only(fts_results, rerank_top_k)
         else:
             # Step 2: Get embeddings for candidates
             candidate_ids = [doc.id for doc in fts_results]
@@ -187,76 +135,9 @@ class HybridRetrievalService:
                 
                 query_vector = self.embedder.embed_query(rephrased_query)
             except Exception as e:
-                syslog2(LOG_ERR, "hybrid_retrieval: embedding computation failed", query=query, error=str(e))
-                # Fallback to FTS-only if embedding fails
-                if self.log_level <= LOG_DEBUG:
-                    syslog2(LOG_DEBUG, "hybrid_retrieval: falling back to FTS-only after embedding error")
-                
-                # Normalize FTS scores relative to max
-                max_fts_score = max((doc.score for doc in fts_results), default=1.0)
-                scored_candidates = []
-                for doc in fts_results:
-                    chunk = next((c for c in candidate_chunks if c.id == doc.id), None)
-                    if chunk:
-                        if max_fts_score > 0:
-                            normalized_fts = doc.score / max_fts_score
-                        else:
-                            normalized_fts = 0.0
-                        
-                        if self.log_level <= LOG_DEBUG:
-                            syslog2(LOG_DEBUG, "hybrid_retrieval: fallback FTS normalization", 
-                                   chunk_id=chunk.id,
-                                   raw_score=doc.score,
-                                   normalized_score=normalized_fts)
-                        
-                        scored_candidates.append((chunk, normalized_fts, 0.0))
-                scored_candidates.sort(key=lambda x: x[1], reverse=True)
-                top_candidates = scored_candidates[:rerank_top_k]
+                top_candidates = self._handle_embedding_error(e, query, fts_results, candidate_chunks, rerank_top_k)
             else:
-                # Get embeddings for candidates
-                candidate_embeddings = {}
-                for chunk in candidate_chunks:
-                    if chunk.embedding:
-                        candidate_embeddings[chunk.id] = chunk.embedding
-
-                # Compute similarities
-                scored_candidates = []
-                for chunk in candidate_chunks:
-                    if chunk.id not in candidate_embeddings:
-                        continue
-                    
-                    # Cosine similarity
-                    embedding = candidate_embeddings[chunk.id]
-                    similarity = self._cosine_similarity(query_vector, embedding)
-                    
-                    # Combine FTS5 score and vector similarity
-                    # Weight: 0.3 FTS5 + 0.7 vector (can be tuned)
-                    fts_score = next((doc.score for doc in fts_results if doc.id == chunk.id), 0.0)
-                    
-                    # Normalize FTS5 score relative to max in results
-                    max_fts_score = max((doc.score for doc in fts_results), default=1.0)
-                    if max_fts_score > 0:
-                        normalized_fts = fts_score / max_fts_score
-                    else:
-                        normalized_fts = 0.0
-                    
-                    combined_score = 0.3 * normalized_fts + 0.7 * similarity
-                    
-                    if self.log_level <= LOG_DEBUG:
-                        syslog2(LOG_DEBUG, "hybrid_retrieval: combined score", 
-                               chunk_id=chunk.id,
-                               fts_raw=fts_score,
-                               fts_normalized=normalized_fts,
-                               vector_similarity=similarity,
-                               combined=combined_score)
-                    
-                    scored_candidates.append((chunk, combined_score, similarity))
-
-                # Sort by combined score
-                scored_candidates.sort(key=lambda x: x[1], reverse=True)
-                
-                # Take top rerank_top_k
-                top_candidates = scored_candidates[:rerank_top_k]
+                top_candidates = self._rerank_with_vectors(query_vector, fts_results, candidate_chunks, rerank_top_k)
 
         if self.log_level <= LOG_DEBUG:
             syslog2(LOG_DEBUG, "hybrid_retrieval: after rerank", count=len(top_candidates))
@@ -286,6 +167,192 @@ class HybridRetrievalService:
             return 0.0
         
         return dot_product / (norm1 * norm2)
+
+    def _search_fts_only(
+        self,
+        fts_results: List,
+        rerank_top_k: int
+    ) -> List[tuple]:
+        """
+        Handle FTS-only mode: skip vector reranking and return FTS results directly.
+        
+        Args:
+            fts_results: FTS5 search results
+            rerank_top_k: Number of top candidates to return
+            
+        Returns:
+            List of (chunk, normalized_fts_score, vector_score) tuples
+        """
+        if self.log_level <= LOG_DEBUG:
+            syslog2(LOG_DEBUG, "hybrid_retrieval: FTS-only mode, skipping vector reranking")
+        
+        # Get chunks from FTS results
+        candidate_ids = [doc.id for doc in fts_results]
+        if self.log_level <= LOG_DEBUG:
+            syslog2(LOG_DEBUG, "hybrid_retrieval: FTS results", 
+                   count=len(fts_results), 
+                   ids=candidate_ids[:5],
+                   scores=[doc.score for doc in fts_results[:5]])
+        
+        candidate_chunks = self.chunk_store.get_by_ids(candidate_ids)
+        
+        if not candidate_chunks:
+            if self.log_level <= LOG_DEBUG:
+                syslog2(LOG_DEBUG, "hybrid_retrieval: no chunks found for FTS results")
+            return []
+        
+        # Normalize FTS scores relative to max score in results (better than fixed division)
+        max_fts_score = max((doc.score for doc in fts_results), default=1.0)
+        if self.log_level <= LOG_DEBUG:
+            syslog2(LOG_DEBUG, "hybrid_retrieval: FTS score normalization", 
+                   max_score=max_fts_score,
+                   raw_scores=[doc.score for doc in fts_results[:5]])
+        
+        # Create scored candidates from FTS results only
+        scored_candidates = []
+        for doc in fts_results:
+            chunk = next((c for c in candidate_chunks if c.id == doc.id), None)
+            if chunk:
+                # Normalize FTS score to 0-1 range using relative normalization
+                if max_fts_score > 0:
+                    normalized_fts = doc.score / max_fts_score
+                else:
+                    normalized_fts = 0.0
+                
+                if self.log_level <= LOG_DEBUG:
+                    syslog2(LOG_DEBUG, "hybrid_retrieval: FTS score normalized", 
+                           chunk_id=chunk.id,
+                           raw_score=doc.score,
+                           normalized_score=normalized_fts,
+                           max_score=max_fts_score)
+                
+                scored_candidates.append((chunk, normalized_fts, 0.0))  # vector_score = 0.0 for FTS-only
+        
+        # Sort by FTS score
+        scored_candidates.sort(key=lambda x: x[1], reverse=True)
+        top_candidates = scored_candidates[:rerank_top_k]
+        
+        if self.log_level <= LOG_DEBUG:
+            syslog2(LOG_DEBUG, "hybrid_retrieval: FTS-only top candidates", 
+                   count=len(top_candidates),
+                   scores=[(c[0].id, c[1]) for c in top_candidates[:5]])
+        
+        return top_candidates
+
+    def _handle_embedding_error(
+        self,
+        error: Exception,
+        query: str,
+        fts_results: List,
+        candidate_chunks: List[Chunk],
+        rerank_top_k: int
+    ) -> List[tuple]:
+        """
+        Handle embedding computation errors by falling back to FTS-only mode.
+        
+        Args:
+            error: The exception that occurred during embedding computation
+            query: Original search query
+            fts_results: FTS5 search results
+            candidate_chunks: Chunks retrieved from FTS results
+            rerank_top_k: Number of top candidates to return
+            
+        Returns:
+            List of (chunk, normalized_fts_score, vector_score) tuples
+        """
+        syslog2(LOG_ERR, "hybrid_retrieval: embedding computation failed", query=query, error=str(error))
+        # Fallback to FTS-only if embedding fails
+        if self.log_level <= LOG_DEBUG:
+            syslog2(LOG_DEBUG, "hybrid_retrieval: falling back to FTS-only after embedding error")
+        
+        # Normalize FTS scores relative to max
+        max_fts_score = max((doc.score for doc in fts_results), default=1.0)
+        scored_candidates = []
+        for doc in fts_results:
+            chunk = next((c for c in candidate_chunks if c.id == doc.id), None)
+            if chunk:
+                if max_fts_score > 0:
+                    normalized_fts = doc.score / max_fts_score
+                else:
+                    normalized_fts = 0.0
+                
+                if self.log_level <= LOG_DEBUG:
+                    syslog2(LOG_DEBUG, "hybrid_retrieval: fallback FTS normalization", 
+                           chunk_id=chunk.id,
+                           raw_score=doc.score,
+                           normalized_score=normalized_fts)
+                
+                scored_candidates.append((chunk, normalized_fts, 0.0))
+        scored_candidates.sort(key=lambda x: x[1], reverse=True)
+        top_candidates = scored_candidates[:rerank_top_k]
+        
+        return top_candidates
+
+    def _rerank_with_vectors(
+        self,
+        query_vector: List[float],
+        fts_results: List,
+        candidate_chunks: List[Chunk],
+        rerank_top_k: int
+    ) -> List[tuple]:
+        """
+        Rerank FTS candidates using vector similarity.
+        
+        Args:
+            query_vector: Query embedding vector
+            fts_results: FTS5 search results
+            candidate_chunks: Chunks retrieved from FTS results
+            rerank_top_k: Number of top candidates to return
+            
+        Returns:
+            List of (chunk, combined_score, vector_score) tuples
+        """
+        # Get embeddings for candidates
+        candidate_embeddings = {}
+        for chunk in candidate_chunks:
+            if chunk.embedding:
+                candidate_embeddings[chunk.id] = chunk.embedding
+
+        # Compute similarities
+        scored_candidates = []
+        for chunk in candidate_chunks:
+            if chunk.id not in candidate_embeddings:
+                continue
+            
+            # Cosine similarity
+            embedding = candidate_embeddings[chunk.id]
+            similarity = self._cosine_similarity(query_vector, embedding)
+            
+            # Combine FTS5 score and vector similarity
+            # Weight: 0.3 FTS5 + 0.7 vector (can be tuned)
+            fts_score = next((doc.score for doc in fts_results if doc.id == chunk.id), 0.0)
+            
+            # Normalize FTS5 score relative to max in results
+            max_fts_score = max((doc.score for doc in fts_results), default=1.0)
+            if max_fts_score > 0:
+                normalized_fts = fts_score / max_fts_score
+            else:
+                normalized_fts = 0.0
+            
+            combined_score = 0.3 * normalized_fts + 0.7 * similarity
+            
+            if self.log_level <= LOG_DEBUG:
+                syslog2(LOG_DEBUG, "hybrid_retrieval: combined score", 
+                       chunk_id=chunk.id,
+                       fts_raw=fts_score,
+                       fts_normalized=normalized_fts,
+                       vector_similarity=similarity,
+                       combined=combined_score)
+            
+            scored_candidates.append((chunk, combined_score, similarity))
+
+        # Sort by combined score
+        scored_candidates.sort(key=lambda x: x[1], reverse=True)
+        
+        # Take top rerank_top_k
+        top_candidates = scored_candidates[:rerank_top_k]
+        
+        return top_candidates
 
     def _pack_context(
         self,
