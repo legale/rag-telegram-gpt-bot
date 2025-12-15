@@ -28,7 +28,9 @@ class HelpCommandHandler(CommandHandler):
             "• /reset — сбросить контекст разговора\n"
             "• /tokens — показать использование токенов\n"
             "• /model — переключить модель LLM\n"
-            "• /find [thr] <запрос> — поиск сообщений по запросу\n\n"
+            "• /find <rag_method> <запрос> — поиск сообщений\n"
+            "  /find <rag_method> list — показать список методов\n"
+            "  Методы: hybrid, vector_only, fts_only\n\n"
             "Просто напишите свой вопрос!"
         )
         return CommandResult(success=True, message=message)
@@ -158,122 +160,104 @@ class FindCommandHandler(CommandHandler):
         Handle /find command.
 
         Args:
-            context: Command context with args containing query and optional threshold
+            context: Command context with args containing rag_method and query or list
 
         Returns:
             CommandResult with search results or error
         """
         from src.bot.command_parser import parse_find_command_args
-        from src.app.bootstrap import create_hybrid_search
+        from src.app.bootstrap import create_hybrid_retrieval
+        from src.core.message_search import search_message_contents
         from src.lib.syslog2 import syslog2, LOG_ERR, LOG_ALERT
 
         try:
             # Parse arguments from context
             args_text = " ".join(context.args) if context.args else ""
-            threshold, query = parse_find_command_args(args_text, self.admin_manager)
+            rag_method, action, query_or_error = parse_find_command_args(args_text, self.admin_manager)
             
-            if threshold is None:
+            if rag_method is None:
+                # query_or_error contains error message
                 return CommandResult(
                     success=False,
-                    message=query,  # query is error message in this case
+                    message=query_or_error,
                     error="Invalid arguments"
                 )
 
+            # Handle "list" action
+            if action == "list":
+                message = (
+                    "Доступные методы RAG:\n\n"
+                    "• hybrid - гибридный поиск (FTS5 + векторный rerank)\n"
+                    "  Использует FTS5 для первичного поиска, затем векторный поиск для ранжирования\n\n"
+                    "• vector_only - только векторный поиск\n"
+                    "  Использует только векторные embeddings для поиска\n\n"
+                    "• fts_only - только FTS5 поиск\n"
+                    "  Использует только полнотекстовый поиск SQLite FTS5\n\n"
+                    f"Текущий метод: {rag_method}"
+                )
+                return CommandResult(
+                    success=True,
+                    message=message,
+                    data={"rag_method": rag_method, "action": "list"}
+                )
+
+            # Perform search
+            query = query_or_error
+            
             # Get paths from bot_instance
-            db_url = self.bot.db_url
-            vector_db_path = self.bot.vector_db_path
+            db_url = self.bot.db.db_url  # Fix: use db.db_url instead of db_url
+            vector_db_path = self.bot.vector_store.persist_directory  # Get from vector_store
             profile_dir = str(self.bot.profile_dir) if hasattr(self.bot, 'profile_dir') and self.bot.profile_dir else None
 
-            # Create HybridSearch use case
-            hybrid_search = create_hybrid_search(
+            # Create HybridRetrievalService with specified retrieval mode
+            retrieval_service = create_hybrid_retrieval(
                 db_url=db_url,
                 vector_db_path=vector_db_path,
                 embedding_client=self.bot.embedding_client,
-                profile_dir=profile_dir
+                profile_dir=profile_dir,
+                log_level=self.bot.log_level,
+                retrieval_mode=rag_method,
+                llm_client=self.bot.llm_client if hasattr(self.bot, 'llm_client') else None
             )
 
-            # Perform search
-            # Note: HybridSearch.search uses threshold as minimum similarity (>= threshold)
-            # But we have distance threshold (<= threshold, lower is better)
-            # Convert distance to similarity: similarity = 1 - distance
-            similarity_threshold = 1.0 - threshold if threshold <= 1.0 else 0.0
-            
-            search_results = hybrid_search.search(
+            # Get threshold from config or use default
+            threshold = 1.5
+            if self.admin_manager:
+                threshold = self.admin_manager.config.cosine_distance_thr
+
+            # Perform search using search_message_contents
+            message_parts_list = search_message_contents(
+                retrieval=retrieval_service,
+                db=self.bot.db,
                 query=query,
                 top_k=100,
-                threshold=similarity_threshold,  # Convert distance to similarity
-                enrich_with_messages=True,
-                chat_id=context.chat_id  # Filter by chat_id if provided
-            )
-
-            if not search_results:
-                return CommandResult(
-                    success=True,
-                    message=f'по запросу "{query}" ничего не найдено (distance <= {threshold})',
-                    data={"results_count": 0}
-                )
-
-            # For Telegram bot, we need to return a special result that will be handled
-            # by the message handler to format and send results properly
-            # Store results in metadata for later processing
-            return CommandResult(
-                success=True,
-                message="",  # Empty message - results will be sent separately
-                data={
-                    "results": search_results,
-                    "query": query,
-                    "threshold": threshold,
-                    "results_count": len(search_results),
-                    "needs_formatting": True  # Flag to indicate special handling needed
-                }
+                threshold=threshold,
+                debug_rag=self.debug_rag
             )
 
             if not message_parts_list:
                 return CommandResult(
                     success=True,
-                    message=f'по запросу "{query}" ничего не найдено',
-                    data={"results_count": 0}
+                    message=f'по запросу "{query}" ничего не найдено (метод: {rag_method})',
+                    data={"results_count": 0, "rag_method": rag_method}
                 )
 
-            syslog2(
-                LOG_ALERT,
-                "find command cli",
-                query=query,
-                threshold=threshold,
-                chunks_found=len(filtered_results),
-                messages=len(message_parts_list),
-            )
-
-            # Format results for CLI output
-            output_lines = [f'Найдено результатов по запросу "{query}" (threshold={threshold}):\n']
-            output_lines.append("=" * 70)
-
-            for idx, message_parts in enumerate(message_parts_list, 1):
-                for part_idx, part in enumerate(message_parts, 1):
-                    content = part.get("content", "")
-                    # Simple HTML tag removal for console
-                    import re
-                    content = re.sub(r'<[^>]+>', '', content)
-
-                    output_lines.append(f"\n--- Результат {idx}, часть {part_idx} ---")
-                    output_lines.append(f"Distance: {part.get('distance', 'N/A')}")
-                    output_lines.append("-" * 70)
-                    output_lines.append(content)
-                    output_lines.append("-" * 70)
-
+            # For Telegram bot, we need to return a special result that will be handled
+            # by the message handler to format and send results properly
             return CommandResult(
                 success=True,
-                message="\n".join(output_lines),
+                message="",  # Empty message - results will be sent separately
                 data={
-                    "results_count": len(filtered_results),
-                    "messages_count": len(message_parts_list),
+                    "message_parts_list": message_parts_list,
                     "query": query,
-                    "threshold": threshold
+                    "rag_method": rag_method,
+                    "results_count": len(message_parts_list),
+                    "needs_formatting": True  # Flag to indicate special handling needed
                 }
             )
 
         except Exception as e:
-            syslog2(LOG_ERR, "find command cli failed", error=str(e))
+            syslog2(LOG_ERR, "find command failed", error=str(e))
             return CommandResult(
                 success=False,
                 message=f"Ошибка при выполнении поиска: {e}",

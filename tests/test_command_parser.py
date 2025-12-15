@@ -34,63 +34,73 @@ def admin_manager(temp_profile_dir):
 class TestParseFindCommandArgs:
     """Tests for parse_find_command_args function."""
     
-    def test_parse_with_threshold_and_query(self):
-        """Test parsing with threshold and query."""
-        threshold, query = parse_find_command_args("2.0 vpn туннель")
-        assert threshold == 2.0
+    def test_parse_with_rag_method_and_query(self):
+        """Test parsing with rag_method and query."""
+        rag_method, action, query = parse_find_command_args("hybrid vpn туннель")
+        assert rag_method == "hybrid"
+        assert action is None
         assert query == "vpn туннель"
     
-    def test_parse_with_query_only(self):
-        """Test parsing with query only."""
-        threshold, query = parse_find_command_args("vpn туннель")
-        assert threshold == 1.5  # default
-        assert query == "vpn туннель"
+    def test_parse_with_list_action(self):
+        """Test parsing with list action."""
+        rag_method, action, query = parse_find_command_args("hybrid list")
+        assert rag_method == "hybrid"
+        assert action == "list"
+        assert query is None
     
     def test_parse_with_slash_find_prefix(self):
         """Test parsing with /find prefix."""
-        threshold, query = parse_find_command_args("/find 2.0 vpn туннель")
-        assert threshold == 2.0
-        assert query == "vpn туннель"
+        rag_method, action, query = parse_find_command_args("/find vector_only test query")
+        assert rag_method == "vector_only"
+        assert action is None
+        assert query == "test query"
     
-    def test_parse_with_slash_find_and_query_only(self):
-        """Test parsing /find with query only."""
-        threshold, query = parse_find_command_args("/find vpn туннель")
-        assert threshold == 1.5
-        assert query == "vpn туннель"
+    def test_parse_with_fts_only(self):
+        """Test parsing with fts_only method."""
+        rag_method, action, query = parse_find_command_args("/find fts_only поиск")
+        assert rag_method == "fts_only"
+        assert action is None
+        assert query == "поиск"
     
     def test_parse_empty_string(self):
         """Test parsing empty string."""
-        threshold, error = parse_find_command_args("")
-        assert threshold is None
+        rag_method, action, error = parse_find_command_args("")
+        assert rag_method is None
+        assert action is None
         assert "Использование" in error
     
-    def test_parse_only_threshold(self):
-        """Test parsing with only threshold (no query)."""
-        threshold, error = parse_find_command_args("2.0")
-        assert threshold is None
-        assert "Использование" in error
+    def test_parse_invalid_rag_method(self):
+        """Test parsing with invalid rag_method."""
+        rag_method, action, error = parse_find_command_args("invalid_method query")
+        assert rag_method is None
+        assert action is None
+        assert "Неизвестный метод RAG" in error
     
-    def test_parse_with_admin_manager(self, admin_manager):
-        """Test parsing with AdminManager."""
-        threshold, query = parse_find_command_args("vpn туннель", admin_manager=admin_manager)
-        assert threshold == 1.5  # from config
-        assert query == "vpn туннель"
+    def test_parse_only_rag_method(self):
+        """Test parsing with only rag_method (no query or list)."""
+        rag_method, action, error = parse_find_command_args("hybrid")
+        assert rag_method is None
+        assert action is None
+        assert "Необходимо указать действие или запрос" in error
     
-    def test_parse_with_admin_manager_custom_threshold(self, admin_manager):
-        """Test parsing with AdminManager and custom threshold."""
-        threshold, query = parse_find_command_args("2.5 vpn туннель", admin_manager=admin_manager)
-        assert threshold == 2.5
-        assert query == "vpn туннель"
+    def test_parse_with_multi_word_query(self):
+        """Test parsing with multi-word query."""
+        rag_method, action, query = parse_find_command_args("hybrid vpn туннель настройка")
+        assert rag_method == "hybrid"
+        assert action is None
+        assert query == "vpn туннель настройка"
     
-    def test_parse_whitespace_handling(self):
-        """Test parsing with extra whitespace."""
-        threshold, query = parse_find_command_args("  2.0   vpn   туннель  ")
-        assert threshold == 2.0
-        assert query == "vpn   туннель"
+    def test_parse_case_insensitive_rag_method(self):
+        """Test parsing with case-insensitive rag_method."""
+        rag_method, action, query = parse_find_command_args("HYBRID test")
+        assert rag_method == "hybrid"
+        assert action is None
+        assert query == "test"
     
-    def test_parse_float_threshold(self):
-        """Test parsing with float threshold."""
-        threshold, query = parse_find_command_args("0.5 test query")
-        assert threshold == 0.5
-        assert query == "test query"
+    def test_parse_list_case_insensitive(self):
+        """Test parsing with case-insensitive list action."""
+        rag_method, action, query = parse_find_command_args("vector_only LIST")
+        assert rag_method == "vector_only"
+        assert action == "list"
+        assert query is None
 

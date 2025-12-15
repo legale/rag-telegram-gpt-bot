@@ -449,8 +449,33 @@ class MessageHandler:
                 
                 # Handle special case: find command needs formatting
                 if result.success and result.data and result.data.get("needs_formatting"):
-                    # Use old handle_find_command for formatting and sending results
-                    return await self.handle_find_command(text, update)
+                    # Send formatted search results
+                    message_parts_list = result.data.get("message_parts_list", [])
+                    query = result.data.get("query", "")
+                    rag_method = result.data.get("rag_method", "hybrid")
+                    chat_id = update.message.chat_id
+                    
+                    total_parts = await _send_message_parts_unified(
+                        chat_id=chat_id,
+                        message_parts_list=message_parts_list,
+                        empty_message=f'по запросу "{query}" ничего не найдено (метод: {rag_method})',
+                        log_context={
+                            "query": query,
+                            "rag_method": rag_method,
+                            "results_count": len(message_parts_list),
+                        }
+                    )
+                    
+                    syslog2(
+                        LOG_ALERT,
+                        "find command response sent",
+                        chat_id=chat_id,
+                        query=query,
+                        rag_method=rag_method,
+                        results_count=len(message_parts_list),
+                        parts=total_parts,
+                    )
+                    return ""  # Empty string to signal "handled, but ничего не слать отдельно"
             
             # Return message if command was handled
             if result.success or result.error:

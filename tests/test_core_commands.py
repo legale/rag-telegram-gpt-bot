@@ -154,4 +154,140 @@ class TestFindCommandHandler:
         
         # Should return error for empty query
         assert result.success is False or "Использование" in result.message
+    
+    def test_handle_with_list_action(self, tmp_path, monkeypatch):
+        """Test handle with list action."""
+        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+        from src.bot.core import LegaleBot
+        
+        bot = LegaleBot(
+            db_url=f"sqlite:///{tmp_path}/test.db",
+            vector_db_path=str(tmp_path / "vector"),
+            model_name="test-model"
+        )
+        
+        handler = FindCommandHandler(bot)
+        context = CommandContext(args=["hybrid", "list"])
+        result = handler.handle(context)
+        
+        assert result.success is True
+        assert "Доступные методы RAG" in result.message
+        assert result.data["action"] == "list"
+        assert result.data["rag_method"] == "hybrid"
+    
+    def test_handle_with_hybrid_search(self, tmp_path, monkeypatch):
+        """Test handle with hybrid search method."""
+        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+        from src.bot.core import LegaleBot
+        
+        bot = LegaleBot(
+            db_url=f"sqlite:///{tmp_path}/test.db",
+            vector_db_path=str(tmp_path / "vector"),
+            model_name="test-model"
+        )
+        
+        handler = FindCommandHandler(bot)
+        context = CommandContext(args=["hybrid", "test", "query"])
+        result = handler.handle(context)
+        
+        # Should succeed (even if no results found)
+        # The key is that it doesn't crash with AttributeError
+        assert result is not None
+        # Either success with empty results or error message, but not AttributeError
+        if result.success:
+            assert "message_parts_list" in result.data or "results_count" in result.data
+        else:
+            # Error should not be about missing attributes
+            assert "vector_db_path" not in str(result.error).lower()
+            assert "db_url" not in str(result.error).lower()
+    
+    def test_handle_with_vector_only_search(self, tmp_path, monkeypatch):
+        """Test handle with vector_only search method."""
+        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+        from src.bot.core import LegaleBot
+        
+        bot = LegaleBot(
+            db_url=f"sqlite:///{tmp_path}/test.db",
+            vector_db_path=str(tmp_path / "vector"),
+            model_name="test-model"
+        )
+        
+        handler = FindCommandHandler(bot)
+        context = CommandContext(args=["vector_only", "test", "query"])
+        result = handler.handle(context)
+        
+        # Should succeed (even if no results found)
+        assert result is not None
+        if result.success:
+            assert result.data["rag_method"] == "vector_only"
+        else:
+            # Error should not be about missing attributes
+            assert "vector_db_path" not in str(result.error).lower()
+    
+    def test_handle_with_fts_only_search(self, tmp_path, monkeypatch):
+        """Test handle with fts_only search method."""
+        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+        from src.bot.core import LegaleBot
+        
+        bot = LegaleBot(
+            db_url=f"sqlite:///{tmp_path}/test.db",
+            vector_db_path=str(tmp_path / "vector"),
+            model_name="test-model"
+        )
+        
+        handler = FindCommandHandler(bot)
+        context = CommandContext(args=["fts_only", "test", "query"])
+        result = handler.handle(context)
+        
+        # Should succeed (even if no results found)
+        assert result is not None
+        if result.success:
+            assert result.data["rag_method"] == "fts_only"
+        else:
+            # Error should not be about missing attributes
+            assert "vector_db_path" not in str(result.error).lower()
+    
+    def test_handle_with_invalid_rag_method(self, tmp_path, monkeypatch):
+        """Test handle with invalid RAG method."""
+        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+        from src.bot.core import LegaleBot
+        
+        bot = LegaleBot(
+            db_url=f"sqlite:///{tmp_path}/test.db",
+            vector_db_path=str(tmp_path / "vector"),
+            model_name="test-model"
+        )
+        
+        handler = FindCommandHandler(bot)
+        context = CommandContext(args=["invalid_method", "query"])
+        result = handler.handle(context)
+        
+        assert result.success is False
+        assert "Неизвестный метод RAG" in result.message
+    
+    def test_handle_uses_vector_store_persist_directory(self, tmp_path, monkeypatch):
+        """Test that handler correctly uses vector_store.persist_directory."""
+        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+        from src.bot.core import LegaleBot
+        
+        vector_path = tmp_path / "vector"
+        bot = LegaleBot(
+            db_url=f"sqlite:///{tmp_path}/test.db",
+            vector_db_path=str(vector_path),
+            model_name="test-model"
+        )
+        
+        # Verify bot has vector_store with persist_directory
+        assert hasattr(bot, 'vector_store')
+        assert hasattr(bot.vector_store, 'persist_directory')
+        assert bot.vector_store.persist_directory == str(vector_path)
+        
+        handler = FindCommandHandler(bot)
+        context = CommandContext(args=["hybrid", "test"])
+        result = handler.handle(context)
+        
+        # Should not crash with AttributeError about vector_db_path
+        assert result is not None
+        if not result.success:
+            assert "vector_db_path" not in str(result.error).lower()
 
