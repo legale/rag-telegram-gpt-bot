@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import unicodedata
 import sqlite3
-from typing import List, Optional
+from typing import List, Optional, Tuple, Dict
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError, DatabaseError as SQLAlchemyDatabaseError
 
@@ -360,6 +360,170 @@ class SqliteFTSIndex:
         # Attempt to rebuild the table
         return self._rebuild_fts_table(table)
 
+    def _normalize_query_text(self, query: str) -> str:
+        """
+        Normalize query text for FTS5 search.
+        
+        Args:
+            query: Raw query text
+            
+        Returns:
+            Normalized and escaped FTS5 query string, or empty string if query is invalid
+        """
+        if not query:
+            return ""
+        
+        # Normalize query
+        normalized_query = self.normalize_text(query)
+        if not normalized_query:
+            return ""
+        
+        # Build FTS5 query (escape special characters)
+        # FTS5 uses double quotes for phrases, but we'll use simple term matching
+        return normalized_query.replace('"', '""')
+    
+    def _build_where_clause(
+        self,
+        table: str,
+        filters: Optional[SearchFilters],
+        fts_query: str
+    ) -> Tuple[str, str, Dict]:
+        """
+        Build WHERE clause and JOIN SQL for FTS search.
+        
+        Args:
+            table: FTS table name ("chunks_fts" or "messages_fts")
+            filters: Optional search filters
+            fts_query: Normalized FTS query string
+            
+        Returns:
+            Tuple of (where_sql, join_sql, params_dict)
+        """
+        # Build WHERE clause for filters
+        where_clauses = []
+        params = {}
+        
+        if filters:
+            if filters.chat_id:
+                where_clauses.append(f"{table}.chat_id = :chat_id")
+                params["chat_id"] = filters.chat_id
+            
+            if filters.author:
+                if table == "messages_fts":
+                    where_clauses.append(f"{table}.from_id = :author")
+                else:
+                    # For chunks, we need to join with messages or check metadata
+                    # For now, we'll skip author filter for chunks
+                    pass
+                params["author"] = filters.author
+            
+            if filters.time_from:
+                if table == "messages_fts":
+                    where_clauses.append(f"{table}.ts >= :time_from")
+                else:
+                    where_clauses.append(f"chunks.ts_from >= :time_from")
+                params["time_from"] = filters.time_from
+            
+            if filters.time_to:
+                if table == "messages_fts":
+                    where_clauses.append(f"{table}.ts <= :time_to")
+                else:
+                    where_clauses.append(f"chunks.ts_to <= :time_to")
+                params["time_to"] = filters.time_to
+        
+        # Build WHERE clause combining filters and FTS5 match
+        where_parts = [f"{table} MATCH :query"]
+        join_sql = ""
+        
+        # For chunks, we need to join with main table for time filters
+        if table == "chunks_fts" and filters and (filters.time_from or filters.time_to):
+            # Need to join with chunks table for time filters
+            join_sql = "JOIN chunks ON chunks_fts.id = chunks.id"
+            if filters.time_from:
+                where_parts.append("chunks.ts_from >= :time_from")
+            if filters.time_to:
+                where_parts.append("chunks.ts_to <= :time_to")
+        elif where_clauses:
+            where_parts.extend(where_clauses)
+        
+        where_sql = "WHERE " + " AND ".join(where_parts)
+        params["query"] = fts_query
+        
+        return where_sql, join_sql, params
+    
+    def _execute_fts_query(
+        self,
+        table: str,
+        where_sql: str,
+        join_sql: str,
+        params: Dict,
+        top_k: int
+    ) -> List[ScoredDoc]:
+        """
+        Execute FTS5 search query and return results.
+        
+        Args:
+            table: FTS table name ("chunks_fts" or "messages_fts")
+            where_sql: WHERE clause SQL
+            join_sql: JOIN clause SQL (may be empty)
+            params: Query parameters dictionary
+            top_k: Number of results to return
+            
+        Returns:
+            List of ScoredDoc with document IDs and scores
+        """
+        # FTS5 search query
+        # bm25() gives better ranking than simple rank
+        if join_sql:
+            # Use JOIN for chunks with time filters
+            sql = f"""
+                SELECT 
+                    {table}.rowid,
+                    {table}.id as doc_id,
+                    bm25({table}) as score
+                FROM {table}
+                {join_sql}
+                {where_sql}
+                ORDER BY bm25({table})
+                LIMIT :top_k
+            """
+        else:
+            sql = f"""
+                SELECT 
+                    {table}.rowid,
+                    {table}.{'msg_id' if table == 'messages_fts' else 'id'} as doc_id,
+                    bm25({table}) as score
+                FROM {table}
+                {where_sql}
+                ORDER BY bm25({table})
+                LIMIT :top_k
+            """
+        
+        params["top_k"] = top_k
+        
+        session = self.db.get_session()
+        try:
+            result = session.execute(text(sql), params)
+            rows = result.fetchall()
+            
+            scored_docs = []
+            for row in rows:
+                doc_id = row[1]  # doc_id column
+                score = row[2]   # score column
+                # FTS5 bm25 returns negative scores (lower is better), convert to positive
+                # Higher score = better match
+                normalized_score = abs(score) if score < 0 else score
+                
+                scored_docs.append(ScoredDoc(
+                    id=str(doc_id),
+                    score=normalized_score,
+                    meta={}
+                ))
+            
+            return scored_docs
+        finally:
+            session.close()
+    
     def search(
         self,
         query: str,
@@ -379,124 +543,23 @@ class SqliteFTSIndex:
         Returns:
             List of ScoredDoc with document IDs and scores
         """
-        if not query:
+        # Normalize query text
+        fts_query = self._normalize_query_text(query)
+        if not fts_query:
             return []
-
-        # Normalize query
-        normalized_query = self.normalize_text(query)
-        if not normalized_query:
-            return []
-
-        # Build FTS5 query (escape special characters)
-        # FTS5 uses double quotes for phrases, but we'll use simple term matching
-        fts_query = normalized_query.replace('"', '""')
         
-        session = self.db.get_session()
+        # Build WHERE clause and JOIN SQL
+        where_sql, join_sql, params = self._build_where_clause(table, filters, fts_query)
+        
         try:
-            # Build WHERE clause for filters
-            where_clauses = []
-            params = {}
-            
-            if filters:
-                if filters.chat_id:
-                    where_clauses.append(f"{table}.chat_id = :chat_id")
-                    params["chat_id"] = filters.chat_id
-                
-                if filters.author:
-                    if table == "messages_fts":
-                        where_clauses.append(f"{table}.from_id = :author")
-                    else:
-                        # For chunks, we need to join with messages or check metadata
-                        # For now, we'll skip author filter for chunks
-                        pass
-                    params["author"] = filters.author
-                
-                if filters.time_from:
-                    if table == "messages_fts":
-                        where_clauses.append(f"{table}.ts >= :time_from")
-                    else:
-                        where_clauses.append(f"chunks.ts_from >= :time_from")
-                    params["time_from"] = filters.time_from
-                
-                if filters.time_to:
-                    if table == "messages_fts":
-                        where_clauses.append(f"{table}.ts <= :time_to")
-                    else:
-                        where_clauses.append(f"chunks.ts_to <= :time_to")
-                    params["time_to"] = filters.time_to
-            
-            # Build WHERE clause combining filters and FTS5 match
-            where_parts = [f"{table} MATCH :query"]
-            join_sql = ""
-            
-            # For chunks, we need to join with main table for time filters
-            if table == "chunks_fts" and filters and (filters.time_from or filters.time_to):
-                # Need to join with chunks table for time filters
-                join_sql = "JOIN chunks ON chunks_fts.id = chunks.id"
-                if filters.time_from:
-                    where_parts.append("chunks.ts_from >= :time_from")
-                if filters.time_to:
-                    where_parts.append("chunks.ts_to <= :time_to")
-            elif where_clauses:
-                where_parts.extend(where_clauses)
-            
-            where_sql = "WHERE " + " AND ".join(where_parts)
-            
-            # FTS5 search query
-            # bm25() gives better ranking than simple rank
-            if join_sql:
-                # Use JOIN for chunks with time filters
-                sql = f"""
-                    SELECT 
-                        {table}.rowid,
-                        {table}.id as doc_id,
-                        bm25({table}) as score
-                    FROM {table}
-                    {join_sql}
-                    {where_sql}
-                    ORDER BY bm25({table})
-                    LIMIT :top_k
-                """
-            else:
-                sql = f"""
-                    SELECT 
-                        {table}.rowid,
-                        {table}.{'msg_id' if table == 'messages_fts' else 'id'} as doc_id,
-                        bm25({table}) as score
-                    FROM {table}
-                    {where_sql}
-                    ORDER BY bm25({table})
-                    LIMIT :top_k
-                """
-            
-            params["query"] = fts_query
-            params["top_k"] = top_k
-            
-            result = session.execute(text(sql), params)
-            rows = result.fetchall()
-            
-            scored_docs = []
-            for row in rows:
-                doc_id = row[1]  # doc_id column
-                score = row[2]   # score column
-                # FTS5 bm25 returns negative scores (lower is better), convert to positive
-                # Higher score = better match
-                normalized_score = abs(score) if score < 0 else score
-                
-                scored_docs.append(ScoredDoc(
-                    id=str(doc_id),
-                    score=normalized_score,
-                    meta={}
-                ))
-            
-            return scored_docs
+            # Execute FTS query
+            return self._execute_fts_query(table, where_sql, join_sql, params, top_k)
             
         except (sqlite3.DatabaseError, OperationalError, SQLAlchemyDatabaseError) as e:
             syslog2(LOG_ERR, "database error during fts search", table=table, error=str(e))
             # Attempt recovery if not already attempted
             if not self._recovery_attempted:
                 syslog2(LOG_WARNING, "attempting fts table recovery after database error", table=table)
-                session.close()  # Close before recovery
                 if self._recover_fts_tables(table):
                     self._recovery_attempted = False  # Reset flag
                     # Retry search after recovery
@@ -510,7 +573,6 @@ class SqliteFTSIndex:
                 # Attempt recovery if not already attempted
                 if not self._recovery_attempted:
                     syslog2(LOG_WARNING, "attempting fts table recovery after database error", table=table)
-                    session.close()  # Close before recovery
                     if self._recover_fts_tables(table):
                         self._recovery_attempted = False  # Reset flag
                         # Retry search after recovery
@@ -518,8 +580,6 @@ class SqliteFTSIndex:
             else:
                 syslog2(LOG_ERR, "unexpected error during fts search", table=table, error=error_str)
             return []
-        finally:
-            session.close()
 
     def search_messages(
         self,

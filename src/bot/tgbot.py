@@ -911,6 +911,56 @@ def _map_syslog2_to_logging_level(syslog2_level: int) -> int:
     return mapping.get(syslog2_level, logging.WARNING)
 
 
+def _create_log_handler(use_syslog: bool) -> logging.Handler:
+    """
+    Create logging handler based on configuration.
+    
+    Args:
+        use_syslog: If True, create SysLogHandler, otherwise StreamHandler
+        
+    Returns:
+        Configured logging handler
+    """
+    if use_syslog:
+        from logging.handlers import SysLogHandler
+        return SysLogHandler(address='/dev/log')
+    else:
+        return logging.StreamHandler(sys.stdout)
+
+
+def _setup_formatter(handler: logging.Handler, use_syslog: bool) -> None:
+    """
+    Setup formatter for logging handler.
+    
+    Args:
+        handler: Logging handler to configure
+        use_syslog: If True, use syslog format, otherwise use standard format
+    """
+    if use_syslog:
+        formatter = logging.Formatter('legale-bot[%(process)d]: %(levelname)s - %(message)s')
+    else:
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+
+
+def _configure_loggers(handler: logging.Handler, level: int) -> None:
+    """
+    Configure root and uvicorn loggers with handler and level.
+    
+    Args:
+        handler: Logging handler to add to loggers
+        level: Logging level to set
+    """
+    # Configure root logger to capture all logs including syslog2 ("app")
+    root_logger = logging.getLogger()
+    root_logger.addHandler(handler)
+    root_logger.setLevel(level)
+    
+    # Also configure uvicorn logger
+    uvicorn_logger = logging.getLogger("uvicorn")
+    uvicorn_logger.setLevel(level)
+
+
 def setup_logging(log_level: Optional[str] = None, use_syslog: bool = False):
     """
     Configure logging based on log level.
@@ -926,23 +976,9 @@ def setup_logging(log_level: Optional[str] = None, use_syslog: bool = False):
     else:
         level = logging.WARNING
     
-    if use_syslog:
-        from logging.handlers import SysLogHandler
-        handler = SysLogHandler(address='/dev/log')
-        formatter = logging.Formatter('legale-bot[%(process)d]: %(levelname)s - %(message)s')
-    else:
-        handler = logging.StreamHandler(sys.stdout)
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    
-    handler.setFormatter(formatter)
-    # Configure root logger to capture all logs including syslog2 ("app")
-    root_logger = logging.getLogger()
-    root_logger.addHandler(handler)
-    root_logger.setLevel(level)
-    
-    # Also configure uvicorn logger
-    uvicorn_logger = logging.getLogger("uvicorn")
-    uvicorn_logger.setLevel(level)
+    handler = _create_log_handler(use_syslog)
+    _setup_formatter(handler, use_syslog)
+    _configure_loggers(handler, level)
 
 
 async def _init_profile_manager() -> None:
@@ -1599,6 +1635,34 @@ def _parse_search_mention(message, bot_username: str, bot_id: int) -> Tuple[bool
     return True, search_query
 
 
+async def _send_single_message_part(chat_id: int, part: Dict) -> None:
+    """
+    Send a single message part to chat.
+    
+    Args:
+        chat_id: Chat ID
+        part: Message part dictionary with "content" key
+    """
+    ctx = get_runtime_context()
+    await ctx.telegram_app.bot.send_message(
+        chat_id=chat_id,
+        text=part["content"],
+        parse_mode="HTML"
+    )
+
+
+async def _handle_send_error(chat_id: int, error: Exception, context: str = "message parts") -> None:
+    """
+    Handle error when sending message.
+    
+    Args:
+        chat_id: Chat ID
+        error: Exception that occurred
+        context: Context description for logging (e.g., "empty message", "message parts")
+    """
+    syslog2(LOG_ERR, f"failed to send {context}", chat_id=chat_id, error=str(error))
+
+
 async def _send_message_parts_unified(chat_id: int, message_parts_list: List[List[Dict]], empty_message: str = "", log_context: Dict = None) -> int:
     """
     Unified helper for sending message parts with logging.
@@ -1618,7 +1682,7 @@ async def _send_message_parts_unified(chat_id: int, message_parts_list: List[Lis
             try:
                 await ctx.telegram_app.bot.send_message(chat_id=chat_id, text=empty_message)
             except Exception as e:
-                syslog2(LOG_ERR, "failed to send empty message", chat_id=chat_id, error=str(e))
+                await _handle_send_error(chat_id, e, "empty message")
         return 0
     
     # Send each message part as separate message
@@ -1626,11 +1690,7 @@ async def _send_message_parts_unified(chat_id: int, message_parts_list: List[Lis
     try:
         for message_parts in message_parts_list:
             for part in message_parts:
-                await ctx.telegram_app.bot.send_message(
-                    chat_id=chat_id,
-                    text=part["content"],
-                    parse_mode="HTML"
-                )
+                await _send_single_message_part(chat_id, part)
                 total_parts += 1
         
         log_data = {"chat_id": chat_id, "messages": len(message_parts_list), "parts": total_parts}
@@ -1638,7 +1698,7 @@ async def _send_message_parts_unified(chat_id: int, message_parts_list: List[Lis
             log_data.update(log_context)
         syslog2(LOG_NOTICE, "message parts sent", **log_data)
     except Exception as e:
-        syslog2(LOG_ERR, "failed to send message parts", chat_id=chat_id, error=str(e))
+        await _handle_send_error(chat_id, e, "message parts")
     
     return total_parts
 
