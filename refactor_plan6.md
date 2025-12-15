@@ -148,7 +148,7 @@
 
 - [ ] file=src/ingestion/parser.py func=parse_file упростить: вынести парсинг JSON в _parse_json_file(), парсинг текстового файла в _parse_text_file()
 
-- [ ] file=src/ingestion/chunker.py func=_format_message упростить: использовать f-string template вместо конкатенации строк
+- [x] file=src/ingestion/chunker.py func=_format_message упростить: использовать f-string template вместо конкатенации строк
 
 - [x] file=src/ingestion/chunker.py func=_create_prefix упростить: использовать f-string template вместо конкатенации строк
 
