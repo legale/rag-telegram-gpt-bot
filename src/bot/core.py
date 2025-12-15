@@ -428,7 +428,6 @@ class LegaleBot:
         self, 
         context_chunks: List[Dict], 
         user_task: str, 
-        max_messages: int = 5,
         custom_template: Optional[str] = None
     ) -> Tuple[str, List[Dict[str, str]]]:
         """
@@ -437,12 +436,12 @@ class LegaleBot:
         Args:
             context_chunks: Retrieved context chunks
             user_task: User task/query string
-            max_messages: Maximum number of recent messages to include in history
             custom_template: Optional custom system prompt template
             
         Returns:
             Tuple of (system_prompt, history_for_prompt)
         """
+        max_messages = 5  # Default value from config
         history_for_prompt = self._build_history_for_prompt(max_messages=max_messages)
         system_prompt = self.prompt_engine.construct_prompt(
             context_chunks=context_chunks,
@@ -492,8 +491,7 @@ class LegaleBot:
         # делаем системный промпт без реального task, только для оценки объема контекста
         system_prompt, _ = self._build_prompt_and_history(
             context_chunks=[],
-            user_task="",
-            max_messages=5
+            user_task=""
         )
 
         # считаем так же, как реально вызываем модель: system + пустой user
@@ -664,7 +662,6 @@ class LegaleBot:
         system_prompt, _ = self._build_prompt_and_history(
             context_chunks=context_chunks,
             user_task=user_input,
-            max_messages=5,
             custom_template=system_prompt_template
         )
 
@@ -755,8 +752,7 @@ class LegaleBot:
         # Build prompt and history using helper
         system_prompt, _ = self._build_prompt_and_history(
             context_chunks=context_chunks,
-            user_task=user_input,
-            max_messages=5
+            user_task=user_input
         )
         
         # Count tokens using helper

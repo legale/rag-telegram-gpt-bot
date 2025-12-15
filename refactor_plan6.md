@@ -64,7 +64,7 @@
 
 - [x] file=src/bot/core.py func=_get_or_build_context уменьшить цикломатическую сложность: вынести проверку необходимости обновления контекста в _should_refresh_context(), построение нового контекста в _build_new_context(), оценку качества контекста в _evaluate_context_quality()
 
-- [ ] file=src/bot/core.py func=_build_prompt_and_history упростить: убрать параметр max_messages из сигнатуры, использовать значение по умолчанию из конфига
+- [x] file=src/bot/core.py func=_build_prompt_and_history упростить: убрать параметр max_messages из сигнатуры, использовать значение по умолчанию из конфига
 
 - [ ] file=src/core/message_search.py func=_prepare_message_parts уменьшить цикломатическую сложность: вынести получение сообщений для chunk в _get_messages_for_chunk(), форматирование сообщений в _format_message_parts_for_chunk()
 
