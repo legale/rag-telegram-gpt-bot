@@ -86,7 +86,7 @@
 
 - [x] file=src/bot/admin_tasks.py func=_persist_sql уменьшить цикломатическую сложность: вынести подготовку chunk models в _prepare_chunk_models(), сохранение в БД в _save_chunks_to_database()
 
-- [ ] file=src/bot/admin_tasks.py func=_persist_vectors уменьшить цикломатическую сложность: вынести подготовку данных для vector store в _prepare_vector_data(), синхронизацию в _sync_to_vector_store()
+- [x] file=src/bot/admin_tasks.py func=_persist_vectors уменьшить цикломатическую сложность: вынести подготовку данных для vector store в _prepare_vector_data(), синхронизацию в _sync_to_vector_store()
 
 - [ ] file=src/core/query_rewriter.py func=rephrase_for_embedding добавить обработку ошибок LLM: обрабатывать APIError, TimeoutError с fallback на возврат оригинального query
 

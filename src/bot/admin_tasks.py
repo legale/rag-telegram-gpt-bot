@@ -221,6 +221,45 @@ class IngestionTask:
         
         return ids, documents, metadatas
     
+    def _prepare_vector_data(
+        self,
+        ids: List[str],
+        documents: List[str],
+        metadatas: List[Dict]
+    ) -> Tuple[List[str], List[str], List[Dict]]:
+        """
+        Prepare data for vector store synchronization.
+        
+        Args:
+            ids: List of document IDs
+            documents: List of document texts
+            metadatas: List of metadata dictionaries
+            
+        Returns:
+            Tuple of (ids, documents, metadatas) ready for vector store
+        """
+        return ids, documents, metadatas
+
+    async def _sync_to_vector_store(
+        self,
+        pipeline,
+        ids: List[str],
+        documents: List[str],
+        metadatas: List[Dict]
+    ) -> None:
+        """
+        Synchronize data to vector store.
+        
+        Args:
+            pipeline: Pipeline instance with vector store
+            ids: List of document IDs
+            documents: List of document texts
+            metadatas: List of metadata dictionaries
+        """
+        if ids:
+            pipeline.vector_store.add_documents(ids=ids, documents=documents, metadatas=metadatas)
+            syslog2(LOG_NOTICE, "saved embeddings to vector store", count=len(ids))
+
     async def _persist_vectors(
         self, 
         pipeline, 
@@ -232,9 +271,15 @@ class IngestionTask:
         message_id: int
     ) -> None:
         """Persist embeddings to vector store."""
-        if ids:
-            pipeline.vector_store.add_documents(ids=ids, documents=documents, metadatas=metadatas)
-            syslog2(LOG_NOTICE, "saved embeddings to vector store", count=len(ids))
+        # Prepare vector data
+        vector_ids, vector_documents, vector_metadatas = self._prepare_vector_data(
+            ids, documents, metadatas
+        )
+        
+        # Sync to vector store
+        await self._sync_to_vector_store(
+            pipeline, vector_ids, vector_documents, vector_metadatas
+        )
     
     async def run(self, bot: Bot, chat_id: int, message_id: int):
         """
