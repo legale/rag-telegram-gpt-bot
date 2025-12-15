@@ -847,14 +847,14 @@ async def init_runtime_for_current_profile(args: Optional[SimpleNamespace] = Non
     ctx = get_runtime_context()
 
     # Step 1: Get profile paths
-    paths = _get_profile_paths()
+    paths = _get_profile_paths(ctx)
 
     # Step 2: Create admin manager (needed for bot configuration)
     profile_dir = paths["profile_dir"]
     admin_manager_local = _create_admin_manager(profile_dir)
 
     # Step 3: Create bot instance (also returns debug_rag flag)
-    bot_instance_local, debug_rag = _create_bot_instance(paths, admin_manager_local, args)
+    bot_instance_local, debug_rag = _create_bot_instance(paths, admin_manager_local, ctx, args)
 
     # Step 4: Create admin components (router, task_manager, ingest_commands)
     admin_router_local, task_manager_local, ingest_commands_local = _create_admin_components(paths, bot_instance_local, ctx)
