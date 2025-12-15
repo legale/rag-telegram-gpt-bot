@@ -152,13 +152,13 @@
 
 - [x] file=src/ingestion/chunker.py func=_create_prefix упростить: использовать f-string template вместо конкатенации строк
 
-- [ ] file=src/bot/tgbot.py func=_send_message_parts_unified упростить: вынести отправку одной части в _send_single_message_part(), обработку ошибок отправки в _handle_send_error()
+- [x] file=src/bot/tgbot.py func=_send_message_parts_unified упростить: вынести отправку одной части в _send_single_message_part(), обработку ошибок отправки в _handle_send_error()
 
 - [ ] file=src/bot/tgbot.py func=is_bot_mentioned упростить: вынести проверку mention entity в _check_mention_entity(), проверку text_mention entity в _check_text_mention_entity()
 
 - [ ] file=src/bot/tgbot.py func=_ensure_required_components упростить: вынести проверку admin_manager в _check_admin_manager(), проверку bot_instance в _check_bot_instance()
 
-- [ ] file=src/bot/tgbot.py func=_ensure_handler_available упростить: вынести выполнение handler в _execute_handler(), отправку response в _send_handler_response()
+- [x] file=src/bot/tgbot.py func=_ensure_handler_available упростить: вынести выполнение handler в _execute_handler(), отправку response в _send_handler_response()
 
 - [ ] file=src/bot/tgbot.py func=_handle_public_commands уменьшить цикломатическую сложность: вынести обработку каждой команды в отдельные функции _handle_id_command(), _handle_help_command(), _handle_admin_set_command()
 

@@ -1458,6 +1458,33 @@ def _ensure_required_components() -> Optional[MessageHandler]:
     return MessageHandler(ctx.bot_instance, ctx.admin_manager, ctx.admin_router)
 
 
+async def _execute_handler(handler_func, handler: MessageHandler, *args, **kwargs) -> Optional[str]:
+    """
+    Execute handler function and return response.
+    
+    Args:
+        handler_func: Async function that takes MessageHandler and returns response string
+        handler: MessageHandler instance
+        *args, **kwargs: Additional arguments to pass to handler_func
+        
+    Returns:
+        Response string from handler, or None if no response
+    """
+    return await handler_func(handler, *args, **kwargs)
+
+
+async def _send_handler_response(response: str, chat_id: int) -> None:
+    """
+    Send handler response to chat.
+    
+    Args:
+        response: Response text to send
+        chat_id: Chat ID for sending response
+    """
+    ctx = get_runtime_context()
+    await ctx.telegram_app.bot.send_message(chat_id=chat_id, text=response)
+
+
 async def _ensure_handler_available(handler_func, chat_id: int, *args, **kwargs) -> bool:
     """
     Ensure MessageHandler is available, execute handler function and send response.
@@ -1474,11 +1501,71 @@ async def _ensure_handler_available(handler_func, chat_id: int, *args, **kwargs)
     if not handler:
         return True  # Signal that command was "handled" (by dropping it)
     
-    response = await handler_func(handler, *args, **kwargs)
+    response = await _execute_handler(handler_func, handler, *args, **kwargs)
     if response:
-        ctx = get_runtime_context()
-        await ctx.telegram_app.bot.send_message(chat_id=chat_id, text=response)
+        await _send_handler_response(response, chat_id)
     return True
+
+
+async def _handle_id_command(message, chat_id: int) -> bool:
+    """
+    Handle /id command - send chat ID and user ID.
+    
+    Args:
+        message: Telegram message object
+        chat_id: Chat ID
+        
+    Returns:
+        True (command was handled)
+    """
+    user_id = message.from_user.id
+    ctx = get_runtime_context()
+    await ctx.telegram_app.bot.send_message(
+        chat_id=chat_id,
+        text=f"Chat ID: `{chat_id}`\nUser ID: `{user_id}`",
+        parse_mode="Markdown",
+    )
+    return True
+
+
+async def _handle_help_command(text: str, chat_id: int) -> bool:
+    """
+    Handle /help command.
+    
+    Args:
+        text: Message text
+        chat_id: Chat ID
+        
+    Returns:
+        True if command was handled, False otherwise
+    """
+    if text == "/help" or (text.startswith("/") and text.startswith("/help")):
+        async def help_handler(handler: MessageHandler) -> str:
+            return await handler.handle_help_command()
+        return await _ensure_handler_available(help_handler, chat_id)
+    return False
+
+
+async def _handle_admin_set_command(text: str, message, chat_id: int) -> bool:
+    """
+    Handle /admin_set or /set_admin command.
+    
+    Args:
+        text: Message text
+        message: Telegram message object
+        chat_id: Chat ID
+        
+    Returns:
+        True if command was handled, False otherwise
+    """
+    if text.startswith("/") and (text.startswith("/admin_set") or text.startswith("/set_admin")):
+        # Normalize command to /admin_set for handler
+        normalized_text = text.replace("/set_admin", "/admin_set", 1) if text.startswith("/set_admin") else text
+        
+        async def admin_set_handler(handler: MessageHandler) -> str:
+            return await handler.handle_admin_set_command(normalized_text, message)
+        return await _ensure_handler_available(admin_set_handler, chat_id)
+    return False
 
 
 async def _handle_public_commands(message, text: str, chat_id: int) -> bool:
@@ -1493,32 +1580,17 @@ async def _handle_public_commands(message, text: str, chat_id: int) -> bool:
     Returns:
         True if command was handled, False otherwise
     """
-    user_id = message.from_user.id
-    
     # Handle /id command
-    ctx = get_runtime_context()
     if text == "/id":
-        await ctx.telegram_app.bot.send_message(
-            chat_id=chat_id,
-            text=f"Chat ID: `{chat_id}`\nUser ID: `{user_id}`",
-            parse_mode="Markdown",
-        )
-        return True
+        return await _handle_id_command(message, chat_id)
     
     # Handle /help command
-    if text == "/help" or (text.startswith("/") and text.startswith("/help")):
-        async def help_handler(handler: MessageHandler) -> str:
-            return await handler.handle_help_command()
-        return await _ensure_handler_available(help_handler, chat_id)
+    if await _handle_help_command(text, chat_id):
+        return True
     
     # Handle /admin_set or /set_admin command
-    if text.startswith("/") and (text.startswith("/admin_set") or text.startswith("/set_admin")):
-        # Normalize command to /admin_set for handler
-        normalized_text = text.replace("/set_admin", "/admin_set", 1) if text.startswith("/set_admin") else text
-        
-        async def admin_set_handler(handler: MessageHandler) -> str:
-            return await handler.handle_admin_set_command(normalized_text, message)
-        return await _ensure_handler_available(admin_set_handler, chat_id)
+    if await _handle_admin_set_command(text, message, chat_id):
+        return True
     
     return False
 
