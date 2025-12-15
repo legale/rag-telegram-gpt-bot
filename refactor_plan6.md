@@ -204,7 +204,7 @@
 
 - [x] file=src/bot/utils/health_checker.py func=check_health упростить: вынести проверку БД в _check_database_health(), проверку vector store в _check_vector_store_health()
 
-- [w] file=src/bot/utils/response_formatter.py func=format_error_message упростить: вынести форматирование error message в _format_error(), добавление context в _add_context()
+- [x] file=src/bot/utils/response_formatter.py func=format_error_message упростить: вынести форматирование error message в _format_error(), добавление context в _add_context()
 
 - [ ] file=src/bot/utils/command_validator.py func=validate упростить: вынести валидацию command name в _validate_command_name(), валидацию args в _validate_args()
 
