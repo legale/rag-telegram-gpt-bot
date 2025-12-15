@@ -6,14 +6,14 @@ import pytest
 from unittest.mock import Mock, patch
 from datetime import datetime
 from src.core.message_search import search_message_links, search_message_contents
-from src.core.retrieval import RetrievalService
+from src.core.hybrid_retrieval import HybridRetrievalService
 from src.storage.db import Database, MessageModel
 
 
 @pytest.fixture
 def mock_retrieval():
-    """Create a mock RetrievalService."""
-    retrieval = Mock(spec=RetrievalService)
+    """Create a mock HybridRetrievalService."""
+    retrieval = Mock(spec=HybridRetrievalService)
     return retrieval
 
 

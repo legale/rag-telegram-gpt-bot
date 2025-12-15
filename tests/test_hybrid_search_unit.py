@@ -12,7 +12,7 @@ from unittest.mock import Mock
 
 from src.core.domain import Message, Chunk, SearchResult
 from src.core.interfaces import MessageStore, ChunkStore, VectorIndex, Embedder, ScoredDoc, VectorDoc
-from src.core.use_cases.search import HybridSearch
+from src.core.search import HybridSearch
 
 
 class FakeMessageStore:

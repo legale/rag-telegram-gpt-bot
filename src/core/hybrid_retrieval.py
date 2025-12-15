@@ -6,12 +6,12 @@ from typing import List, Optional, Dict, Set
 from datetime import datetime
 import json
 
-from ..domain import SearchResult, Chunk, Message
-from ..interfaces import (
+from src.core.domain import SearchResult, Chunk, Message
+from src.core.interfaces import (
     FTSIndex, VectorIndex, Embedder, ChunkStore, MessageStore, SearchFilters, LLM
 )
-from .query_rewriter import QueryRewriter
-from ..distance_utils import similarity_to_distance
+from src.core.query_rewriter import QueryRewriter
+from src.core.distance_utils import similarity_to_distance
 from src.lib.syslog2 import *
 
 
@@ -401,7 +401,7 @@ class HybridRetrievalService:
         )
         
         # Convert SearchResult to dict format
-        from ..chunk_utils import build_chunk_dict_from_domain_chunk
+        from src.core.chunk_utils import build_chunk_dict_from_domain_chunk
         
         if self.log_level <= LOG_DEBUG:
             syslog2(LOG_DEBUG, "hybrid_retrieval: retrieve() called", 
@@ -474,8 +474,8 @@ class HybridRetrievalService:
         )
         
         # Convert to basic format
-        from ..chunk_utils import build_chunk_dict_from_domain_chunk
-        from ..distance_utils import similarity_to_distance
+        from src.core.chunk_utils import build_chunk_dict_from_domain_chunk
+        from src.core.distance_utils import similarity_to_distance
         
         results = []
         for result in search_results:

@@ -49,7 +49,7 @@ import warnings
 from typing import Optional
 from dotenv import load_dotenv, set_key, find_dotenv
 from src.lib.syslog2 import *
-from src.core.cli_parser import (
+from src.lib.argparse2 import (
     CommandParser, CommandSpec, ArgStream, CLIError, CLIHelp,
     parse_flag, parse_option, parse_int_option, parse_float_option, parse_choice_option
 )
@@ -832,7 +832,7 @@ def parse_chat(stream: ArgStream) -> dict:
     """Parse chat command."""
     chunks = parse_int_option(stream, "chunks")
     debug_rag = parse_flag(stream, "debug-rag")
-    retrieval_type = parse_choice_option(stream, "retrieval-type", ["hybrid", "fts_only"], "hybrid")
+    retrieval_type = parse_choice_option(stream, "retrieval-type", ["hybrid", "fts_only", "vector_only"], "hybrid")
     profile = parse_option(stream, "profile")
     return {"chunks": chunks, "debug_rag": debug_rag, "retrieval_type": retrieval_type, "profile": profile}
 
@@ -860,7 +860,7 @@ def parse_bot_run(stream: ArgStream) -> dict:
     port = parse_int_option(stream, "port", 8000)
     profile = parse_option(stream, "profile")
     debug_rag = parse_flag(stream, "debug-rag")
-    retrieval_type = parse_choice_option(stream, "retrieval-type", ["hybrid", "fts_only"], "hybrid")
+    retrieval_type = parse_choice_option(stream, "retrieval-type", ["hybrid", "fts_only", "vector_only"], "hybrid")
     return {"host": host, "port": port, "profile": profile, "debug_rag": debug_rag, "retrieval_type": retrieval_type, "bot_command": "run"}
 
 
@@ -1276,21 +1276,6 @@ def main():
 
 def cmd_topics(args, profile_manager: ProfileManager):
     """Handle topic management commands."""
-    from src.ai.clustering import TopicClusterer
-    from src.storage.db import Database
-    from src.storage.vector_store import VectorStore
-    from src.core.llm import LLMClient
-    from src.bot.config import BotConfig
-    
-    profile_name = args.profile if args.profile else profile_manager.get_current_profile()
-    paths = profile_manager.get_profile_paths(profile_name)
-    
-    if not paths['db_path'].exists():
-        syslog2(LOG_ERR, "no database found for profile", profile=profile_name)
-        sys.exit(1)
-        
-    db = Database(paths['db_url'])
-    
     # All topic commands removed - clustering is deprecated
     syslog2(LOG_ERR, "topics commands are no longer available - clustering has been removed")
     sys.exit(1)

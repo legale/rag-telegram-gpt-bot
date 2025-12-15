@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Optional
-from ..dispatcher import CommandHandler, CommandContext, CommandResult
+from src.core.dispatcher import CommandHandler, CommandContext, CommandResult
 
 
 class StartCommandHandler(CommandHandler):

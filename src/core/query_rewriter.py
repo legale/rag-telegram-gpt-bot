@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import List, Optional
-from ..interfaces import LLM
+from src.core.interfaces import LLM
 from src.lib.syslog2 import *
 
 

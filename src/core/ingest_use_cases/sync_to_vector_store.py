@@ -6,8 +6,7 @@ from typing import List
 
 from typing import Optional, List
 
-from ...interfaces import ChunkStore, VectorIndex
-from ...interfaces import VectorDoc
+from src.core.interfaces import ChunkStore, VectorIndex, VectorDoc
 from src.lib.syslog2 import *
 
 

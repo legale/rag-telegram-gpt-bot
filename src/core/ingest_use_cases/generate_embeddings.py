@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from ...domain import Chunk
-from ...interfaces import ChunkStore, Embedder
+from src.core.domain import Chunk
+from src.core.interfaces import ChunkStore, Embedder
 from src.lib.syslog2 import *
 
 

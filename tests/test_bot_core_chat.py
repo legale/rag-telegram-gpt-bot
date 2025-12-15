@@ -15,7 +15,7 @@ def mock_dependencies():
          patch('src.bot.core.VectorStore') as mock_vs, \
          patch('src.bot.core.EmbeddingClient') as mock_ec, \
          patch('src.bot.core.LLMClient') as mock_llm, \
-         patch('src.bot.core.RetrievalService') as mock_rs, \
+         patch('src.bot.core.HybridRetrievalService') as mock_rs, \
          patch('src.bot.core.PromptEngine') as mock_pe:
         
         # Setup mocks

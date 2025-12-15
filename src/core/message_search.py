@@ -4,7 +4,7 @@ High-level message search functionality.
 """
 
 from typing import List, Dict, Optional
-from src.core.use_cases.hybrid_retrieval import HybridRetrievalService
+from src.core.hybrid_retrieval import HybridRetrievalService
 from src.core.domain import SearchResult
 from src.storage.db import Database, MessageModel
 from src.bot.utils import build_message_link

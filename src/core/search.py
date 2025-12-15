@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import List, Optional
 from datetime import datetime, timedelta
 
-from ..domain import SearchResult, Chunk, Message
-from ..interfaces import Embedder, VectorIndex, ChunkStore, MessageStore
+from src.core.domain import SearchResult, Chunk, Message
+from src.core.interfaces import Embedder, VectorIndex, ChunkStore, MessageStore
 
 
 class HybridSearch:

@@ -1007,7 +1007,7 @@ class IngestionPipeline:
 
 
 if __name__ == "__main__":
-    from src.core.cli_parser import (
+    from src.lib.argparse2 import (
         CommandParser, CommandSpec, ArgStream, CLIError, CLIHelp,
         parse_option, parse_flag
     )

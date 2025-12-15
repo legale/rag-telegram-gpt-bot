@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Optional
 from telegram import Update
 
-from ..dispatcher import AsyncCommandHandler, CommandContext, CommandResult
+from src.core.dispatcher import AsyncCommandHandler, CommandContext, CommandResult
 from src.lib.syslog2 import *
 
 

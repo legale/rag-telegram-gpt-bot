@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional
 
 from src.core.dispatcher import CommandDispatcher, CommandContext
-from src.core.use_cases.commands import (
+from src.core.commands import (
     StartCommandHandler,
     HelpCommandHandler,
     ResetCommandHandler,
@@ -41,7 +41,7 @@ def create_dispatcher(
         Configured CommandDispatcher instance
     """
     from src.core.dispatcher import CommandDispatcher
-    from src.core.use_cases.commands import (
+    from src.core.commands import (
         StartCommandHandler,
         HelpCommandHandler,
         ResetCommandHandler,
@@ -49,7 +49,7 @@ def create_dispatcher(
         ModelCommandHandler,
         FindCommandHandler,
     )
-    from src.core.use_cases.admin_commands import (
+    from src.core.admin_commands import (
         AdminSetCommandHandler,
         AdminGetCommandHandler,
         AdminCommandHandler,

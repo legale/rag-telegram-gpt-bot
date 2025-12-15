@@ -581,7 +581,7 @@ def _create_legale_bot(paths: Dict, model_name: str, log_level: int, debug_rag: 
         log_level: Logging level
         debug_rag: Debug RAG flag
         profile_dir: Profile directory path
-        retrieval_type: Retrieval type ("hybrid", "fts_only")
+        retrieval_type: Retrieval type ("hybrid", "fts_only", "vector_only")
         
     Returns:
         Initialized LegaleBot instance
@@ -1687,7 +1687,7 @@ def main():
     """
     Main CLI entry point.
     """
-    from src.core.cli_parser import (
+    from src.lib.argparse2 import (
         CommandParser, CommandSpec, ArgStream, CLIError, CLIHelp,
         parse_option, parse_int_option, parse_flag
     )

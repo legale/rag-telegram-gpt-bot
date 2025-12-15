@@ -35,7 +35,7 @@ except ImportError as e:
 
 from dotenv import load_dotenv
 from src.lib.syslog2 import *
-from src.core.cli_parser import ArgStream, parse_int_option, parse_flag, parse_option, CLIError
+from src.lib.argparse2 import ArgStream, parse_int_option, parse_flag, parse_option, CLIError
 from src.bot.command_parser import parse_find_command_args as parse_find_args_common
 from typing import Optional, Tuple
 from pathlib import Path

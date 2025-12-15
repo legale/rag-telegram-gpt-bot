@@ -6,8 +6,8 @@ import uuid
 from typing import List, Optional
 from datetime import datetime
 
-from ...domain import Chunk, Message
-from ...interfaces import MessageStore, ChunkStore
+from src.core.domain import Chunk, Message
+from src.core.interfaces import MessageStore, ChunkStore
 from src.ingestion.chunker import MessageChunker, EnhancedTextChunk
 from src.ingestion.parser import ChatMessage
 from src.lib.syslog2 import *

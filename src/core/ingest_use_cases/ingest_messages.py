@@ -7,8 +7,8 @@ import re
 from typing import List
 from pathlib import Path
 
-from ...domain import Message
-from ...interfaces import MessageStore
+from src.core.domain import Message
+from src.core.interfaces import MessageStore
 from src.ingestion.parser import ChatParser, ChatMessage
 from src.lib.syslog2 import *
 

@@ -13,8 +13,8 @@ from src.adapters.persistence import SqliteMessageStore, SqliteChunkStore, Sqlit
 from src.adapters.vector import ChromaVectorIndex
 from src.adapters.embedding import EmbedderAdapter
 from src.adapters.llm.llm_adapter import LLMAdapter
-from src.core.use_cases.search import HybridSearch
-from src.core.use_cases.hybrid_retrieval import HybridRetrievalService
+from src.core.search import HybridSearch
+from src.core.hybrid_retrieval import HybridRetrievalService
 # RetrievalService removed - legacy RAG code
 from src.core.llm import LLMClient
 from src.lib.syslog2 import *
@@ -95,6 +95,7 @@ def create_hybrid_retrieval(
     log_level: int = LOG_WARNING,
     fts_only: bool = False,
     llm_client: Optional[LLMClient] = None,
+    retrieval_mode: str = "hybrid",
 ) -> HybridRetrievalService:
     """
     Create and configure HybridRetrievalService with all dependencies.
@@ -108,8 +109,9 @@ def create_hybrid_retrieval(
                          If None, creates default EmbeddingClient.
         profile_dir: Optional profile directory for loading embedding config
         log_level: Logging level (LOG_WARNING=4 by default)
-        fts_only: If True, skip vector reranking and use FTS-only mode
+        fts_only: If True, skip vector reranking and use FTS-only mode (deprecated, use retrieval_mode)
         llm_client: Optional LLM client for query rephrasing before vector search
+        retrieval_mode: "fts_only", "hybrid", or "vector_only"
 
     Returns:
         Configured HybridRetrievalService instance
@@ -162,6 +164,7 @@ def create_hybrid_retrieval(
         log_level=log_level,
         fts_only=fts_only,
         llm=llm,
+        retrieval_mode=retrieval_mode,
     )
 
     return hybrid_retrieval

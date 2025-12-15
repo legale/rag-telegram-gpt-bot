@@ -686,7 +686,7 @@ def test_run_all_stages(pipeline, mock_dependencies):
         pipeline.vector_store.collection.count.return_value = 0
         
         # Mock clustering methods - patch at import location
-        with patch('src.ai.clustering.TopicClusterer') as MockClusterer, \
+        with patch('src.ai.clustering.TopicClusterer')  # Mock for deprecated module as MockClusterer, \
              patch('src.core.llm.LLMClient') as MockLLM:
             mock_clusterer = Mock()
             mock_clusterer.perform_l1_clustering.return_value = {}

@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import Mock, patch
 from datetime import datetime
 
-from src.core.use_cases.hybrid_retrieval import HybridRetrievalService
+from src.core.hybrid_retrieval import HybridRetrievalService
 from src.core.domain import Chunk, Message
 from src.core.interfaces import ScoredDoc, SearchFilters
 

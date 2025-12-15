@@ -3,7 +3,7 @@ from pathlib import Path
 from src.storage.db import Database
 from src.storage.vector_store import VectorStore
 from src.core.embedding import EmbeddingClient, LocalEmbeddingClient, create_embedding_client
-from src.core.use_cases.hybrid_retrieval import HybridRetrievalService
+from src.core.hybrid_retrieval import HybridRetrievalService
 from src.core.prompt import PromptEngine
 from src.core.llm import LLMClient
 from src.app.bootstrap import create_hybrid_retrieval
@@ -21,7 +21,7 @@ class LegaleBot:
         log_level: int = LOG_WARNING,
         debug_rag: bool = False,
         profile_dir: Optional[Union[str, Path]] = None,
-        retrieval_type: str = "hybrid"  # "hybrid" | "fts_only"
+        retrieval_type: str = "hybrid"  # "hybrid" | "fts_only" | "vector_only"
     ):
         # Initialize components
         if not db_url or not vector_db_path:
@@ -102,6 +102,7 @@ class LegaleBot:
                 log_level=log_level,
                 fts_only=False,  # Explicitly set for hybrid
                 llm_client=self.llm_client,  # Pass LLM for query rephrasing
+                retrieval_mode="hybrid",
             )
             self.retrieval = self.retrieval_service
         elif retrieval_type == "fts_only":
@@ -114,10 +115,24 @@ class LegaleBot:
                 log_level=log_level,
                 fts_only=True,  # Explicitly set for fts_only
                 llm_client=None,  # No LLM needed for FTS-only
+                retrieval_mode="fts_only",
+            )
+            self.retrieval = self.retrieval_service
+        elif retrieval_type == "vector_only":
+            # Vector-only mode: skip FTS5, use only vector search
+            self.retrieval_service = create_hybrid_retrieval(
+                db_url=db_url,
+                vector_db_path=vector_db_path,
+                embedding_client=self.embedding_client,
+                profile_dir=profile_dir,
+                log_level=log_level,
+                fts_only=False,
+                llm_client=self.llm_client,  # Pass LLM for query rephrasing
+                retrieval_mode="vector_only",
             )
             self.retrieval = self.retrieval_service
         else:
-            raise ValueError(f"Unknown retrieval_type: {retrieval_type}. Use: hybrid, fts_only")
+            raise ValueError(f"Unknown retrieval_type: {retrieval_type}. Use: hybrid, fts_only, vector_only")
         self.prompt_engine = PromptEngine()
         
         # Simple in-memory history for the current session
