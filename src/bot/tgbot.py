@@ -1410,6 +1410,27 @@ def create_app(args: Optional[SimpleNamespace] = None):
     return app
 
 
+def _check_mention_entity(ent, text: str, bot_username: str) -> bool:
+    """
+    Check if mention entity matches bot username.
+    """
+    try:
+        mention_text = text[ent.offset: ent.offset + ent.length]
+        return bot_username and mention_text.lower() == f"@{bot_username}"
+    except Exception:
+        return False
+
+
+def _check_text_mention_entity(ent, bot_id: int) -> bool:
+    """
+    Check if text_mention entity matches bot id.
+    """
+    try:
+        return ent.user and ent.user.id == bot_id
+    except Exception:
+        return False
+
+
 def is_bot_mentioned(message, bot_username: str, bot_id: int) -> bool:
     """
     check if bot is mentioned in message (by @username or text_mention)
@@ -1428,11 +1449,11 @@ def is_bot_mentioned(message, bot_username: str, bot_id: int) -> bool:
     for ent in entities:
         try:
             if ent.type == "mention":
-                mention_text = text[ent.offset: ent.offset + ent.length]
-                if bot_username and mention_text.lower() == f"@{bot_username}":
+                if _check_mention_entity(ent, text, bot_username):
                     return True
-            elif ent.type == "text_mention" and ent.user and ent.user.id == bot_id:
-                return True
+            elif ent.type == "text_mention":
+                if _check_text_mention_entity(ent, bot_id):
+                    return True
         except Exception:
             continue
 
