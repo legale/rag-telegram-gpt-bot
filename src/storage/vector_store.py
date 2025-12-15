@@ -43,30 +43,64 @@ class VectorStore:
         
         # topics_l1_collection and topics_l2_collection removed - clustering is deprecated
 
-    def add_documents_with_embeddings(
+    def _validate_batch_inputs(
         self,
         ids: List[str],
         documents: List[str],
         embeddings: List[List[float]],
         metadatas: Optional[List[Dict[str, Any]]] = None,
-        show_progress: bool = True,
-    ) -> None:
+    ) -> tuple[int, List[Optional[Dict[str, Any]]]]:
         """
-        add documents using precomputed embeddings
-        ids, documents, embeddings must be aligned
+        Validate batch input data and prepare metadatas.
+        
+        Args:
+            ids: List of document IDs
+            documents: List of document texts
+            embeddings: List of embedding vectors
+            metadatas: Optional list of metadata dictionaries
+            
+        Returns:
+            Tuple of (total_count, prepared_metadatas)
+            
+        Raises:
+            ValueError: If input validation fails
         """
         total = len(documents)
         if total == 0:
-            return
+            return 0, []
 
         if not (len(ids) == len(documents) == len(embeddings)):
             raise ValueError("ids, documents, embeddings must have same length")
 
         if metadatas is None:
-            metadatas = [None] * total
+            prepared_metadatas = [None] * total
         elif len(metadatas) != total:
             raise ValueError("metadatas must match documents length")
+        else:
+            prepared_metadatas = metadatas
 
+        return total, prepared_metadatas
+    
+    def _process_batch(
+        self,
+        ids: List[str],
+        documents: List[str],
+        embeddings: List[List[float]],
+        metadatas: List[Optional[Dict[str, Any]]],
+        total: int,
+        show_progress: bool = True,
+    ) -> None:
+        """
+        Process documents in batches and add to collection.
+        
+        Args:
+            ids: List of document IDs
+            documents: List of document texts
+            embeddings: List of embedding vectors
+            metadatas: List of metadata dictionaries (or None)
+            total: Total number of documents
+            show_progress: Whether to show progress
+        """
         batch_size = self.max_batch_size
         added = 0
 
@@ -94,6 +128,24 @@ class VectorStore:
             print()
         if show_progress and total > 0:
             syslog2(LOG_DEBUG, "vector_store batch complete", total=total)
+
+    def add_documents_with_embeddings(
+        self,
+        ids: List[str],
+        documents: List[str],
+        embeddings: List[List[float]],
+        metadatas: Optional[List[Dict[str, Any]]] = None,
+        show_progress: bool = True,
+    ) -> None:
+        """
+        add documents using precomputed embeddings
+        ids, documents, embeddings must be aligned
+        """
+        total, prepared_metadatas = self._validate_batch_inputs(ids, documents, embeddings, metadatas)
+        if total == 0:
+            return
+
+        self._process_batch(ids, documents, embeddings, prepared_metadatas, total, show_progress)
 
 
 

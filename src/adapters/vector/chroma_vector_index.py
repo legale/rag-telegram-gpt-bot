@@ -72,9 +72,7 @@ class ChromaVectorIndex:
         collection = self.vector_store.collection
         
         # Convert filter dict to ChromaDB where clause format if provided
-        where = None
-        if filter:
-            where = filter  # ChromaDB uses where clause format
+        where = self._convert_filter_to_where(filter)
 
         # Query with the embedding vector
         results = collection.query(
@@ -85,6 +83,32 @@ class ChromaVectorIndex:
         )
 
         # Convert ChromaDB results to ScoredDoc objects
+        return self._convert_results_to_scored_docs(results)
+
+    def _convert_filter_to_where(self, filter: Optional[Dict]) -> Optional[Dict]:
+        """
+        Convert filter dict to ChromaDB where clause format.
+
+        Args:
+            filter: Optional metadata filter dict
+
+        Returns:
+            ChromaDB where clause dict or None
+        """
+        if filter:
+            return filter  # ChromaDB uses where clause format
+        return None
+
+    def _convert_results_to_scored_docs(self, results: Dict[str, Any]) -> List[ScoredDoc]:
+        """
+        Convert ChromaDB query results to ScoredDoc objects.
+
+        Args:
+            results: ChromaDB query results dict
+
+        Returns:
+            List of ScoredDoc objects
+        """
         scored_docs = []
         
         # ChromaDB returns results in nested lists (one per query)

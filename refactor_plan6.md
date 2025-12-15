@@ -134,7 +134,7 @@
 
 - [x] file=src/core/dispatcher.py func=dispatch_async упростить: использовать общие методы нормализации и поиска handler из dispatch()
 
-- [ ] file=src/storage/vector_store.py func=add_documents_with_embeddings уменьшить цикломатическую сложность: вынести валидацию входных данных в _validate_batch_inputs(), обработку батчей в _process_batch()
+- [x] file=src/storage/vector_store.py func=add_documents_with_embeddings уменьшить цикломатическую сложность: вынести валидацию входных данных в _validate_batch_inputs(), обработку батчей в _process_batch()
 
 - [x] file=src/storage/vector_store.py func=query упростить: вынести вычисление query embeddings в _compute_query_embeddings(), выполнение запроса в _execute_vector_query()
 

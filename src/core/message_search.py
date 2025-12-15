@@ -147,15 +147,48 @@ def search_message_links(
         if not chunk_id:
             continue
         
-        link_info = db.get_chunk_link_info(chunk_id)
-        chat_id, msg_id, chat_username = link_info
-        
-        if chat_id and msg_id:
-            link = build_message_link(chat_id, msg_id, chat_username)
+        link_info = _get_link_info_from_chunk(db, chunk_id)
+        if link_info:
+            chat_id, msg_id, chat_username = link_info
+            link = _build_message_link(chat_id, msg_id, chat_username)
             if link:
                 links.append(link)
     
     return links
+
+
+def _get_link_info_from_chunk(db: Database, chunk_id: str) -> Optional[tuple]:
+    """
+    Get link information from chunk.
+    
+    Args:
+        db: Database instance
+        chunk_id: Chunk ID
+        
+    Returns:
+        Tuple of (chat_id, msg_id, chat_username) or None if not available
+    """
+    link_info = db.get_chunk_link_info(chunk_id)
+    chat_id, msg_id, chat_username = link_info
+    
+    if chat_id and msg_id:
+        return (chat_id, msg_id, chat_username)
+    return None
+
+
+def _build_message_link(chat_id: int, msg_id: int, chat_username: Optional[str]) -> Optional[str]:
+    """
+    Build message link from chat ID, message ID and username.
+    
+    Args:
+        chat_id: Telegram chat ID
+        msg_id: Telegram message ID
+        chat_username: Optional chat username
+        
+    Returns:
+        Message link string or None if build failed
+    """
+    return build_message_link(chat_id, msg_id, chat_username)
 
 
 def search_message_contents(
