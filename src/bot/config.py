@@ -108,15 +108,24 @@ class BotConfig:
             # If file is corrupted, create new one with defaults
             return self._create_default_config()
 
-    def save(self):
-        """Save configuration to file."""
+    def _ensure_profile_dir(self):
+        """Ensure profile directory exists."""
         self.profile_dir.mkdir(parents=True, exist_ok=True)
-        
+    
+    def _write_config_file(self):
+        """Write configuration data to file."""
         with open(self.config_file, 'w') as f:
             json.dump(self.data, f, indent=2)
-        
-        # Restrict permissions (sensitive data included)
+    
+    def _set_file_permissions(self):
+        """Set restrictive file permissions (sensitive data included)."""
         os.chmod(self.config_file, 0o600)
+    
+    def save(self):
+        """Save configuration to file."""
+        self._ensure_profile_dir()
+        self._write_config_file()
+        self._set_file_permissions()
     
     @property
     def admin_password(self) -> str:

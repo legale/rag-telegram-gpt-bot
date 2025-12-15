@@ -186,7 +186,7 @@
 
 - [x] file=src/bot/config.py упростить: вынести валидацию значений в отдельные методы _validate_chunk_token_min(), _validate_chunk_token_max(), _validate_chunk_overlap_ratio() и т.д.
 
-- [ ] file=src/bot/config.py func=save упростить: вынести создание директории в _ensure_profile_dir(), сохранение файла в _write_config_file(), установку permissions в _set_file_permissions()
+- [x] file=src/bot/config.py func=save упростить: вынести создание директории в _ensure_profile_dir(), сохранение файла в _write_config_file(), установку permissions в _set_file_permissions()
 
 - [ ] file=src/core/chunk_utils.py func=build_chunk_dict_from_domain_chunk упростить: вынести извлечение metadata в _extract_chunk_metadata(), создание dict в _create_chunk_dict()
 
