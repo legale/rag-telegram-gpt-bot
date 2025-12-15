@@ -22,7 +22,7 @@
 
 - [x] file=src/ingestion/pipeline.py func=parse_and_store_chunks уменьшить цикломатическую сложность: вынести получение сообщений из БД в _load_messages_from_db(), конвертацию в ChatMessage в _convert_to_chat_messages(), сохранение chunks в _save_chunks_to_db()
 
-- [ ] file=src/ingestion/pipeline.py func=generate_embeddings уменьшить цикломатическую сложность: вынести получение chunks без embeddings в _get_chunks_without_embeddings(), генерацию embeddings батчами в _generate_embeddings_batch(), сохранение embeddings в _save_embeddings_to_db()
+- [x] file=src/ingestion/pipeline.py func=generate_embeddings уменьшить цикломатическую сложность: вынести получение chunks без embeddings в _get_chunks_without_embeddings(), генерацию embeddings батчами в _generate_embeddings_batch(), сохранение embeddings в _save_embeddings_to_db()
 
 - [ ] file=src/app/bootstrap.py убрать дублирование логики создания embedding_client: вынести в отдельную функцию _create_embedding_client_from_config() и использовать её в create_hybrid_search() и create_hybrid_retrieval()
 

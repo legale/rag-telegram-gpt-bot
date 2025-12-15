@@ -632,83 +632,35 @@ class IngestionPipeline:
         # Get expected dimension from embedding client
         new_dimension = emb_client.get_dimension()
         
-        # Get chunks from database that don't have embeddings - STREAMING APPROACH
+        # Get chunks from database that don't have embeddings
         session = self.db.get_session()
         try:
-            # Count total chunks to embed first
-            total_to_embed = session.query(ChunkModel).filter(
-                (ChunkModel.embedding_json.is_(None)) | 
-                (ChunkModel.embedding_dim.is_(None)) | 
-                (ChunkModel.embedding_dim != new_dimension)
-            ).count()
+            query, total_to_embed, total_chunks = self._get_chunks_without_embeddings(session, new_dimension)
             
             if total_to_embed == 0:
                 syslog2(LOG_NOTICE, "all chunks already have embeddings")
                 return
             
-            total_chunks = session.query(ChunkModel).count()
             syslog2(LOG_NOTICE, "chunks to embed", total=total_chunks, missing=total_to_embed)
             
-            # Process chunks in batches using yield_per - STREAMING APPROACH
-            # This avoids loading all chunks into memory at once
+            # Process chunks in batches
             processed = 0
-            query = session.query(ChunkModel).filter(
-                (ChunkModel.embedding_json.is_(None)) | 
-                (ChunkModel.embedding_dim.is_(None)) | 
-                (ChunkModel.embedding_dim != new_dimension)
-            )
-            
-            # Accumulate chunks in a batch
             batch_chunks = []
             for chunk in query.yield_per(batch_size):
                 batch_chunks.append(chunk)
                 
                 # When batch is full, process it immediately
                 if len(batch_chunks) >= batch_size:
-                    # Prepare batch data
-                    batch_ids = [chunk.id for chunk in batch_chunks]
-                    batch_texts = [chunk.text for chunk in batch_chunks]
-                    
-                    # Generate embeddings for this batch only (not accumulating all)
-                    batch_embeddings = emb_client.get_embeddings(batch_texts)
-                    
-                    # Save immediately to DB to free memory
-                    for chunk_id, embedding in zip(batch_ids, batch_embeddings):
-                        embedding_json = json.dumps(embedding)
-                        session.query(ChunkModel).filter(
-                            ChunkModel.id == chunk_id
-                        ).update({
-                            ChunkModel.embedding_json: embedding_json,
-                            ChunkModel.embedding_dim: new_dimension
-                        }, synchronize_session=False)
-                    
-                    session.commit()
-                    processed += len(batch_chunks)
-                    
-                    # Progress output
-                    pct = (processed * 100) // total_to_embed if total_to_embed > 0 else 0
-                    print(f"\rProcessing embeddings: {processed}/{total_to_embed} ({pct}%)", flush=True, end="")
-                    
-                    # Clear batch to free memory before next iteration
+                    processed += self._generate_embeddings_batch(
+                        session, batch_chunks, emb_client, new_dimension, processed, total_to_embed
+                    )
                     batch_chunks = []
             
             # Process remaining chunks (last incomplete batch)
             if batch_chunks:
-                batch_ids = [chunk.id for chunk in batch_chunks]
-                batch_texts = [chunk.text for chunk in batch_chunks]
-                batch_embeddings = emb_client.get_embeddings(batch_texts)
-                
-                for chunk_id, embedding in zip(batch_ids, batch_embeddings):
-                    embedding_json = json.dumps(embedding)
-                    session.query(ChunkModel).filter(
-                        ChunkModel.id == chunk_id
-                    ).update({
-                        ChunkModel.embedding_json: embedding_json,
-                        ChunkModel.embedding_dim: new_dimension
-                    }, synchronize_session=False)
-                
-                session.commit()
-                processed += len(batch_chunks)
+                processed += self._generate_embeddings_batch(
+                    session, batch_chunks, emb_client, new_dimension, processed, total_to_embed
+                )
             
             print()  # Newline after progress
             syslog2(LOG_NOTICE, "embeddings saved to sqlite database", count=processed)
@@ -717,6 +669,103 @@ class IngestionPipeline:
             session.close()
         
         syslog2(LOG_NOTICE, "embedding generation complete")
+
+    def _get_chunks_without_embeddings(self, session, new_dimension: int) -> Tuple:
+        """
+        Get chunks from database that don't have embeddings.
+        
+        Args:
+            session: Database session
+            new_dimension: Expected embedding dimension
+            
+        Returns:
+            Tuple of (query, total_to_embed, total_chunks)
+        """
+        # Count total chunks to embed first
+        total_to_embed = session.query(ChunkModel).filter(
+            (ChunkModel.embedding_json.is_(None)) | 
+            (ChunkModel.embedding_dim.is_(None)) | 
+            (ChunkModel.embedding_dim != new_dimension)
+        ).count()
+        
+        total_chunks = session.query(ChunkModel).count()
+        
+        # Process chunks in batches using yield_per - STREAMING APPROACH
+        # This avoids loading all chunks into memory at once
+        query = session.query(ChunkModel).filter(
+            (ChunkModel.embedding_json.is_(None)) | 
+            (ChunkModel.embedding_dim.is_(None)) | 
+            (ChunkModel.embedding_dim != new_dimension)
+        )
+        
+        return query, total_to_embed, total_chunks
+
+    def _generate_embeddings_batch(
+        self,
+        session,
+        batch_chunks: List[ChunkModel],
+        emb_client,
+        new_dimension: int,
+        processed: int,
+        total_to_embed: int
+    ) -> int:
+        """
+        Generate embeddings for a batch of chunks and save to database.
+        
+        Args:
+            session: Database session
+            batch_chunks: List of ChunkModel objects in the batch
+            emb_client: Embedding client
+            new_dimension: Expected embedding dimension
+            processed: Number of chunks already processed
+            total_to_embed: Total number of chunks to embed
+            
+        Returns:
+            Number of chunks processed in this batch
+        """
+        # Prepare batch data
+        batch_ids = [chunk.id for chunk in batch_chunks]
+        batch_texts = [chunk.text for chunk in batch_chunks]
+        
+        # Generate embeddings for this batch
+        batch_embeddings = emb_client.get_embeddings(batch_texts)
+        
+        # Save embeddings to database
+        self._save_embeddings_to_db(session, batch_ids, batch_embeddings, new_dimension)
+        
+        session.commit()
+        batch_size = len(batch_chunks)
+        
+        # Progress output
+        pct = ((processed + batch_size) * 100) // total_to_embed if total_to_embed > 0 else 0
+        print(f"\rProcessing embeddings: {processed + batch_size}/{total_to_embed} ({pct}%)", flush=True, end="")
+        
+        return batch_size
+
+    def _save_embeddings_to_db(
+        self,
+        session,
+        chunk_ids: List[str],
+        embeddings: List[List[float]],
+        dimension: int
+    ) -> None:
+        """
+        Save embeddings to database.
+        
+        Args:
+            session: Database session
+            chunk_ids: List of chunk IDs
+            embeddings: List of embedding vectors
+            dimension: Embedding dimension
+        """
+        for chunk_id, embedding in zip(chunk_ids, embeddings):
+            embedding_json = json.dumps(embedding)
+            session.query(ChunkModel).filter(
+                ChunkModel.id == chunk_id
+            ).update({
+                ChunkModel.embedding_json: embedding_json,
+                ChunkModel.embedding_dim: dimension
+            }, synchronize_session=False)
 
     def run(self, file_path: Optional[str] = None, clear_existing: bool = False):
         """
