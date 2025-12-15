@@ -4,6 +4,7 @@ from openai import OpenAI
 from typing import List, Optional, Tuple
 import os
 import json
+import time
 try:
     from chromadb import EmbeddingFunction, Documents, Embeddings
 except ImportError:
@@ -79,13 +80,73 @@ class EmbeddingClient:
         )
         return [d.embedding for d in resp.data]
 
+    def _get_embeddings_with_retry(
+        self,
+        texts: List[str],
+        max_retries: int = 3,
+        initial_delay: float = 1.0,
+    ) -> List[List[float]]:
+        """
+        Get embeddings with retry logic and exponential backoff for temporary API errors.
+        
+        Args:
+            texts: List of texts to embed
+            max_retries: Maximum number of retry attempts
+            initial_delay: Initial delay in seconds before first retry
+            
+        Returns:
+            List of embedding vectors
+            
+        Raises:
+            Exception: If all retry attempts fail
+        """
+        last_exception = None
+        
+        for attempt in range(max_retries + 1):
+            try:
+                return self.get_embeddings(texts)
+            except Exception as e:
+                last_exception = e
+                error_type = type(e).__name__
+                error_msg = str(e)
+                
+                # Check if it's a retryable error
+                is_retryable = (
+                    attempt < max_retries and (
+                        "rate limit" in error_msg.lower() or
+                        "RateLimitError" in error_type or
+                        "APIConnectionError" in error_type or
+                        "APITimeoutError" in error_type or
+                        isinstance(e, TimeoutError) or
+                        ("temporary" in error_msg.lower() and "error" in error_msg.lower())
+                    )
+                )
+                
+                if not is_retryable:
+                    # Non-retryable error, raise immediately
+                    syslog2(LOG_ERR, "embedding api error (non-retryable)", 
+                           error_type=error_type, error=str(e))
+                    raise
+                
+                # Calculate exponential backoff delay
+                delay = initial_delay * (2 ** attempt)
+                syslog2(LOG_WARNING, "embedding api error (retrying)", 
+                       attempt=attempt + 1, max_retries=max_retries + 1,
+                       error_type=error_type, error=str(e), delay=delay)
+                time.sleep(delay)
+        
+        # All retries exhausted
+        syslog2(LOG_ERR, "embedding api error (all retries exhausted)", 
+               error_type=type(last_exception).__name__, error=str(last_exception))
+        raise last_exception
+
     def get_embeddings_batched(
         self,
         texts: List[str],
         batch_size: int = 128,
         show_progress: bool = True,
     ) -> List[List[float]]:
-        """batched embeddings with simple progress"""
+        """batched embeddings with retry logic and exponential backoff for temporary API errors"""
         total = len(texts)
         if total == 0:
             return []
@@ -97,7 +158,7 @@ class EmbeddingClient:
             end = min(start + batch_size, total)
             batch = texts[start:end]
 
-            batch_embs = self.get_embeddings(batch)
+            batch_embs = self._get_embeddings_with_retry(batch)
             all_embs.extend(batch_embs)
 
             done = end

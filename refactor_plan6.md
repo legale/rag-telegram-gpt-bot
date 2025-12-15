@@ -90,7 +90,7 @@
 
 - [x] file=src/core/query_rewriter.py func=rephrase_for_embedding добавить обработку ошибок LLM: обрабатывать APIError, TimeoutError с fallback на возврат оригинального query
 
-- [ ] file=src/core/llm.py func=complete добавить retry логику с exponential backoff для RateLimitError и временных ошибок сети
+- [x] file=src/core/llm.py func=complete добавить retry логику с exponential backoff для RateLimitError и временных ошибок сети
 
 - [ ] file=src/core/embedding.py func=get_embeddings_batched добавить retry логику с exponential backoff для временных ошибок API
 

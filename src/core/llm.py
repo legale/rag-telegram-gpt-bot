@@ -3,6 +3,7 @@ from typing import List, Dict, Optional, Generator
 import os
 import json
 import tiktoken
+import time
 from src.lib.syslog2 import *
 
 class LLMClient:
@@ -76,9 +77,40 @@ class LLMClient:
         num_tokens += 2  # every reply is primed with <|start|>assistant
         return num_tokens
 
+    def _is_retryable_error(self, error: Exception) -> bool:
+        """
+        Check if error is retryable (rate limit or temporary network error).
+        
+        Args:
+            error: Exception to check
+            
+        Returns:
+            True if error is retryable, False otherwise
+        """
+        error_str = str(error).lower()
+        error_type = type(error).__name__
+        
+        # Rate limit errors
+        if "rate limit" in error_str or "rate_limit" in error_str or "429" in error_str:
+            return True
+        
+        # Network/timeout errors
+        if isinstance(error, (TimeoutError, OSError)):
+            return True
+        
+        # Connection errors
+        if "connection" in error_str or "timeout" in error_str or "network" in error_str:
+            return True
+        
+        # API errors that might be temporary
+        if error_type in ("APIConnectionError", "APITimeoutError", "RateLimitError"):
+            return True
+        
+        return False
+
     def complete(self, messages: List[Dict[str, str]], temperature: float = 0.7, max_tokens: int = 1500) -> str:
         """
-        Generates a completion for the given messages.
+        Generates a completion for the given messages with retry logic.
         
         Args:
             messages: List of message dictionaries (role, content).
@@ -97,32 +129,51 @@ class LLMClient:
             # Log full messages at LOG_DEBUG level
             syslog2(LOG_DEBUG, "LLM messages", messages=messages)
 
-        try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages, # type: ignore
-                temperature=temperature,
-                max_tokens=max_tokens,
-                timeout=30.0
-            )
-            
-            content = response.choices[0].message.content
-            
-            # Log LLM output at LOG_INFO level
-            if self.log_level <= LOG_INFO:
-                syslog2(LOG_INFO, "llm output", model=self.model, response=content)
-            
-            if self.log_level >= LOG_DEBUG:
-                syslog2(LOG_DEBUG, "LLM response", response=response)
-            
-            if not content:
-                finish_reason = response.choices[0].finish_reason
-                syslog2(LOG_WARNING, "llm returned empty content", model=self.model, finish_reason=finish_reason)
+        max_retries = 3
+        base_delay = 1.0  # Start with 1 second
+        
+        for attempt in range(max_retries):
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages, # type: ignore
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    timeout=30.0
+                )
                 
-            return content if content else ""
-        except Exception as e:
-            # Re-raise exception to be handled by caller (LegaleBot)
-            raise e
+                content = response.choices[0].message.content
+                
+                # Log LLM output at LOG_INFO level
+                if self.log_level <= LOG_INFO:
+                    syslog2(LOG_INFO, "llm output", model=self.model, response=content)
+                
+                if self.log_level >= LOG_DEBUG:
+                    syslog2(LOG_DEBUG, "LLM response", response=response)
+                
+                if not content:
+                    finish_reason = response.choices[0].finish_reason
+                    syslog2(LOG_WARNING, "llm returned empty content", model=self.model, finish_reason=finish_reason)
+                    
+                return content if content else ""
+                
+            except Exception as e:
+                # Check if error is retryable
+                if attempt < max_retries - 1 and self._is_retryable_error(e):
+                    # Calculate exponential backoff delay
+                    delay = base_delay * (2 ** attempt)
+                    if self.log_level <= LOG_WARNING:
+                        syslog2(LOG_WARNING, "llm retry", 
+                               model=self.model, 
+                               attempt=attempt + 1, 
+                               max_retries=max_retries,
+                               error=str(e),
+                               delay=delay)
+                    time.sleep(delay)
+                    continue
+                else:
+                    # Not retryable or max retries reached - re-raise
+                    raise e
 
     def stream_complete(self, messages: List[Dict[str, str]], temperature: float = 0.7) -> Generator[str, None, None]:
         """
