@@ -44,7 +44,7 @@
 
 - [x] file=src/core/hybrid_retrieval.py func=search заменить широкий except Exception на специфичные исключения: обрабатывать EmbeddingError, VectorIndexError отдельно с fallback на FTS-only
 
-- [ ] file=src/bot/core.py func=_call_llm_with_retry заменить широкий except Exception на специфичные исключения: обрабатывать APIError, TimeoutError, RateLimitError отдельно
+- [x] file=src/bot/core.py func=_call_llm_with_retry заменить широкий except Exception на специфичные исключения: обрабатывать APIError, TimeoutError, RateLimitError отдельно
 
 - [ ] file=src/bot/tgbot.py удалить неиспользуемую функцию _send_find_results_simple (помечена как deprecated, используется _send_message_parts_unified)
 

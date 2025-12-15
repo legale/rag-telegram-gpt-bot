@@ -574,9 +574,25 @@ class LegaleBot:
         """
         try:
             return self.llm_client.complete(messages)
+        except TimeoutError as e:
+            syslog2(LOG_ERR, "llm call timeout", error=str(e))
+            raise
         except Exception as e:
+            # Check if it's a rate limit error from OpenAI SDK
+            error_type = type(e).__name__
             error_msg = str(e)
-            # Check for token limit or payment issues
+            
+            # Check for OpenAI SDK rate limit errors
+            if "rate limit" in error_msg.lower() or "RateLimitError" in error_type:
+                syslog2(LOG_ERR, "llm rate limit error", error=error_msg)
+                raise
+            
+            # Check for API errors from OpenAI SDK
+            if "APIError" in error_type or "api" in error_msg.lower():
+                syslog2(LOG_ERR, "llm api error", error=error_msg)
+                raise
+            
+            # Check for token limit or payment issues (existing logic)
             if self._is_token_limit_error(error_msg):
                 return self._retry_after_reset(context_chunks, user_input, system_prompt_template)
             else:
