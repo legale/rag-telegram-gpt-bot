@@ -196,7 +196,7 @@
 
 - [x] file=src/bot/utils/telegram_links.py func=build_message_link упростить: вынести построение link для username в _build_link_with_username(), построение link без username в _build_link_without_username()
 
-- [w] file=src/bot/utils/access_control.py func=check_access упростить: вынести проверку admin доступа в _check_admin_access(), проверку allowed chats в _check_allowed_chats()
+- [x] file=src/bot/utils/access_control.py func=check_access упростить: вынести проверку admin доступа в _check_admin_access(), проверку allowed chats в _check_allowed_chats()
 
 - [ ] file=src/bot/utils/frequency_controller.py func=should_respond упростить: вынести проверку frequency limit в _check_frequency_limit(), обновление счетчика в _update_counter()
 
