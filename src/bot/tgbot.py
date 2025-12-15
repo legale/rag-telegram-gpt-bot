@@ -944,17 +944,9 @@ def setup_logging(log_level: Optional[str] = None, use_syslog: bool = False):
     uvicorn_logger.setLevel(level)
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI, args: Optional[SimpleNamespace] = None):
-    """
-    Lifespan context manager for FastAPI.
-    Loads bot instance on startup, cleans up on shutdown.
-    """
+async def _init_profile_manager() -> None:
+    """Initialize profile manager."""
     ctx = get_runtime_context()
-    
-    syslog2(LOG_NOTICE, "daemon starting")
-    
-    # Initialize profile manager
     try:
         from pathlib import Path
         project_root = Path(__file__).parent.parent.parent
@@ -973,16 +965,21 @@ async def lifespan(app: FastAPI, args: Optional[SimpleNamespace] = None):
     except Exception as e:
         syslog2(LOG_ERR, "profile manager init failed", error=str(e))
         ctx.profile_manager = None
-        raise RuntimeError("Profile manager initialization failed")
+        raise RuntimeError("Profile manager initialization failed") from e
 
-    # инициализация рантайма под активный профиль
+
+async def _init_runtime(args: Optional[SimpleNamespace] = None) -> None:
+    """Initialize runtime for current profile."""
     try:
         await init_runtime_for_current_profile(args)
     except Exception as e:
         syslog2(LOG_ERR, "runtime init failed", error=str(e))
         raise
-    
-    # Initialize Telegram application
+
+
+async def _init_telegram_app() -> None:
+    """Initialize Telegram application."""
+    ctx = get_runtime_context()
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     if not token:
         syslog2(LOG_ERR, "telegram token missing")
@@ -991,6 +988,22 @@ async def lifespan(app: FastAPI, args: Optional[SimpleNamespace] = None):
     ctx.telegram_app = Application.builder().token(token).build()
     await ctx.telegram_app.initialize()
     syslog2(LOG_NOTICE, "telegram app initialized")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI, args: Optional[SimpleNamespace] = None):
+    """
+    Lifespan context manager for FastAPI.
+    Loads bot instance on startup, cleans up on shutdown.
+    """
+    ctx = get_runtime_context()
+    
+    syslog2(LOG_NOTICE, "daemon starting")
+    
+    # Initialize components
+    await _init_profile_manager()
+    await _init_runtime(args)
+    await _init_telegram_app()
     
     # Initialize access control service
     if ctx.admin_manager:

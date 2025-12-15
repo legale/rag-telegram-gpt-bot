@@ -60,7 +60,7 @@
 
 - [x] file=src/bot/tgbot.py func=_register_admin_commands уменьшить цикломатическую сложность: вынести регистрацию каждой группы команд в отдельные функции _register_profile_commands(), _register_ingest_commands(), _register_stats_commands()
 
-- [ ] file=src/bot/tgbot.py func=lifespan уменьшить цикломатическую сложность: вынести инициализацию profile_manager в _init_profile_manager(), инициализацию runtime в _init_runtime(), инициализацию telegram_app в _init_telegram_app()
+- [x] file=src/bot/tgbot.py func=lifespan уменьшить цикломатическую сложность: вынести инициализацию profile_manager в _init_profile_manager(), инициализацию runtime в _init_runtime(), инициализацию telegram_app в _init_telegram_app()
 
 - [ ] file=src/bot/core.py func=_get_or_build_context уменьшить цикломатическую сложность: вынести проверку необходимости обновления контекста в _should_refresh_context(), построение нового контекста в _build_new_context(), оценку качества контекста в _evaluate_context_quality()
 
