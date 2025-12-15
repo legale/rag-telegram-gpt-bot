@@ -221,6 +221,42 @@ class IngestionPipeline:
         """Run stage2: generate embeddings for chunks and save to SQLite (chunks.embedding_json)."""
         self.generate_embeddings(model=model, batch_size=batch_size)
 
+    def _parse_chunk_embedding(self, chunk: ChunkModel) -> Optional[List[float]]:
+        """
+        Parse embedding from chunk's embedding_json.
+        
+        Args:
+            chunk: Chunk model instance
+            
+        Returns:
+            Parsed embedding as list of floats, or None if parsing fails
+        """
+        try:
+            embedding = json.loads(chunk.embedding_json)
+            return embedding
+        except (json.JSONDecodeError, TypeError) as e:
+            syslog2(LOG_WARNING, "failed to parse embedding_json for chunk", chunk_id=chunk.id, error=str(e))
+            return None
+    
+    def _prepare_chunk_metadata(self, chunk: ChunkModel) -> Dict:
+        """
+        Prepare metadata dictionary from chunk's metadata_json.
+        
+        Args:
+            chunk: Chunk model instance
+            
+        Returns:
+            Metadata dictionary (empty dict if parsing fails or no metadata)
+        """
+        meta_dict = {}
+        if chunk.metadata_json:
+            try:
+                meta_dict = json.loads(chunk.metadata_json)
+            except (json.JSONDecodeError, TypeError):
+                pass
+        # topic_l1_id and topic_l2_id removed - clustering is deprecated
+        return meta_dict
+    
     def _prepare_chunk_data_for_vector_store(self, session) -> Tuple[List[str], List[str], List[List[float]], List[Dict], int]:
         """
         Prepare chunk data for vector store synchronization.
@@ -245,26 +281,14 @@ class IngestionPipeline:
         metadatas = []
         
         for chunk in chunks_with_embeddings:
-            # Parse embedding from JSON
-            try:
-                embedding = json.loads(chunk.embedding_json)
-            except (json.JSONDecodeError, TypeError) as e:
-                syslog2(LOG_WARNING, "failed to parse embedding_json for chunk", chunk_id=chunk.id, error=str(e))
+            embedding = self._parse_chunk_embedding(chunk)
+            if embedding is None:
                 continue
             
             ids.append(chunk.id)
             documents.append(chunk.text)
             embeddings.append(embedding)
-            
-            # Prepare metadata
-            meta_dict = {}
-            if chunk.metadata_json:
-                try:
-                    meta_dict = json.loads(chunk.metadata_json)
-                except:
-                    pass
-            # topic_l1_id and topic_l2_id removed - clustering is deprecated
-            metadatas.append(meta_dict)
+            metadatas.append(self._prepare_chunk_metadata(chunk))
         
         dimension = len(embeddings[0]) if embeddings else 0
         return ids, documents, embeddings, metadatas, dimension

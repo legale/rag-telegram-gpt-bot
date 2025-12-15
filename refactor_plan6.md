@@ -100,7 +100,7 @@
 
 - [ ] file=src/core/hybrid_retrieval.py func=_cosine_similarity вынести в отдельный модуль src/core/distance_utils.py для переиспользования (уже есть similarity_to_distance, добавить обратную функцию)
 
-- [ ] file=src/ingestion/pipeline.py func=_prepare_chunk_data_for_vector_store уменьшить цикломатическую сложность: вынести парсинг embedding_json в _parse_chunk_embedding(), подготовку metadata в _prepare_chunk_metadata()
+- [x] file=src/ingestion/pipeline.py func=_prepare_chunk_data_for_vector_store уменьшить цикломатическую сложность: вынести парсинг embedding_json в _parse_chunk_embedding(), подготовку metadata в _prepare_chunk_metadata()
 
 - [ ] file=src/ingestion/pipeline.py func=_check_and_fix_collection_dimension упростить: вынести проверку dimension в _check_collection_dimension(), пересоздание collection в _recreate_collection_if_needed()
 
