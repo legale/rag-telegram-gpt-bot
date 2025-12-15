@@ -71,6 +71,34 @@ class QueryRewriter:
                 syslog2(LOG_WARNING, "query_rewriter: expansion failed", error=str(e))
             return [query]
 
+    def _build_rephrase_prompt(self, query: str) -> str:
+        """
+        Build prompt for rephrasing query.
+        
+        Args:
+            query: Original query
+            
+        Returns:
+            Prompt string for rephrasing
+        """
+        return f"""Пользователь просит: {query}
+
+Твоя задача выполнить rephrasing для повышения точности эмбединга запроса для поиска в локальной истории чата.
+
+Верни только перефразированный запрос, без дополнительных комментариев."""
+
+    def _call_llm_for_rephrasing(self, prompt: str) -> str:
+        """
+        Call LLM for rephrasing query.
+        
+        Args:
+            prompt: Prompt for rephrasing
+            
+        Returns:
+            Rephrased query from LLM
+        """
+        return self.llm.complete(prompt, system="Ты помощник для перефразирования поисковых запросов.")
+
     def rephrase_for_embedding(self, query: str) -> str:
         """
         Rephrase query for better embedding search.
@@ -85,13 +113,8 @@ class QueryRewriter:
             return query
 
         try:
-            prompt = f"""Пользователь просит: {query}
-
-Твоя задача выполнить rephrasing для повышения точности эмбединга запроса для поиска в локальной истории чата.
-
-Верни только перефразированный запрос, без дополнительных комментариев."""
-
-            response = self.llm.complete(prompt, system="Ты помощник для перефразирования поисковых запросов.")
+            prompt = self._build_rephrase_prompt(query)
+            response = self._call_llm_for_rephrasing(prompt)
             
             # Clean response
             rephrased = response.strip()
