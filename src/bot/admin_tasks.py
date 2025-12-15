@@ -9,6 +9,7 @@ from pathlib import Path
 from src.lib.syslog2 import *
 from typing import Optional, Callable, Tuple, List, Dict
 from telegram import Bot
+from src.bot.utils.response_formatter import ResponseFormatter
 
 logger = logging.getLogger("legale_admin_tasks")
 
@@ -348,10 +349,11 @@ class IngestionTask:
             self.error = str(e)
             syslog2(LOG_ERR, "ingestion task failed", error=str(e))
             
+            error_msg = ResponseFormatter.format_error_message(str(e), "загрузке данных")
             await bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=message_id,
-                text=f"**Ошибка при загрузке данных:**\n\n`{e}`",
+                text=f"**{error_msg}**",
                 parse_mode='Markdown'
             )
         
