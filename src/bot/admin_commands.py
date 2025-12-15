@@ -932,9 +932,14 @@ class ModelCommands(BaseAdminCommand):
         """Handle /admin model set <name> command."""
         if not self.bot_instance:
              return "Бот не инициализирован."
-            
-        if not args:
-            return "Укажите имя модели.\nПример: `/admin model set openai/gpt-4-turbo`"
+        
+        # Validate arguments
+        is_valid, error = self.validator.validate_args_count(
+            args, 1, 1,
+            usage="/admin model set <name>"
+        )
+        if not is_valid:
+            return error
         
         target_model = args[0]
         available = self.bot_instance.available_models
@@ -980,8 +985,13 @@ class SystemPromptCommands(BaseAdminCommand):
     async def set_prompt(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
                         admin_manager, args: List[str]) -> str:
         """Handle /admin system_prompt set <prompt> command."""
-        if not args:
-            return "Укажите новый промпт.\nПример: `/admin system_prompt set Ты - полезный ассистент.`"
+        # Validate arguments
+        is_valid, error = self.validator.validate_args_count(
+            args, 1, None,
+            usage="/admin system_prompt set <prompt>"
+        )
+        if not is_valid:
+            return error
         
         # Join all args to form the prompt string, preserving spaces
         new_prompt = " ".join(args)
@@ -1203,8 +1213,13 @@ class SettingsCommands(BaseAdminCommand):
     async def lookup_chats(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
                           admin_manager, args: List[str]) -> str:
         """Handle /admin allowed lookup <chat_name> command."""
-        if not args:
-            return "Укажите имя чата для поиска.\nПример: `/admin allowed lookup название`"
+        # Validate arguments (chat name can contain spaces, so no max limit)
+        is_valid, error = self.validator.validate_args_count(
+            args, 1, None,
+            usage="/admin allowed lookup <chat_name>"
+        )
+        if not is_valid:
+            return error
         
         # Join all args to form the search query (in case chat name has spaces)
         chat_name = " ".join(args)

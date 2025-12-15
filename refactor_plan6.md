@@ -120,7 +120,7 @@
 
 - [x] file=src/bot/utils/response_formatter.py создать единый класс ResponseFormatter для форматирования всех типов ответов (уже существует, проверить использование во всех местах)
 
-- [ ] file=src/bot/utils/command_validator.py создать единый класс CommandValidator для валидации всех команд (уже существует, проверить использование во всех местах)
+- [x] file=src/bot/utils/command_validator.py создать единый класс CommandValidator для валидации всех команд (уже существует, проверить использование во всех местах)
 
 - [ ] file=src/bot/admin.py func=is_admin упростить: вынести проверку пароля в _verify_password(), проверку существования admin в _admin_exists()
 
