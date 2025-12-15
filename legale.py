@@ -48,7 +48,7 @@ if not is_in_virtualenv():
     _reexec_with_poetry()
 
 from dotenv import load_dotenv, set_key
-from src.lib.argparse2 import cmd_parse, gen_help, DotDict
+from src.lib.argparse2 import cmd_parse, gen_help, DotDict, parse
 
 
 current_dir = Path(__file__).parent.absolute()
@@ -346,7 +346,7 @@ def cmd_ingest(argv: list[str], profile_manager: ProfileManager) -> None:
 
     from src.ingestion.pipeline import IngestionPipeline
 
-    profile_name = opts.get("profile") or profile_manager.get_current_profile()
+    profile_name = opts.get("profile", profile_manager.get_current_profile())
     paths = profile_manager.get_profile_paths(profile_name)
 
     paths["profile_dir"].mkdir(parents=True, exist_ok=True)
@@ -366,17 +366,17 @@ def cmd_ingest(argv: list[str], profile_manager: ProfileManager) -> None:
         return
 
     if subcmd == "all":
-        file_path = opts.get("file") or (args[0] if args else None)
+        file_path = opts.get("file", (args[0] if args else None))
         if not file_path:
             raise ValueError("file path is required for ingest all")
         model = opts.get("model")
-        bs = opts.get("batch_size") or opts.get("batch-size")
+        bs = opts.get("batch_size", opts.get("batch-size"))
         batch_size = int(bs) if bs else 128
         pipeline.run_all(file_path, model=model, batch_size=batch_size)
         return
 
     if subcmd == "stage0":
-        file_path = opts.get("file") or (args[0] if args else None)
+        file_path = opts.get("file", (args[0] if args else None))
         if not file_path:
             raise ValueError("file path is required for ingest stage0")
         syslog2(LOG_NOTICE, "running stage0: parse and store")
@@ -402,7 +402,7 @@ def cmd_ingest(argv: list[str], profile_manager: ProfileManager) -> None:
             syslog2(LOG_ERR, "no chunks found in database, run ingest stage1 first")
             sys.exit(1)
         model = opts.get("model")
-        bs = opts.get("batch_size") or opts.get("batch-size")
+        bs = opts.get("batch_size", opts.get("batch-size"))
         batch_size = int(bs) if bs else 128
         syslog2(LOG_NOTICE, "running stage2: generate embeddings")
         pipeline.run_stage2(model=model, batch_size=batch_size)
@@ -569,9 +569,9 @@ def cmd_telegram(argv: list[str], profile_manager: ProfileManager) -> None:
             raise ValueError("target required")
         target = i_args[0]
 
-        limit = int(opts.get("limit") or 1000)
+        limit = int(opts.get("limit", 1000))
         model = opts.get("model")
-        bs = opts.get("batch_size") or opts.get("batch-size")
+        bs = opts.get("batch_size", opts.get("batch-size"))
         batch_size = int(bs) if bs else 128
 
         with fetcher.client:
@@ -618,19 +618,21 @@ def cmd_chat(argv: list[str], profile_manager: ProfileManager, global_log_level:
         "retrieval_type": {"arg": True, "desc": "Retrieval type", "meta": "hybrid|fts_only|vector_only"},
         "retrieval-type": {"arg": True, "desc": "Retrieval type (alias)", "meta": "hybrid|fts_only|vector_only"},
     }
-    cmd_table = None
 
-    opts, subcmd, args = cmd_parse(argv, opt_table)
-    if _need_help(opts, subcmd):
-        _print_help_and_exit("legale chat", opt_table, cmd_table, 0)
+    # Use simple option parsing without subcommands for chat
+    raw_opts, args = parse(argv, opt_table)
+    opts = DotDict(raw_opts)
 
-    retrieval_type = opts.get("retrieval_type") or opts.get("retrieval-type") or "hybrid"
+    if _need_help(opts, "chat"):
+        _print_help_and_exit("legale chat", opt_table, None, 0)
+
+    retrieval_type = opts.get("retrieval_type", opts.get("retrieval-type")) or "hybrid"
     if retrieval_type not in ["hybrid", "fts_only", "vector_only"]:
         raise ValueError("invalid retrieval_type, must be one of: hybrid, fts_only, vector_only")
 
     from src.bot.cli import main as cli_main
 
-    profile_name = opts.get("profile") or profile_manager.get_current_profile()
+    profile_name = opts.get("profile", profile_manager.get_current_profile())
     paths = profile_manager.get_profile_paths(profile_name)
 
     if not paths["db_path"].exists():
@@ -652,10 +654,15 @@ def cmd_chat(argv: list[str], profile_manager: ProfileManager, global_log_level:
     if chunks:
         cli_args.extend(["--chunks", str(int(chunks))])
 
+    # Local debug flag for chat; global debug is handled in main()
     if _bool_opt(opts, "debug_rag") or _bool_opt(opts, "debug-rag"):
         cli_args.append("--debug-rag")
 
     cli_args.extend(["--retrieval-type", retrieval_type])
+
+    # Pass through remaining args (e.g. -V 7) to the inner CLI
+    if args:
+        cli_args.extend(args)
 
     original_argv = sys.argv
     sys.argv = ["cli.py"] + cli_args
@@ -692,7 +699,7 @@ def cmd_bot(argv: list[str], profile_manager: ProfileManager, global_log_level: 
 
     load_dotenv()
 
-    profile_name = opts.get("profile") or profile_manager.get_current_profile()
+    profile_name = opts.get("profile", profile_manager.get_current_profile())
     paths = profile_manager.get_profile_paths(profile_name)
 
     os.environ["DATABASE_URL"] = paths["db_url"]
@@ -704,7 +711,7 @@ def cmd_bot(argv: list[str], profile_manager: ProfileManager, global_log_level: 
         url = opts.get("url")
         if not url:
             raise ValueError("url required for bot register")
-        token = opts.get("token") or os.getenv("TELEGRAM_BOT_TOKEN")
+        token = opts.get("token", os.getenv("TELEGRAM_BOT_TOKEN"))
         if not token:
             syslog2(LOG_ERR, "telegram_bot_token must be set in .env or passed via -token")
             sys.exit(1)
@@ -712,7 +719,7 @@ def cmd_bot(argv: list[str], profile_manager: ProfileManager, global_log_level: 
         return
 
     if subcmd == "delete":
-        token = opts.get("token") or os.getenv("TELEGRAM_BOT_TOKEN")
+        token = opts.get("token", os.getenv("TELEGRAM_BOT_TOKEN"))
         if not token:
             syslog2(LOG_ERR, "telegram_bot_token must be set in .env or passed via -token")
             sys.exit(1)
@@ -720,8 +727,8 @@ def cmd_bot(argv: list[str], profile_manager: ProfileManager, global_log_level: 
         return
 
     if subcmd == "run":
-        host = opts.get("host") or "127.0.0.1"
-        port = int(opts.get("port") or 8000)
+        host = opts.get("host", "127.0.0.1")
+        port = int(opts.get("port", 8000))
         debug_rag = _bool_opt(opts, "debug_rag") or _bool_opt(opts, "debug-rag")
 
         syslog2(LOG_NOTICE, "database", path=str(paths["db_path"]))
@@ -732,8 +739,8 @@ def cmd_bot(argv: list[str], profile_manager: ProfileManager, global_log_level: 
         return
 
     if subcmd == "daemon":
-        host = opts.get("host") or "127.0.0.1"
-        port = int(opts.get("port") or 8000)
+        host = opts.get("host", "127.0.0.1")
+        port = int(opts.get("port", 8000))
 
         syslog2(LOG_NOTICE, "database", path=str(paths["db_path"]))
         syslog2(LOG_NOTICE, "vector store", path=str(paths["vector_db_path"]))
@@ -763,7 +770,7 @@ def cmd_config(argv: list[str], profile_manager: ProfileManager) -> None:
 
     from src.bot.config import BotConfig
 
-    profile_name = opts.get("profile") or profile_manager.get_current_profile()
+    profile_name = opts.get("profile", profile_manager.get_current_profile())
     profile_dir = profile_manager.get_profile_dir(profile_name)
     if not profile_dir.exists():
         syslog2(LOG_ERR, "profile does not exist", profile=profile_name)
@@ -772,7 +779,7 @@ def cmd_config(argv: list[str], profile_manager: ProfileManager) -> None:
     config = BotConfig(profile_dir)
 
     if subcmd == "get":
-        key = opts.get("key") or (args[0] if args else None)
+        key = opts.get("key", (args[0] if args else None))
         if not key:
             raise ValueError("key required for config get")
         if key == "system_prompt":
@@ -786,8 +793,8 @@ def cmd_config(argv: list[str], profile_manager: ProfileManager) -> None:
         return
 
     if subcmd == "set":
-        key = opts.get("key") or (args[0] if args else None)
-        val = opts.get("value") or (args[1] if len(args) > 1 else None)
+        key = opts.get("key", (args[0] if args else None))
+        val = opts.get("value", (args[1] if len(args) > 1 else None))
         if not key or val is None:
             raise ValueError("key and value required for config set")
         if key == "system_prompt":
@@ -945,14 +952,14 @@ def cmd_test_embedding(argv: list[str]) -> None:
     if _need_help(opts, cmd):
         _print_help_and_exit("legale test-embedding", opt_table, cmd_table, 0)
 
-    text = opts.get("text") or (cmd if cmd != "help" else None)
+    text = opts.get("text", (cmd if cmd != "help" else None))
     if not text:
         if args:
             text = args[0]
     if not text:
         raise ValueError("text required for test-embedding")
 
-    model = opts.get("model") or "ai-sage/Giga-Embeddings-instruct"
+    model = opts.get("model", "ai-sage/Giga-Embeddings-instruct")
 
     from src.core.embedding import LocalEmbeddingClient
     import time
@@ -980,7 +987,10 @@ def main() -> None:
     setup_log(LOG_NOTICE)
 
     global_opt_table = {
-        "V": {"arg": True, "desc": "Set log level", "meta": "LEVEL"},
+        "-V": {"arg": True, "desc": "Set log level", "meta": "LEVEL"},
+        "--log-level": {"arg": True, "desc": "Set log level", "meta": "LEVEL"},
+        "debug-rag": {"arg": False, "desc": "enable debug RAG mode"},
+        "debug_rag": {"arg": False, "desc": "enable debug RAG mode (alias for debug-rag)"},
         "log-level": {"arg": True, "desc": "Set log level", "meta": "LEVEL"},
         "h": {"desc": "Show help"},
         "help": {"desc": "Show help"},
@@ -999,7 +1009,40 @@ def main() -> None:
     }
 
     try:
-        g_opts, cmd, args = cmd_parse(sys.argv[1:], global_opt_table)
+        argv = sys.argv[1:]
+        if not argv:
+            _print_help_and_exit("legale", global_opt_table, global_cmd_table, 0)
+
+        # Manually split global options (before command) and command + its args
+        g_opts_raw: dict[str, object] = {}
+        cmd: str | None = None
+        cmd_args: list[str] = []
+
+        i = 0
+        while i < len(argv):
+            tok = argv[i]
+            if tok in global_opt_table and cmd is None:
+                spec = global_opt_table[tok]
+                if spec.get("arg"):
+                    if i + 1 >= len(argv):
+                        raise ValueError(f"missing arg for {tok}")
+                    g_opts_raw[tok] = argv[i + 1]
+                    i += 2
+                else:
+                    g_opts_raw[tok] = True
+                    i += 1
+                continue
+
+            # First non-global option token is the command
+            if cmd is None:
+                cmd = tok
+                cmd_args = argv[i + 1 :]
+                break
+
+        if cmd is None:
+            raise ValueError("no command specified")
+
+        g_opts = DotDict(g_opts_raw)
 
         if _need_help(g_opts, cmd):
             _print_help_and_exit("legale", global_opt_table, global_cmd_table, 0)
@@ -1008,38 +1051,46 @@ def main() -> None:
             print("legale-bot version 1.0")
             sys.exit(0)
 
-        global_log_level = g_opts.get("V") or g_opts.get("log-level")
+        global_log_level = g_opts.get("V", g_opts.get("log-level", g_opts.get("--log-level")))
         setup_log(_parse_log_level(global_log_level))
+
+        global_debug_rag = _bool_opt(g_opts, "debug-rag") or _bool_opt(g_opts, "debug_rag")
 
         profile_manager = ProfileManager(project_root)
         _ensure_default_profile(profile_manager, cmd)
 
         if cmd == "test-embedding":
-            cmd_test_embedding(args)
+            cmd_test_embedding(cmd_args)
             return
 
         if cmd == "profile":
-            cmd_profile(args, profile_manager)
+            cmd_profile(cmd_args, profile_manager)
             return
 
         if cmd == "ingest":
-            cmd_ingest(args, profile_manager)
+            cmd_ingest(cmd_args, profile_manager)
             return
 
         if cmd == "telegram":
-            cmd_telegram(args, profile_manager)
+            cmd_telegram(cmd_args, profile_manager)
             return
 
         if cmd == "chat":
-            cmd_chat(args, profile_manager, global_log_level)
+            # chat honors both global and local debug-rag flags
+            if global_debug_rag:
+                cmd_args = ["debug-rag"] + cmd_args
+            cmd_chat(cmd_args, profile_manager, global_log_level)
             return
 
         if cmd == "bot":
-            cmd_bot(args, profile_manager, global_log_level)
+            # apply global debug-rag to bot commands as well
+            if global_debug_rag:
+                cmd_args = ["debug-rag"] + cmd_args
+            cmd_bot(cmd_args, profile_manager, global_log_level)
             return
 
         if cmd == "config":
-            cmd_config(args, profile_manager)
+            cmd_config(cmd_args, profile_manager)
             return
 
         raise ValueError(f"Unknown command: {cmd}")

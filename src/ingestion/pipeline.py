@@ -1043,7 +1043,7 @@ if __name__ == "__main__":
         clear = opts.get("clear", False)
         db_url = opts.get("db-url")
         vec_path = opts.get("vec-path")
-        collection = opts.get("collection") or "embed-l1"
+        collection = opts.get("collection", "embed-l1")
         
         # Convert to SimpleNamespace for compatibility
         from types import SimpleNamespace

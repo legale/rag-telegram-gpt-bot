@@ -263,31 +263,22 @@ def main():
     
     # Parse arguments using argparse2
     opt_table = {
-        "V": {"arg": True, "desc": "Set log level", "meta": "LEVEL"},
-        "log-level": {"arg": True, "desc": "Set log level", "meta": "LEVEL"},
+        "-V": {"arg": True, "desc": "Set log level", "meta": "LEVEL"},
+        "--log-level": {"arg": True, "desc": "Set log level", "meta": "LEVEL"},
         "chunks": {"arg": True, "desc": "Number of chunks", "meta": "N"},
         "debug-rag": {"desc": "Enable debug RAG mode"},
         "retrieval-type": {"arg": True, "desc": "Retrieval type", "meta": "TYPE"},
     }
     
     opts, args = parse(sys.argv[1:], opt_table)
-    
     # Handle -V/--log-level (global option)
-    log_level_str = opts.get("V") or opts.get("log-level")
+    log_level_str = opts.get("-V", opts.get("--log-level", LOG_WARNING))
     
     # Parse other options
-    chunks = int(opts.get("chunks", 5)) if opts.get("chunks") else 5
+    chunks = int(opts.get("chunks", 5))
     debug_rag = opts.get("debug-rag", False)
-    retrieval_type = opts.get("retrieval-type") or "hybrid"
+    retrieval_type = opts.get("retrieval-type", "hybrid")
     
-    # Count -v flags for log level (need to check before stream consumes them)
-    verbose = 0
-    for arg in sys.argv[1:]:
-        if arg == "-v":
-            verbose += 1
-        elif arg.startswith("-v") and not arg.startswith("-V"):
-            # Count v's in -vv, -vvv, etc. (but not -V)
-            verbose += len([c for c in arg if c == 'v']) - 1
 
     # Configure logging
     syslog_level = LOG_WARNING
@@ -303,11 +294,7 @@ def main():
             "ALERT": LOG_ALERT
         }
         syslog_level = level_map.get(log_level_str.upper(), LOG_WARNING)
-            
-    elif verbose == 1:
-        syslog_level = LOG_INFO
-    elif verbose >= 2:
-        syslog_level = LOG_DEBUG
+
     
     setup_log(syslog_level)
 

@@ -81,7 +81,7 @@ def gen_help(prog: str, opt_table: dict, cmd_table: dict | None = None) -> str:
         arg = spec.get("arg")
         meta = spec.get("meta", "ARG") if arg else ""
         desc = spec.get("desc", "")
-        opt_str = f"  -{name}"
+        opt_str = f"  {name}"
         if arg:
             opt_str += f" {meta}"
         if desc:
@@ -121,7 +121,6 @@ def cmd_parse(text_or_argv, opt_table: dict, argv_off: int = 0) -> tuple[dict, s
         argv = argv[argv_off:]
 
     opts, args = parse(argv, opt_table)
-    print("cmd_parse_after", opts, argv)
     opts = DotDict(opts)
 
     if not args:

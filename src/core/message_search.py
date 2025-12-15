@@ -108,7 +108,7 @@ def _log_retrieval_distances(
         )
         
         if debug_rag:
-            metadata = item.get("metadata") or {}
+            metadata = item.get("metadata", {}) or {}
             syslog2(
                 LOG_DEBUG,
                 f"msg_search {context} result details",

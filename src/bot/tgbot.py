@@ -1783,14 +1783,14 @@ def main():
             parsed_args = SimpleNamespace(token=token, bot_command="delete")
         
         elif cmd == "run":
-            host = parsed_opts.get("host") or "127.0.0.1"
+            host = parsed_opts.get("host", "127.0.0.1")
             port = int(parsed_opts.get("port", 8000)) if parsed_opts.get("port") else 8000
             token = parsed_opts.get("token")
             debug_rag = parsed_opts.get("debug-rag", False)
             parsed_args = SimpleNamespace(host=host, port=port, token=token, debug_rag=debug_rag, bot_command="run")
         
         elif cmd == "daemon":
-            host = parsed_opts.get("host") or "127.0.0.1"
+            host = parsed_opts.get("host", "127.0.0.1")
             port = int(parsed_opts.get("port", 8000)) if parsed_opts.get("port") else 8000
             token = parsed_opts.get("token")
             parsed_args = SimpleNamespace(host=host, port=port, token=token, bot_command="daemon")
