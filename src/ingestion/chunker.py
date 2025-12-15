@@ -74,9 +74,8 @@ class MessageChunker:
     
     def _format_message(self, msg: ChatMessage) -> str:
         """Format a single message with metadata."""
-        date_str = msg.timestamp.strftime("%Y-%m-%d %H:%M")
         # Using sender as both user_id and user_name since we don't have numeric IDs
-        return f"[date: {date_str}] [user: {msg.sender}] {msg.content}"
+        return f"[date: {msg.timestamp.strftime('%Y-%m-%d %H:%M')}] [user: {msg.sender}] {msg.content}"
     
     def _create_prefix(self, start_date: datetime, end_date: datetime, unique_senders: set) -> str:
         """Create prefix for chunk with date range and participants."""

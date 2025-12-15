@@ -212,8 +212,8 @@ def handle_find_command_cli(args_text: str, bot, admin_manager, debug_rag: bool)
             return f'по запросу "{query}" ничего не найдено (distance <= {threshold})'
         
         # Prepare message parts from filtered results
-        from src.core.message_search import _prepare_message_parts
-        message_parts_list = _prepare_message_parts(bot.db, filtered_results, debug_rag)
+        from src.core.message_search import _prepare_message_parts_from_results
+        message_parts_list = _prepare_message_parts_from_results(bot.db, filtered_results, debug_rag)
         
         if not message_parts_list:
             return f'по запросу "{query}" ничего не найдено'

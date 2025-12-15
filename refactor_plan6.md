@@ -162,7 +162,7 @@
 
 - [ ] file=src/bot/tgbot.py func=_handle_public_commands уменьшить цикломатическую сложность: вынести обработку каждой команды в отдельные функции _handle_id_command(), _handle_help_command(), _handle_admin_set_command()
 
-- [ ] file=src/bot/tgbot.py func=_map_log_level_to_constant упростить: использовать словарь для маппинга вместо множественных if-elif
+- [x] file=src/bot/tgbot.py func=_map_log_level_to_constant упростить: использовать словарь для маппинга вместо множественных if-elif
 
 - [ ] file=src/bot/tgbot.py func=_map_syslog2_to_logging_level упростить: использовать словарь для маппинга вместо множественных if-elif
 

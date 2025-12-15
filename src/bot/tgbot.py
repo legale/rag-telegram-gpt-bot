@@ -317,11 +317,11 @@ class MessageHandler:
                 return f'по запросу "{search_query}" ничего не найдено (distance <= {threshold})'
             
             # Convert SearchResult objects to dict format
-            from src.core.message_search import convert_search_results_to_dict, _prepare_message_parts
+            from src.core.message_search import convert_search_results_to_dict, _prepare_message_parts_from_results
             filtered_results = convert_search_results_to_dict(search_results)
             
             # Prepare message parts from filtered results
-            message_parts_list = _prepare_message_parts(db, filtered_results, debug_rag_mode)
+            message_parts_list = _prepare_message_parts_from_results(db, filtered_results, debug_rag_mode)
             
             if not message_parts_list:
                 return f'по запросу "{search_query}" ничего не найдено'

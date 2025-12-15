@@ -216,14 +216,14 @@ def search_message_contents(
     results = retrieval.search_chunks_basic(query, n_results=top_k)
     
     if threshold is not None:
-        results = _filter_by_threshold(results, threshold, debug_rag)
+        results = _filter_results_by_threshold(results, threshold, debug_rag)
     
     _log_retrieval_distances(results, query, "contents", LOG_ALERT, debug_rag, threshold)
     
-    return _prepare_message_parts(db, results, debug_rag)
+    return _prepare_message_parts_from_results(db, results, debug_rag)
 
 
-def _filter_by_threshold(
+def _filter_results_by_threshold(
     results: List[Dict],
     threshold: float,
     debug_rag: bool = False
@@ -426,7 +426,7 @@ def _format_message_parts_for_chunk(
     return message_parts
 
 
-def _prepare_message_parts(
+def _prepare_message_parts_from_results(
     db: Database,
     results: List[Dict],
     debug_rag: bool

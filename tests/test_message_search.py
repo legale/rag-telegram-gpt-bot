@@ -9,10 +9,10 @@ from src.core.message_search import (
     _log_retrieval_distances,
     search_message_links,
     search_message_contents,
-    _filter_by_threshold,
+    _filter_results_by_threshold,
     _parse_msg_id,
     _format_message_parts,
-    _prepare_message_parts
+    _prepare_message_parts_from_results
 )
 from src.core.domain import SearchResult, Chunk, Message
 from src.storage.db import MessageModel
@@ -182,7 +182,7 @@ class TestSearchMessageContents:
         mock_db = Mock()
         mock_db.get_messages_by_chunk.return_value = []
         
-        with patch('src.core.message_search._prepare_message_parts') as mock_prepare:
+        with patch('src.core.message_search._prepare_message_parts_from_results') as mock_prepare:
             mock_prepare.return_value = []
             result = search_message_contents(mock_retrieval, mock_db, "query")
             
@@ -198,8 +198,8 @@ class TestSearchMessageContents:
         ]
         mock_db = Mock()
         
-        with patch('src.core.message_search._filter_by_threshold') as mock_filter, \
-             patch('src.core.message_search._prepare_message_parts') as mock_prepare:
+        with patch('src.core.message_search._filter_results_by_threshold') as mock_filter, \
+             patch('src.core.message_search._prepare_message_parts_from_results') as mock_prepare:
             mock_filter.return_value = [{"id": "chunk1", "distance": 0.3}]
             mock_prepare.return_value = []
             
@@ -211,8 +211,8 @@ class TestSearchMessageContents:
             assert mock_filter.call_args[0][1] == 0.5  # threshold
 
 
-class TestFilterByThreshold:
-    """Tests for _filter_by_threshold"""
+class TestFilterResultsByThreshold:
+    """Tests for _filter_results_by_threshold"""
     
     def test_filter_all_pass(self):
         """Test filtering when all results pass threshold"""
@@ -221,7 +221,7 @@ class TestFilterByThreshold:
             {"id": "chunk2", "distance": 0.5}
         ]
         
-        filtered = _filter_by_threshold(results, 1.0)
+        filtered = _filter_results_by_threshold(results, 1.0)
         
         assert len(filtered) == 2
     
@@ -233,7 +233,7 @@ class TestFilterByThreshold:
             {"id": "chunk3", "distance": 1.2}
         ]
         
-        filtered = _filter_by_threshold(results, 0.5)
+        filtered = _filter_results_by_threshold(results, 0.5)
         
         assert len(filtered) == 1
         assert filtered[0]["id"] == "chunk1"
@@ -246,7 +246,7 @@ class TestFilterByThreshold:
         ]
         
         with patch('src.core.message_search.syslog2') as mock_syslog:
-            filtered = _filter_by_threshold(results, 0.5, debug_rag=True)
+            filtered = _filter_results_by_threshold(results, 0.5, debug_rag=True)
             
             assert len(filtered) == 1
             mock_syslog.assert_called()
@@ -258,7 +258,7 @@ class TestFilterByThreshold:
             {"id": "chunk2", "distance": 0.3}
         ]
         
-        filtered = _filter_by_threshold(results, 0.5)
+        filtered = _filter_results_by_threshold(results, 0.5)
         
         # Missing distance should be treated as inf, so filtered out
         assert len(filtered) == 1
@@ -347,13 +347,13 @@ class TestFormatMessageParts:
             assert parts[1]["distance"] == 0.7
 
 
-class TestPrepareMessageParts:
-    """Tests for _prepare_message_parts"""
+class TestPrepareMessagePartsFromResults:
+    """Tests for _prepare_message_parts_from_results"""
     
     def test_prepare_no_results(self):
         """Test preparing with no results"""
         mock_db = Mock()
-        result = _prepare_message_parts(mock_db, [], False)
+        result = _prepare_message_parts_from_results(mock_db, [], False)
         
         assert result == []
     
@@ -376,7 +376,7 @@ class TestPrepareMessageParts:
             mock_parse.return_value = 456
             mock_format.return_value = [{"text": "Test message", "distance": 0.5}]
             
-            parts = _prepare_message_parts(mock_db, results, False)
+            parts = _prepare_message_parts_from_results(mock_db, results, False)
             
             assert len(parts) == 1
             assert len(parts[0]) == 1
@@ -389,7 +389,7 @@ class TestPrepareMessageParts:
             {"id": "chunk1", "distance": 0.3}
         ]
         
-        with patch('src.core.message_search._prepare_message_parts') as mock_prepare:
+        with patch('src.core.message_search._prepare_message_parts_from_results') as mock_prepare:
             # This is recursive, so we'll test the skip logic directly
             msg = MessageModel(
                 msg_id="chat123_456",
@@ -405,7 +405,7 @@ class TestPrepareMessageParts:
                 mock_parse.return_value = 456
                 mock_format.return_value = [{"text": "Test"}]
                 
-                parts = _prepare_message_parts(mock_db, results, False)
+                parts = _prepare_message_parts_from_results(mock_db, results, False)
                 
                 # Should only process chunk1, skip None
                 assert len(parts) == 1
@@ -430,7 +430,7 @@ class TestPrepareMessageParts:
             mock_parse.return_value = 456
             mock_format.return_value = [{"text": "Test"}]
             
-            parts = _prepare_message_parts(mock_db, results, True)
+            parts = _prepare_message_parts_from_results(mock_db, results, True)
             
             assert len(parts) == 1
             mock_syslog.assert_called()
@@ -442,6 +442,6 @@ class TestPrepareMessageParts:
         
         results = [{"id": "chunk1", "distance": 0.5}]
         
-        parts = _prepare_message_parts(mock_db, results, False)
+        parts = _prepare_message_parts_from_results(mock_db, results, False)
         
         assert parts == []
