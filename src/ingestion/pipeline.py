@@ -457,33 +457,10 @@ class IngestionPipeline:
         syslog2(LOG_NOTICE, "starting parse and store chunks")
 
         # Get all messages from database
-        session = self.db.get_session()
-        try:
-            from src.storage.db import MessageModel
-            messages_db = session.query(MessageModel).order_by(MessageModel.ts).all()
-            
-            if not messages_db:
-                syslog2(LOG_ERR, "no messages found in database, run ingest stage0 first")
-                raise IngestionPipelineError("no messages found in database, run ingest stage0 first")
-            
-            # Convert to ChatMessage format for chunker
-            from src.ingestion.parser import ChatMessage
-            messages = []
-            for msg_db in messages_db:
-                # Extract original msg_id from composite_id (remove chat_id prefix)
-                original_id = msg_db.msg_id.split('_', 1)[1] if '_' in msg_db.msg_id else msg_db.msg_id
-                messages.append(ChatMessage(
-                    id=original_id,
-                    timestamp=msg_db.ts,
-                    sender=msg_db.from_id or "Unknown",
-                    content=msg_db.text
-                ))
-            
-            # Get chat_id from first message
-            chat_id = messages_db[0].chat_id if messages_db else "unknown_chat"
-        finally:
-            session.close()
+        messages_db, chat_id = self._load_messages_from_db()
 
+        # Convert to ChatMessage format for chunker
+        messages = self._convert_to_chat_messages(messages_db)
         syslog2(LOG_NOTICE, "found messages in database", count=len(messages))
 
         # Use existing chunker from __init__ (already initialized with config parameters)
@@ -496,6 +473,63 @@ class IngestionPipeline:
         syslog2(LOG_NOTICE, "chunks created", count=len(chunks))
 
         # Store chunks in sql db
+        self._save_chunks_to_db(chunks, chat_id)
+
+        syslog2(LOG_NOTICE, "stage1 complete")
+
+    def _load_messages_from_db(self) -> Tuple[List, str]:
+        """
+        Load messages from database.
+        
+        Returns:
+            Tuple of (list of MessageModel objects, chat_id)
+        """
+        session = self.db.get_session()
+        try:
+            from src.storage.db import MessageModel
+            messages_db = session.query(MessageModel).order_by(MessageModel.ts).all()
+            
+            if not messages_db:
+                syslog2(LOG_ERR, "no messages found in database, run ingest stage0 first")
+                raise IngestionPipelineError("no messages found in database, run ingest stage0 first")
+            
+            # Get chat_id from first message
+            chat_id = messages_db[0].chat_id if messages_db else "unknown_chat"
+            return messages_db, chat_id
+        finally:
+            session.close()
+
+    def _convert_to_chat_messages(self, messages_db: List) -> List:
+        """
+        Convert MessageModel objects to ChatMessage format for chunker.
+        
+        Args:
+            messages_db: List of MessageModel objects from database
+            
+        Returns:
+            List of ChatMessage objects
+        """
+        from src.ingestion.parser import ChatMessage
+        messages = []
+        for msg_db in messages_db:
+            # Extract original msg_id from composite_id (remove chat_id prefix)
+            original_id = msg_db.msg_id.split('_', 1)[1] if '_' in msg_db.msg_id else msg_db.msg_id
+            messages.append(ChatMessage(
+                id=original_id,
+                timestamp=msg_db.ts,
+                sender=msg_db.from_id or "Unknown",
+                content=msg_db.text
+            ))
+        return messages
+
+    def _save_chunks_to_db(self, chunks: List, chat_id: str) -> None:
+        """
+        Save chunks to SQLite database.
+        
+        Args:
+            chunks: List of EnhancedTextChunk objects
+            chat_id: Chat ID for the chunks
+        """
         chunk_models = []
         ids: list[str] = []
         documents: list[str] = []
@@ -556,8 +590,6 @@ class IngestionPipeline:
             raise
         finally:
             session.close()
-
-        syslog2(LOG_NOTICE, "stage1 complete", chunks_saved=len(chunk_models))
 
     def parse_and_store(self, file_path: str, clear_existing: bool = False):
         """
