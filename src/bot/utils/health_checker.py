@@ -22,7 +22,7 @@ class HealthChecker:
     """Utility for performing system health checks."""
     
     @staticmethod
-    def check_database(db_path: Path) -> Tuple[str, str]:
+    def _check_database_health(db_path: Path) -> Tuple[str, str]:
         """
         Check database health.
         
@@ -46,7 +46,7 @@ class HealthChecker:
             return ("База данных", ResponseFormatter.format_error_message(str(e)))
     
     @staticmethod
-    def check_vector_store(vector_path: Path) -> Tuple[str, str]:
+    def _check_vector_store_health(vector_path: Path) -> Tuple[str, str]:
         """
         Check vector store health.
         
@@ -60,6 +60,49 @@ class HealthChecker:
             return ("Векторное хранилище", "Не создано")
         
         return ("Векторное хранилище", "OK")
+    
+    @staticmethod
+    def check_database(db_path: Path) -> Tuple[str, str]:
+        """
+        Check database health (public wrapper).
+        
+        Args:
+            db_path: Path to SQLite database
+            
+        Returns:
+            Tuple of (check_name, status_message)
+        """
+        return HealthChecker._check_database_health(db_path)
+    
+    @staticmethod
+    def check_vector_store(vector_path: Path) -> Tuple[str, str]:
+        """
+        Check vector store health (public wrapper).
+        
+        Args:
+            vector_path: Path to vector store directory
+            
+        Returns:
+            Tuple of (check_name, status_message)
+        """
+        return HealthChecker._check_vector_store_health(vector_path)
+    
+    @staticmethod
+    def check_health(db_path: Path, vector_path: Path) -> List[Tuple[str, str]]:
+        """
+        Perform health checks for database and vector store.
+        
+        Args:
+            db_path: Path to SQLite database
+            vector_path: Path to vector store directory
+            
+        Returns:
+            List of (check_name, status_message) tuples
+        """
+        return [
+            HealthChecker._check_database_health(db_path),
+            HealthChecker._check_vector_store_health(vector_path),
+        ]
     
     @staticmethod
     def check_llm_api_key() -> Tuple[str, str]:
@@ -149,8 +192,8 @@ class HealthChecker:
             List of (check_name, status_message) tuples
         """
         checks = [
-            HealthChecker.check_database(db_path),
-            HealthChecker.check_vector_store(vector_path),
+            HealthChecker._check_database_health(db_path),
+            HealthChecker._check_vector_store_health(vector_path),
             HealthChecker.check_llm_api_key(),
             HealthChecker.check_embedding_api_key(),
             HealthChecker.check_memory(),
