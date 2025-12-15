@@ -1460,6 +1460,38 @@ def is_bot_mentioned(message, bot_username: str, bot_id: int) -> bool:
     return False
 
 
+def _check_admin_manager(ctx) -> bool:
+    """
+    Check if admin_manager is available.
+    
+    Args:
+        ctx: Runtime context
+        
+    Returns:
+        True if admin_manager is available, False otherwise
+    """
+    if not ctx.admin_manager:
+        syslog2(LOG_ERR, "admin manager missing", action="drop_message")
+        return False
+    return True
+
+
+def _check_bot_instance(ctx) -> bool:
+    """
+    Check if bot_instance is available.
+    
+    Args:
+        ctx: Runtime context
+        
+    Returns:
+        True if bot_instance is available, False otherwise
+    """
+    if not ctx.bot_instance:
+        syslog2(LOG_ERR, "bot instance missing", action="drop_message")
+        return False
+    return True
+
+
 def _ensure_required_components() -> Optional[MessageHandler]:
     """
     Ensure admin_manager and bot_instance are available and create MessageHandler.
@@ -1468,12 +1500,10 @@ def _ensure_required_components() -> Optional[MessageHandler]:
         MessageHandler instance if components are available, None otherwise
     """
     ctx = get_runtime_context()
-    if not ctx.admin_manager:
-        syslog2(LOG_ERR, "admin manager missing", action="drop_message")
+    if not _check_admin_manager(ctx):
         return None
     
-    if not ctx.bot_instance:
-        syslog2(LOG_ERR, "bot instance missing", action="drop_message")
+    if not _check_bot_instance(ctx):
         return None
     
     return MessageHandler(ctx.bot_instance, ctx.admin_manager, ctx.admin_router)

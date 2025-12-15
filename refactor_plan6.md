@@ -156,7 +156,7 @@
 
 - [x] file=src/bot/tgbot.py func=is_bot_mentioned упростить: вынести проверку mention entity в _check_mention_entity(), проверку text_mention entity в _check_text_mention_entity()
 
-- [ ] file=src/bot/tgbot.py func=_ensure_required_components упростить: вынести проверку admin_manager в _check_admin_manager(), проверку bot_instance в _check_bot_instance()
+- [x] file=src/bot/tgbot.py func=_ensure_required_components упростить: вынести проверку admin_manager в _check_admin_manager(), проверку bot_instance в _check_bot_instance()
 
 - [x] file=src/bot/tgbot.py func=_ensure_handler_available упростить: вынести выполнение handler в _execute_handler(), отправку response в _send_handler_response()
 
