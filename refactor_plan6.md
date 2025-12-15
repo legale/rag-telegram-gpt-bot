@@ -168,7 +168,7 @@
 
 - [x] file=src/bot/tgbot.py func=setup_logging уменьшить цикломатическую сложность: вынести создание handler в _create_log_handler(), настройку formatter в _setup_formatter(), настройку loggers в _configure_loggers()
 
-- [ ] file=src/bot/core.py func=_calculate_token_usage упростить: вынести построение messages для подсчета в _build_messages_for_token_count()
+- [x] file=src/bot/core.py func=_calculate_token_usage упростить: вынести построение messages для подсчета в _build_messages_for_token_count()
 
 - [x] file=src/bot/core.py func=get_token_usage упростить: использовать _build_prompt_and_history() вместо дублирования логики построения промпта
 

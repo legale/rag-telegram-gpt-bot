@@ -458,6 +458,22 @@ class LegaleBot:
         )
         return system_prompt, history_for_prompt
     
+    def _build_messages_for_token_count(self, system_prompt: str, user_content: str = "") -> List[Dict[str, str]]:
+        """
+        Build messages list for token counting.
+        
+        Args:
+            system_prompt: System prompt content
+            user_content: User message content (optional)
+            
+        Returns:
+            List of message dictionaries
+        """
+        return [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ]
+    
     def _calculate_token_usage(self, system_prompt: str, user_content: str = "") -> Dict[str, Union[int, float]]:
         """
         Calculate token usage for given messages.
@@ -469,10 +485,7 @@ class LegaleBot:
         Returns:
             Dictionary with current_tokens, max_tokens, and percentage
         """
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_content},
-        ]
+        messages = self._build_messages_for_token_count(system_prompt, user_content)
         
         current_tokens = self.llm_client.count_tokens(messages)
         percentage = (current_tokens / self.max_context_tokens) * 100 if self.max_context_tokens > 0 else 0.0
