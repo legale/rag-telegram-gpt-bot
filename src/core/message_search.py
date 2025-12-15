@@ -4,7 +4,7 @@ High-level message search functionality.
 """
 
 from typing import List, Dict, Optional
-from src.core.retrieval import RetrievalService
+from src.core.use_cases.hybrid_retrieval import HybridRetrievalService
 from src.core.domain import SearchResult
 from src.storage.db import Database, MessageModel
 from src.bot.utils import build_message_link
@@ -119,7 +119,7 @@ def _log_retrieval_distances(
 
 
 def search_message_links(
-    retrieval: RetrievalService,
+    retrieval: HybridRetrievalService,
     db: Database,
     query: str,
     top_k: int = 3,
@@ -128,7 +128,7 @@ def search_message_links(
     Search for message links by text query.
     
     Args:
-        retrieval: RetrievalService instance
+        retrieval: HybridRetrievalService instance
         db: Database instance
         query: Search query string
         top_k: Number of results to return
@@ -159,7 +159,7 @@ def search_message_links(
 
 
 def search_message_contents(
-    retrieval: RetrievalService,
+    retrieval: HybridRetrievalService,
     db: Database,
     query: str,
     top_k: int = 3,
@@ -170,7 +170,7 @@ def search_message_contents(
     Search for message contents by text query.
     
     Args:
-        retrieval: RetrievalService instance
+        retrieval: HybridRetrievalService instance
         db: Database instance
         query: Search query string
         top_k: Number of results to return

@@ -100,6 +100,8 @@ class LegaleBot:
                 embedding_client=self.embedding_client,
                 profile_dir=profile_dir,
                 log_level=log_level,
+                fts_only=False,  # Explicitly set for hybrid
+                llm_client=self.llm_client,  # Pass LLM for query rephrasing
             )
             self.retrieval = self.retrieval_service
         elif retrieval_type == "fts_only":
@@ -110,7 +112,8 @@ class LegaleBot:
                 embedding_client=self.embedding_client,
                 profile_dir=profile_dir,
                 log_level=log_level,
-                fts_only=True,
+                fts_only=True,  # Explicitly set for fts_only
+                llm_client=None,  # No LLM needed for FTS-only
             )
             self.retrieval = self.retrieval_service
         else:

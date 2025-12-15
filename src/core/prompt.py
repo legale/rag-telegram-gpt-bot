@@ -101,18 +101,8 @@ History:
                 meta = {}
                 
             # Format topic header
-            topic_header = ""
             # topic_l1_title and topic_l2_title removed - clustering is deprecated
-            
-            if l2_title:
-                topic_header += f"Category: {l2_title} > "
-            if l1_title:
-                topic_header += f"Topic: {l1_title}"
-            
-            if topic_header:
-                chunk_header = f"--- Chunk {i+1} ({topic_header}) ---\n"
-            else:
-                chunk_header = f"--- Chunk {i+1} ---\n"
+            chunk_header = f"--- Chunk {i+1} ---\n"
                 
             chunk_text = f"{chunk_header}{chunk_text_value}\n\n"
             

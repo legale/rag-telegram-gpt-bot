@@ -10,6 +10,7 @@ from ..domain import SearchResult, Chunk, Message
 from ..interfaces import (
     FTSIndex, VectorIndex, Embedder, ChunkStore, MessageStore, SearchFilters, LLM
 )
+from .query_rewriter import QueryRewriter
 from ..distance_utils import similarity_to_distance
 from src.lib.syslog2 import *
 
@@ -34,6 +35,7 @@ class HybridRetrievalService:
         message_store: MessageStore,
         log_level: int = LOG_WARNING,
         fts_only: bool = False,
+        llm: Optional[LLM] = None,
     ):
         """
         Initialize HybridRetrievalService.
@@ -46,6 +48,7 @@ class HybridRetrievalService:
             message_store: Message store for retrieving messages
             log_level: Logging level
             fts_only: If True, skip vector reranking and return FTS results directly
+            llm: Optional LLM for query rephrasing before vector search
         """
         self.fts_index = fts_index
         self.vector_index = vector_index
@@ -54,6 +57,8 @@ class HybridRetrievalService:
         self.message_store = message_store
         self.log_level = log_level
         self.fts_only = fts_only
+        # Query rewriter for rephrasing before vector search
+        self.query_rewriter = QueryRewriter(llm=llm, log_level=log_level)
         # Compatibility attributes
         self.rag_ntop = 0  # Not used in hybrid retrieval, kept for compatibility
 
@@ -171,9 +176,16 @@ class HybridRetrievalService:
             if not candidate_chunks:
                 return []
 
-            # Step 3: Compute query embedding and rerank by vector similarity
+            # Step 3: Rephrase query for better embedding, then compute embedding and rerank
             try:
-                query_vector = self.embedder.embed_query(query)
+                # Rephrase query for better semantic search
+                rephrased_query = self.query_rewriter.rephrase_for_embedding(query)
+                if self.log_level <= LOG_DEBUG:
+                    syslog2(LOG_DEBUG, "hybrid_retrieval: query rephrased", 
+                           original=query, 
+                           rephrased=rephrased_query)
+                
+                query_vector = self.embedder.embed_query(rephrased_query)
             except Exception as e:
                 syslog2(LOG_ERR, "hybrid_retrieval: embedding computation failed", query=query, error=str(e))
                 # Fallback to FTS-only if embedding fails
