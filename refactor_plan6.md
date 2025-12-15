@@ -150,7 +150,7 @@
 
 - [ ] file=src/ingestion/chunker.py func=_format_message упростить: использовать f-string template вместо конкатенации строк
 
-- [ ] file=src/ingestion/chunker.py func=_create_prefix упростить: использовать f-string template вместо конкатенации строк
+- [x] file=src/ingestion/chunker.py func=_create_prefix упростить: использовать f-string template вместо конкатенации строк
 
 - [ ] file=src/bot/tgbot.py func=_send_message_parts_unified упростить: вынести отправку одной части в _send_single_message_part(), обработку ошибок отправки в _handle_send_error()
 

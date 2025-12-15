@@ -124,6 +124,16 @@ class AdminManager:
         data = self._load_admin_data()
         return data if data else None
     
+    def _admin_exists(self) -> bool:
+        """
+        Check if admin exists.
+        
+        Returns:
+            True if admin exists
+        """
+        admin = self.get_admin()
+        return admin is not None
+    
     def is_admin(self, user_id: int) -> bool:
         """
         Check if user is admin.
@@ -134,8 +144,10 @@ class AdminManager:
         Returns:
             True if user is admin
         """
+        if not self._admin_exists():
+            return False
         admin = self.get_admin()
-        return admin is not None and admin.get('user_id') == user_id
+        return admin.get('user_id') == user_id
     
     def verify_password(self, password: str) -> bool:
         """

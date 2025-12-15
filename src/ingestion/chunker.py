@@ -83,6 +83,7 @@ class MessageChunker:
         start_str = start_date.strftime("%Y-%m-%d %H:%M")
         end_str = end_date.strftime("%Y-%m-%d %H:%M")
         participants = ", ".join(sorted(unique_senders))
+        # Use f-string template instead of string concatenation
         return f"snippet: {start_str}–{end_str}. participants: {participants}.\n"
     
     def _precompute_token_counts(self, messages: List[ChatMessage]) -> None:
