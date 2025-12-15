@@ -1,4 +1,5 @@
-from typing import List, Dict
+from typing import List, Dict, Optional
+from src.lib.syslog2 import *
 
 TOPIC_L1_NAMING_PROMPT = """
 You are a summarization assistant.
@@ -51,7 +52,7 @@ History:
 {history}
 """
 
-    def construct_prompt(self, context_chunks: List[Dict], chat_history: List[Dict], user_task: str, max_context_chars: int = 8000, custom_template: str = None) -> str:
+    def construct_prompt(self, context_chunks: List[Dict], chat_history: List[Dict], user_task: str, max_context_chars: int = 8000, custom_template: str = None, log_level: int = LOG_WARNING) -> str:
         """
         Constructs the full system prompt.
         
@@ -66,11 +67,29 @@ History:
             Formatted prompt string.
         """
         # Format context with size limit
+        if log_level <= LOG_DEBUG:
+            syslog2(LOG_DEBUG, "prompt: construct_prompt called", 
+                   context_chunks_count=len(context_chunks),
+                   chat_history_count=len(chat_history),
+                   user_task=user_task[:50],
+                   max_context_chars=max_context_chars)
+        
         context_str = ""
         total_chars = 0
         import json
+        chunks_without_text = 0
         
         for i, chunk in enumerate(context_chunks):
+            # Check if chunk has text
+            chunk_text_value = chunk.get('text', '')
+            if not chunk_text_value:
+                if log_level <= LOG_DEBUG:
+                    syslog2(LOG_DEBUG, "prompt: chunk has no text, skipping", 
+                           chunk_id=chunk.get('id'),
+                           chunk_index=i)
+                chunks_without_text += 1
+                continue
+            
             # Extract metadata
             meta = chunk.get('metadata')
             if isinstance(meta, str) and meta:
@@ -96,19 +115,41 @@ History:
             else:
                 chunk_header = f"--- Chunk {i+1} ---\n"
                 
-            chunk_text = f"{chunk_header}{chunk['text']}\n\n"
+            chunk_text = f"{chunk_header}{chunk_text_value}\n\n"
             
             if total_chars + len(chunk_text) > max_context_chars:
                 # Truncate if we exceed the limit
                 remaining = max_context_chars - total_chars
                 if remaining > 100:  # Only add if we have meaningful space left
                      context_str += chunk_text[:remaining] + "...\n"
+                if log_level <= LOG_DEBUG:
+                    syslog2(LOG_DEBUG, "prompt: context truncated", 
+                           total_chars=total_chars,
+                           chunk_text_len=len(chunk_text),
+                           remaining=remaining)
                 break
             context_str += chunk_text
             total_chars += len(chunk_text)
             
+            if log_level <= LOG_DEBUG:
+                syslog2(LOG_DEBUG, "prompt: chunk added to context", 
+                       chunk_index=i,
+                       chunk_id=chunk.get('id'),
+                       text_length=len(chunk_text_value),
+                       total_chars=total_chars)
+        
         if not context_str:
             context_str = "Нет релевантного контекста."
+            if log_level <= LOG_DEBUG:
+                syslog2(LOG_DEBUG, "prompt: no context string generated", 
+                       chunks_without_text=chunks_without_text,
+                       total_chunks=len(context_chunks))
+        else:
+            if log_level <= LOG_DEBUG:
+                syslog2(LOG_DEBUG, "prompt: context string generated", 
+                       context_length=len(context_str),
+                       total_chars=total_chars,
+                       chunks_processed=len(context_chunks) - chunks_without_text)
             
         # Format history
         history_str = ""

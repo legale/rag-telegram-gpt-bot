@@ -115,23 +115,54 @@ class HybridRetrievalService:
             
             # Get chunks from FTS results
             candidate_ids = [doc.id for doc in fts_results]
+            if self.log_level <= LOG_DEBUG:
+                syslog2(LOG_DEBUG, "hybrid_retrieval: FTS results", 
+                       count=len(fts_results), 
+                       ids=candidate_ids[:5],
+                       scores=[doc.score for doc in fts_results[:5]])
+            
             candidate_chunks = self.chunk_store.get_by_ids(candidate_ids)
             
             if not candidate_chunks:
+                if self.log_level <= LOG_DEBUG:
+                    syslog2(LOG_DEBUG, "hybrid_retrieval: no chunks found for FTS results")
                 return []
+            
+            # Normalize FTS scores relative to max score in results (better than fixed division)
+            max_fts_score = max((doc.score for doc in fts_results), default=1.0)
+            if self.log_level <= LOG_DEBUG:
+                syslog2(LOG_DEBUG, "hybrid_retrieval: FTS score normalization", 
+                       max_score=max_fts_score,
+                       raw_scores=[doc.score for doc in fts_results[:5]])
             
             # Create scored candidates from FTS results only
             scored_candidates = []
             for doc in fts_results:
                 chunk = next((c for c in candidate_chunks if c.id == doc.id), None)
                 if chunk:
-                    # Normalize FTS score to 0-1 range (assume max is around 10-20)
-                    normalized_fts = min(doc.score / 20.0, 1.0)
+                    # Normalize FTS score to 0-1 range using relative normalization
+                    if max_fts_score > 0:
+                        normalized_fts = doc.score / max_fts_score
+                    else:
+                        normalized_fts = 0.0
+                    
+                    if self.log_level <= LOG_DEBUG:
+                        syslog2(LOG_DEBUG, "hybrid_retrieval: FTS score normalized", 
+                               chunk_id=chunk.id,
+                               raw_score=doc.score,
+                               normalized_score=normalized_fts,
+                               max_score=max_fts_score)
+                    
                     scored_candidates.append((chunk, normalized_fts, 0.0))  # vector_score = 0.0 for FTS-only
             
             # Sort by FTS score
             scored_candidates.sort(key=lambda x: x[1], reverse=True)
             top_candidates = scored_candidates[:rerank_top_k]
+            
+            if self.log_level <= LOG_DEBUG:
+                syslog2(LOG_DEBUG, "hybrid_retrieval: FTS-only top candidates", 
+                       count=len(top_candidates),
+                       scores=[(c[0].id, c[1]) for c in top_candidates[:5]])
         else:
             # Step 2: Get embeddings for candidates
             candidate_ids = [doc.id for doc in fts_results]
@@ -146,11 +177,26 @@ class HybridRetrievalService:
             except Exception as e:
                 syslog2(LOG_ERR, "hybrid_retrieval: embedding computation failed", query=query, error=str(e))
                 # Fallback to FTS-only if embedding fails
+                if self.log_level <= LOG_DEBUG:
+                    syslog2(LOG_DEBUG, "hybrid_retrieval: falling back to FTS-only after embedding error")
+                
+                # Normalize FTS scores relative to max
+                max_fts_score = max((doc.score for doc in fts_results), default=1.0)
                 scored_candidates = []
                 for doc in fts_results:
                     chunk = next((c for c in candidate_chunks if c.id == doc.id), None)
                     if chunk:
-                        normalized_fts = min(doc.score / 20.0, 1.0)
+                        if max_fts_score > 0:
+                            normalized_fts = doc.score / max_fts_score
+                        else:
+                            normalized_fts = 0.0
+                        
+                        if self.log_level <= LOG_DEBUG:
+                            syslog2(LOG_DEBUG, "hybrid_retrieval: fallback FTS normalization", 
+                                   chunk_id=chunk.id,
+                                   raw_score=doc.score,
+                                   normalized_score=normalized_fts)
+                        
                         scored_candidates.append((chunk, normalized_fts, 0.0))
                 scored_candidates.sort(key=lambda x: x[1], reverse=True)
                 top_candidates = scored_candidates[:rerank_top_k]
@@ -174,9 +220,23 @@ class HybridRetrievalService:
                     # Combine FTS5 score and vector similarity
                     # Weight: 0.3 FTS5 + 0.7 vector (can be tuned)
                     fts_score = next((doc.score for doc in fts_results if doc.id == chunk.id), 0.0)
-                    # Normalize FTS5 score (assume max is around 10-20)
-                    normalized_fts = min(fts_score / 20.0, 1.0)
+                    
+                    # Normalize FTS5 score relative to max in results
+                    max_fts_score = max((doc.score for doc in fts_results), default=1.0)
+                    if max_fts_score > 0:
+                        normalized_fts = fts_score / max_fts_score
+                    else:
+                        normalized_fts = 0.0
+                    
                     combined_score = 0.3 * normalized_fts + 0.7 * similarity
+                    
+                    if self.log_level <= LOG_DEBUG:
+                        syslog2(LOG_DEBUG, "hybrid_retrieval: combined score", 
+                               chunk_id=chunk.id,
+                               fts_raw=fts_score,
+                               fts_normalized=normalized_fts,
+                               vector_similarity=similarity,
+                               combined=combined_score)
                     
                     scored_candidates.append((chunk, combined_score, similarity))
 
@@ -335,10 +395,24 @@ class HybridRetrievalService:
         # Convert SearchResult to dict format
         from ..chunk_utils import build_chunk_dict_from_domain_chunk
         
+        if self.log_level <= LOG_DEBUG:
+            syslog2(LOG_DEBUG, "hybrid_retrieval: retrieve() called", 
+                   query=query,
+                   n_results=n_results,
+                   score_threshold=score_threshold,
+                   search_results_count=len(search_results))
+        
         chunk_dicts = []
+        filtered_count = 0
         for result in search_results:
             # Filter by threshold if provided
             if threshold and result.score < threshold:
+                if self.log_level <= LOG_DEBUG:
+                    syslog2(LOG_DEBUG, "hybrid_retrieval: result filtered by threshold", 
+                           chunk_id=result.chunk.id,
+                           score=result.score,
+                           threshold=threshold)
+                filtered_count += 1
                 continue
             
             chunk_dict = build_chunk_dict_from_domain_chunk(
@@ -346,7 +420,28 @@ class HybridRetrievalService:
                 similarity=result.score,
                 source="hybrid_retrieval"
             )
+            
+            # Check if chunk has text
+            if not chunk_dict.get('text'):
+                if self.log_level <= LOG_DEBUG:
+                    syslog2(LOG_DEBUG, "hybrid_retrieval: chunk has no text, skipping", 
+                           chunk_id=chunk_dict.get('id'))
+                continue
+            
+            if self.log_level <= LOG_DEBUG:
+                syslog2(LOG_DEBUG, "hybrid_retrieval: chunk added to results", 
+                       chunk_id=chunk_dict.get('id'),
+                       score=result.score,
+                       text_preview=chunk_dict.get('text', '')[:50])
+            
             chunk_dicts.append(chunk_dict)
+        
+        if self.log_level <= LOG_DEBUG:
+            syslog2(LOG_DEBUG, "hybrid_retrieval: retrieve() results", 
+                   total_search_results=len(search_results),
+                   filtered_by_threshold=filtered_count,
+                   chunks_with_text=len(chunk_dicts),
+                   final_count=min(len(chunk_dicts), n_results))
         
         return chunk_dicts[:n_results]
 

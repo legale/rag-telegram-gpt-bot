@@ -287,7 +287,8 @@ class LegaleBot:
             context_chunks=context_chunks,
             chat_history=history_for_prompt,
             user_task=user_task,
-            custom_template=custom_template
+            custom_template=custom_template,
+            log_level=self.log_level
         )
         return system_prompt, history_for_prompt
     
@@ -395,7 +396,8 @@ class LegaleBot:
             context_chunks=context_chunks,
             chat_history=[],
             user_task=user_input,
-            custom_template=system_prompt_template
+            custom_template=system_prompt_template,
+            log_level=self.log_level
         )
         
         messages = [
