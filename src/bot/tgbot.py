@@ -121,10 +121,11 @@ def _set_debug_rag_mode(value: bool) -> None:
 class MessageHandler:
     """Handles message routing and command processing."""
     
-    def __init__(self, bot_instance, admin_manager, admin_router):
+    def __init__(self, bot_instance, admin_manager, admin_router, ctx: RuntimeContext):
         self.bot = bot_instance
         self.admin_manager = admin_manager
         self.admin_router = admin_router
+        self.ctx = ctx
     
     async def handle_start_command(self) -> str:
         """Handle /start command."""
@@ -290,7 +291,7 @@ class MessageHandler:
             debug_rag_mode = _get_debug_rag_mode()
             
             # Get profile paths for creating HybridSearch
-            paths = _get_profile_paths()
+            paths = _get_profile_paths(self.ctx)
             profile_dir = str(paths['profile_dir'])
             
             # Create HybridSearch use case via bootstrap
@@ -1200,7 +1201,7 @@ async def _handle_command(update: Update) -> None:
         return
     
     # Step 5: Route command to appropriate handler
-    handler = MessageHandler(ctx.bot_instance, ctx.admin_manager, ctx.admin_router)
+    handler = MessageHandler(ctx.bot_instance, ctx.admin_manager, ctx.admin_router, ctx)
     response = await _process_command_message(text, update, handler, respond)
     if response is None:
         return  # Command was not recognized or ignored
@@ -1250,7 +1251,7 @@ async def _handle_user_message(update: Update) -> None:
             text = extracted_text
     
     # Step 6: Route message to appropriate handler
-    handler = MessageHandler(ctx.bot_instance, ctx.admin_manager, ctx.admin_router)
+    handler = MessageHandler(ctx.bot_instance, ctx.admin_manager, ctx.admin_router, ctx)
     response = await _process_regular_message(text, handler, respond, ctx.admin_manager.config, chat_id)
     if response is None:
         return  # Message was ignored
@@ -2043,7 +2044,7 @@ async def _route_message_step(text: str, update: Update, is_command: bool, respo
         Response text or None if message should be ignored
     """
     ctx = get_runtime_context()
-    handler = MessageHandler(ctx.bot_instance, ctx.admin_manager, ctx.admin_router)
+    handler = MessageHandler(ctx.bot_instance, ctx.admin_manager, ctx.admin_router, ctx)
     
     if is_command:
         return await _process_command_message(text, update, handler, respond)
