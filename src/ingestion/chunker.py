@@ -85,25 +85,29 @@ class MessageChunker:
         participants = ", ".join(sorted(unique_senders))
         return f"snippet: {start_str}–{end_str}. participants: {participants}.\n"
     
-    def chunk_messages(self, messages: List[ChatMessage]) -> List[EnhancedTextChunk]:
+    def _precompute_token_counts(self, messages: List[ChatMessage]) -> None:
         """
-        Splits a list of messages into token-based chunks with overlap.
-        Assumes messages are sorted by timestamp (will sort if not).
+        Pre-compute and cache token counts for all messages.
+        
+        Args:
+            messages: List of messages to precompute token counts for
         """
-        if not messages:
-            return []
-        
-        # Sort messages by timestamp to ensure chronological order
-        sorted_messages = sorted(messages, key=lambda m: m.timestamp)
-        
-        # Pre-compute and cache token counts for all messages
         self._token_cache.clear()  # Clear cache for new batch
-        for msg in sorted_messages:
+        for msg in messages:
             formatted_msg = self._format_message(msg)
             # Cache token count using message ID as key
             self._count_tokens(formatted_msg, cache_key=msg.id)
+    
+    def _create_chunks_from_messages(self, sorted_messages: List[ChatMessage]) -> List[List[ChatMessage]]:
+        """
+        Create initial chunks from messages based on token limits.
         
-        # Step 1: Create initial chunks based on token limits
+        Args:
+            sorted_messages: List of messages sorted by timestamp
+            
+        Returns:
+            List of message chunks (each chunk is a list of messages)
+        """
         raw_chunks = []
         current_chunk_messages = []
         current_chunk_tokens = 0
@@ -133,7 +137,18 @@ class MessageChunker:
         if current_chunk_messages:
             raw_chunks.append(current_chunk_messages)
         
-        # Step 2: Add overlap between chunks
+        return raw_chunks
+    
+    def _apply_overlap(self, raw_chunks: List[List[ChatMessage]]) -> List[List[ChatMessage]]:
+        """
+        Apply overlap between chunks.
+        
+        Args:
+            raw_chunks: List of initial chunks without overlap
+            
+        Returns:
+            List of chunks with overlap applied
+        """
         chunks_with_overlap = []
         previous_overlap_messages = []
         
@@ -168,6 +183,28 @@ class MessageChunker:
                 previous_overlap_messages = []
             
             chunks_with_overlap.append(chunk_messages)
+        
+        return chunks_with_overlap
+    
+    def chunk_messages(self, messages: List[ChatMessage]) -> List[EnhancedTextChunk]:
+        """
+        Splits a list of messages into token-based chunks with overlap.
+        Assumes messages are sorted by timestamp (will sort if not).
+        """
+        if not messages:
+            return []
+        
+        # Sort messages by timestamp to ensure chronological order
+        sorted_messages = sorted(messages, key=lambda m: m.timestamp)
+        
+        # Pre-compute token counts
+        self._precompute_token_counts(sorted_messages)
+        
+        # Create initial chunks
+        raw_chunks = self._create_chunks_from_messages(sorted_messages)
+        
+        # Apply overlap
+        chunks_with_overlap = self._apply_overlap(raw_chunks)
         
         # Step 3: Create EnhancedTextChunk objects with prefixes and suffixes
         enhanced_chunks = []
