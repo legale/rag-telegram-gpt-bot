@@ -108,7 +108,7 @@
 
 - [x] file=src/bot/tgbot.py func=_setup_webhook_endpoint упростить: вынести создание endpoint handler в _create_webhook_handler()
 
-- [ ] file=src/bot/tgbot.py func=main уменьшить цикломатическую сложность: вынести парсинг аргументов в _parse_cli_arguments(), выполнение команд в _execute_bot_command()
+- [x] file=src/bot/tgbot.py func=main уменьшить цикломатическую сложность: вынести парсинг аргументов в _parse_cli_arguments(), выполнение команд в _execute_bot_command()
 
 - [x] file=src/bot/tgbot.py func=run_server уменьшить цикломатическую сложность: вынести создание app в _create_fastapi_app(), настройку logging в _setup_server_logging(), запуск uvicorn в _start_uvicorn_server()
 
