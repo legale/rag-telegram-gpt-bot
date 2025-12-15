@@ -439,68 +439,45 @@ class MessageHandler:
         Returns:
             Tuple of (command, remaining_text)
         """
-        text = text.strip()
-        if not text.startswith("/"):
-            return None, text
-        
-        parts = text.split(maxsplit=1)
-        command = parts[0]
-        remaining = parts[1] if len(parts) > 1 else ""
-        return command, remaining
+        from src.app.main_cli import parse_command
+        return parse_command(text)
     
     async def route_command(self, text: str, update: Update) -> Optional[str]:
         """Route command to appropriate handler using CommandDispatcher."""
         syslog2(LOG_ALERT, "route_command", text=text)
         
-        # Extract command and arguments
-        command, args_text = self._get_command_and_args(text)
-        if not command:
-            return None
-        
-        # Normalize /set_admin to /admin_set
-        if command == "/set_admin":
-            text = text.replace("/set_admin", "/admin_set", 1)
-            command = "/admin_set"
-        
         # Use CommandDispatcher if available
         command_dispatcher = _get_command_dispatcher()
         if command_dispatcher:
-            from src.core.dispatcher import CommandContext
+            from src.app.main_cli import handle_command_async
             message = update.message
             user_id = str(message.from_user.id) if message.from_user else None
             chat_id = str(message.chat_id) if message.chat_id else None
             
-            # Create context with metadata
-            context = CommandContext(
+            # Create metadata for context
+            metadata = {
+                "update": update,
+                "message": message,
+                "admin_manager": self.admin_manager,
+                "admin_router": self.admin_router
+            }
+            
+            # Handle command using unified async handler
+            result_message, result_data = await handle_command_async(
+                command=text,
+                dispatcher=command_dispatcher,
                 user_id=user_id,
                 chat_id=chat_id,
-                command_name=command,
-                args=args_text.split() if args_text else [],
-                metadata={
-                    "update": update,
-                    "message": message,
-                    "admin_manager": self.admin_manager,
-                    "admin_router": self.admin_router
-                }
+                metadata=metadata
             )
             
-            # Check if this is an admin command (async handler)
-            admin_commands = ["/admin", "/admin_set", "/admin_get"]
-            is_admin_command = command.lower() in [c.lower() for c in admin_commands]
-            
-            if is_admin_command:
-                # Use async dispatcher for admin commands
-                result = await command_dispatcher.dispatch_async(context)
-            else:
-                # Use sync dispatcher for regular commands
-                result = command_dispatcher.dispatch(context)
-                
-                # Handle special case: find command needs formatting
-                if result.success and result.data and result.data.get("needs_formatting"):
+            if result_message is not None:
+                # Check if result needs special formatting (find command)
+                if result_data and result_data.get("needs_formatting"):
                     # Send formatted search results
-                    message_parts_list = result.data.get("message_parts_list", [])
-                    query = result.data.get("query", "")
-                    rag_method = result.data.get("rag_method", "hybrid")
+                    message_parts_list = result_data.get("message_parts_list", [])
+                    query = result_data.get("query", "")
+                    rag_method = result_data.get("rag_method", "hybrid")
                     chat_id = update.message.chat_id
                     
                     total_parts = await _send_message_parts_unified(
@@ -524,10 +501,8 @@ class MessageHandler:
                         parts=total_parts,
                     )
                     return ""  # Empty string to signal "handled, but ничего не слать отдельно"
-            
-            # Return message if command was handled
-            if result.success or result.error:
-                return result.message
+                
+                return result_message
         
         return None  # Not a recognized command
 

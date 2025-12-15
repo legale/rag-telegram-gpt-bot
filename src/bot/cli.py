@@ -371,7 +371,7 @@ def main():
             if not user_input.strip():
                 continue
             
-            # Check if input is a command using dispatcher
+            # Check if input is a command using dispatcher (unified parsing)
             command_response = handle_command(user_input, dispatcher)
             if command_response is not None:
                 # Command was handled

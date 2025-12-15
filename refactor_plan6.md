@@ -30,7 +30,7 @@
 
 - [x] file=src/bot/tgbot.py file=src/bot/admin_router.py убрать дублирование логики обработки ошибок: использовать единый метод handle_error() из BaseAdminCommand или создать ErrorHandler utility
 
-- [ ] file=src/bot/tgbot.py file=src/bot/cli.py убрать дублирование логики парсинга команд: использовать единый CommandDispatcher для всех точек входа
+- [x] file=src/bot/tgbot.py file=src/bot/cli.py убрать дублирование логики парсинга команд: использовать единый CommandDispatcher для всех точек входа
 
 - [ ] file=src/core/llm.py func=complete добавить явные таймауты для HTTP-запросов: использовать timeout параметр в OpenAI client (timeout=30.0)
 
