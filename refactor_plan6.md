@@ -78,7 +78,7 @@
 
 - [x] file=src/storage/db.py func=_ensure_schema уменьшить цикломатическую сложность: вынести создание FTS5 таблиц в _create_fts5_tables(), создание triggers в _create_fts5_triggers(), проверку колонок в _check_and_add_columns()
 
-- [ ] file=src/storage/db.py func=add_messages_batch уменьшить цикломатическую сложность: вынести проверку существующих msg_ids в _get_existing_msg_ids(), фильтрацию новых сообщений в _filter_new_messages()
+- [x] file=src/storage/db.py func=add_messages_batch уменьшить цикломатическую сложность: вынести проверку существующих msg_ids в _get_existing_msg_ids(), фильтрацию новых сообщений в _filter_new_messages()
 
 - [ ] file=src/bot/config.py func=_load упростить логику: вынести создание файла с defaults в _create_default_config(), загрузку существующего config в _load_existing_config(), добавление missing defaults в _add_missing_defaults()
 

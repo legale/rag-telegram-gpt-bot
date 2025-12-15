@@ -482,6 +482,42 @@ class Database:
         finally:
             session.close()
 
+    def _get_existing_msg_ids(self, session, msg_ids: List[str]) -> set:
+        """
+        Get set of existing message IDs from database.
+        
+        Args:
+            session: Database session
+            msg_ids: List of message IDs to check
+            
+        Returns:
+            Set of existing message IDs
+        """
+        existing_msg_ids = set()
+        batch_size = 900  # Safe limit below SQLite's 999 parameter limit
+        
+        for i in range(0, len(msg_ids), batch_size):
+            batch = msg_ids[i:i + batch_size]
+            batch_existing = session.query(MessageModel.msg_id).filter(
+                MessageModel.msg_id.in_(batch)
+            ).all()
+            existing_msg_ids.update(row[0] for row in batch_existing)
+        
+        return existing_msg_ids
+
+    def _filter_new_messages(self, messages: List[dict], existing_msg_ids: set) -> List[dict]:
+        """
+        Filter out messages that already exist in database.
+        
+        Args:
+            messages: List of message dictionaries
+            existing_msg_ids: Set of existing message IDs
+            
+        Returns:
+            List of new messages (not in database)
+        """
+        return [msg for msg in messages if msg["msg_id"] not in existing_msg_ids]
+
     def add_messages_batch(self, messages: List[dict]) -> int:
         """
         Add multiple messages to the database in one transaction.
@@ -497,20 +533,11 @@ class Database:
         session = self.get_session()
         try:
             # Get existing msg_ids to avoid duplicates
-            # Batch the query to avoid SQLite parameter limits (999 max)
             msg_ids_to_insert = [msg["msg_id"] for msg in messages]
-            existing_msg_ids = set()
-            batch_size = 900  # Safe limit below SQLite's 999 parameter limit
-            
-            for i in range(0, len(msg_ids_to_insert), batch_size):
-                batch = msg_ids_to_insert[i:i + batch_size]
-                batch_existing = session.query(MessageModel.msg_id).filter(
-                    MessageModel.msg_id.in_(batch)
-                ).all()
-                existing_msg_ids.update(row[0] for row in batch_existing)
+            existing_msg_ids = self._get_existing_msg_ids(session, msg_ids_to_insert)
             
             # Filter out messages that already exist
-            new_messages = [msg for msg in messages if msg["msg_id"] not in existing_msg_ids]
+            new_messages = self._filter_new_messages(messages, existing_msg_ids)
             
             if not new_messages:
                 # All messages already exist
