@@ -164,6 +164,31 @@ class EmbeddingClient:
                error_type=type(last_exception).__name__, error=str(last_exception))
         raise last_exception
 
+    def _process_batch(self, batch: List[str]) -> List[List[float]]:
+        """
+        Process a single batch of texts to get embeddings.
+        
+        Args:
+            batch: List of texts in the batch
+            
+        Returns:
+            List of embedding vectors for the batch
+        """
+        return self._get_embeddings_with_retry(batch)
+    
+    def _update_progress(self, done: int, total: int, show_progress: bool) -> None:
+        """
+        Update and log progress for batch processing.
+        
+        Args:
+            done: Number of items processed
+            total: Total number of items
+            show_progress: Whether to show progress
+        """
+        if show_progress:
+            pct = done * 100 // total
+            syslog2(LOG_DEBUG, "embeddings progress", done=done, total=total, percent=pct)
+    
     def get_embeddings_batched(
         self,
         texts: List[str],
@@ -182,13 +207,11 @@ class EmbeddingClient:
             end = min(start + batch_size, total)
             batch = texts[start:end]
 
-            batch_embs = self._get_embeddings_with_retry(batch)
+            batch_embs = self._process_batch(batch)
             all_embs.extend(batch_embs)
 
             done = end
-            if show_progress:
-                pct = done * 100 // total
-                syslog2(LOG_DEBUG, "embeddings progress", done=done, total=total, percent=pct)
+            self._update_progress(done, total, show_progress)
 
         return all_embs
 

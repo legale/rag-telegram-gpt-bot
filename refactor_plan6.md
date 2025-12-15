@@ -214,7 +214,7 @@
 
 - [x] file=src/core/embedding.py func=get_embeddings упростить: вынести очистку текста в _clean_texts(), вызов API в _call_embedding_api()
 
-- [ ] file=src/core/embedding.py func=get_embeddings_batched упростить: вынести обработку одного батча в _process_batch(), обновление прогресса в _update_progress()
+- [x] file=src/core/embedding.py func=get_embeddings_batched упростить: вынести обработку одного батча в _process_batch(), обновление прогресса в _update_progress()
 
 - [ ] file=src/core/embedding.py func=create_embedding_client упростить: вынести создание LocalEmbeddingClient в _create_local_client(), создание EmbeddingClient в _create_api_client()
 
