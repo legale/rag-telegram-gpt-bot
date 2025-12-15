@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import List, Optional, Dict
 import json
 
 from src.core.domain import Message
