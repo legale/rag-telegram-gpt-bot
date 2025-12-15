@@ -122,7 +122,7 @@
 
 - [x] file=src/bot/utils/command_validator.py создать единый класс CommandValidator для валидации всех команд (уже существует, проверить использование во всех местах)
 
-- [ ] file=src/bot/admin.py func=is_admin упростить: вынести проверку пароля в _verify_password(), проверку существования admin в _admin_exists()
+- [x] file=src/bot/admin.py func=is_admin упростить: вынести проверку пароля в _verify_password(), проверку существования admin в _admin_exists()
 
 - [x] file=src/bot/admin.py func=set_admin упростить: вынести валидацию пароля в _validate_admin_password(), сохранение admin в _save_admin_info()
 
