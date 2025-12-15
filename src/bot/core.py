@@ -494,14 +494,27 @@ class LegaleBot:
                 "percentage": 0.0,
             }
 
-        # делаем системный промпт без реального task, только для оценки объема контекста
+        # Use real context chunks and user task if available, otherwise use empty values
+        # This provides more accurate token usage estimation
+        context_chunks = self.active_context_chunks if self.active_context_chunks else []
+        user_task = self.active_context_query if self.active_context_query else ""
+        
+        # If no active context, try to get last user message from chat history
+        if not user_task:
+            for msg in reversed(self.chat_history):
+                if msg["role"] == "user":
+                    user_task = msg["content"]
+                    break
+
+        # Build prompt using helper method (reuses existing logic)
         system_prompt, _ = self._build_prompt_and_history(
-            context_chunks=[],
-            user_task=""
+            context_chunks=context_chunks,
+            user_task=user_task
         )
 
-        # считаем так же, как реально вызываем модель: system + пустой user
-        return self._calculate_token_usage(system_prompt, user_content="")
+        # Count tokens: system prompt + user content (same as real LLM call)
+        user_content = user_task if user_task else ""
+        return self._calculate_token_usage(system_prompt, user_content=user_content)
 
     def _check_token_limit_exceeded(self) -> bool:
         """

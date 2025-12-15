@@ -170,7 +170,7 @@
 
 - [ ] file=src/bot/core.py func=_calculate_token_usage упростить: вынести построение messages для подсчета в _build_messages_for_token_count()
 
-- [ ] file=src/bot/core.py func=get_token_usage упростить: использовать _build_prompt_and_history() вместо дублирования логики построения промпта
+- [x] file=src/bot/core.py func=get_token_usage упростить: использовать _build_prompt_and_history() вместо дублирования логики построения промпта
 
 - [x] file=src/bot/core.py func=_ensure_context_limit упростить: вынести проверку лимита токенов в _check_token_limit_exceeded(), сброс контекста в _reset_context_if_needed()
 

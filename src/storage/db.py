@@ -341,6 +341,71 @@ class Database:
         finally:
             session.close()
 
+    def _extract_chat_id(self, chunk: ChunkModel) -> Optional[int]:
+        """
+        Extract chat_id from chunk.
+        
+        Args:
+            chunk: ChunkModel instance
+            
+        Returns:
+            chat_id as int, or None if not available or invalid
+        """
+        if not chunk.chat_id:
+            return None
+        
+        try:
+            # chat_id is stored as string, convert to int
+            return int(chunk.chat_id)
+        except (ValueError, TypeError):
+            return None
+    
+    def _extract_msg_id(self, chunk: ChunkModel) -> Optional[int]:
+        """
+        Extract msg_id from chunk.msg_id_start.
+        msg_id_start format: "{chat_id}_{msg_id}" or just "{msg_id}"
+        
+        Args:
+            chunk: ChunkModel instance
+            
+        Returns:
+            msg_id as int, or None if not available or invalid
+        """
+        if not chunk.msg_id_start:
+            return None
+        
+        try:
+            # Extract the numeric part after the underscore
+            parts = chunk.msg_id_start.split('_', 1)
+            if len(parts) > 1:
+                return int(parts[1])
+            else:
+                # If no underscore, try to parse the whole string
+                return int(chunk.msg_id_start)
+        except (ValueError, TypeError, IndexError):
+            return None
+    
+    def _extract_chat_username(self, chunk: ChunkModel) -> Optional[str]:
+        """
+        Extract chat_username from chunk.metadata_json.
+        
+        Args:
+            chunk: ChunkModel instance
+            
+        Returns:
+            chat_username as string, or None if not available or invalid
+        """
+        if not chunk.metadata_json:
+            return None
+        
+        try:
+            meta = json.loads(chunk.metadata_json)
+            if isinstance(meta, dict):
+                return meta.get("chat_username")
+            return None
+        except (json.JSONDecodeError, TypeError):
+            return None
+
     def get_chunk_link_info(self, chunk_id: str) -> Tuple[Optional[int], Optional[int], Optional[str]]:
         """
         Get link information for a chunk.
@@ -358,39 +423,9 @@ class Database:
             if chunk is None:
                 return (None, None, None)
             
-            # Extract chat_id
-            chat_id = None
-            if chunk.chat_id:
-                try:
-                    # chat_id is stored as string, convert to int
-                    chat_id = int(chunk.chat_id)
-                except (ValueError, TypeError):
-                    pass
-            
-            # Extract msg_id from msg_id_start
-            # msg_id_start format: "{chat_id}_{msg_id}"
-            msg_id = None
-            if chunk.msg_id_start:
-                try:
-                    # Extract the numeric part after the underscore
-                    parts = chunk.msg_id_start.split('_', 1)
-                    if len(parts) > 1:
-                        msg_id = int(parts[1])
-                    else:
-                        # If no underscore, try to parse the whole string
-                        msg_id = int(chunk.msg_id_start)
-                except (ValueError, TypeError, IndexError):
-                    pass
-            
-            # Extract chat_username from metadata_json (optional)
-            chat_username = None
-            if chunk.metadata_json:
-                try:
-                    meta = json.loads(chunk.metadata_json)
-                    if isinstance(meta, dict):
-                        chat_username = meta.get("chat_username")
-                except (json.JSONDecodeError, TypeError):
-                    pass
+            chat_id = self._extract_chat_id(chunk)
+            msg_id = self._extract_msg_id(chunk)
+            chat_username = self._extract_chat_username(chunk)
             
             return (chat_id, msg_id, chat_username)
         finally:
