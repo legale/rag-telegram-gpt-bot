@@ -96,7 +96,7 @@
 
 - [x] file=src/bot/core.py func=_retry_after_reset упростить: убрать дублирование построения промпта, использовать _build_prompt_and_history()
 
-- [ ] file=src/bot/core.py func=_is_token_limit_error упростить: использовать регулярное выражение или список ключевых слов вместо множественных проверок строк
+- [x] file=src/bot/core.py func=_is_token_limit_error упростить: использовать регулярное выражение или список ключевых слов вместо множественных проверок строк
 
 - [ ] file=src/core/hybrid_retrieval.py func=_cosine_similarity вынести в отдельный модуль src/core/distance_utils.py для переиспользования (уже есть similarity_to_distance, добавить обратную функцию)
 
