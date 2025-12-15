@@ -48,6 +48,8 @@ from src.bot.tgbot import (
     _send_response_if_available,
     _handle_public_commands_step,
     _check_access_step,
+    get_runtime_context,
+    RuntimeContext,
     _determine_response_step,
     _handle_search_mention_step,
     _route_message_step,
@@ -332,14 +334,19 @@ class TestUtilityFunctions:
         """Test getting profile paths."""
         mock_pm = Mock()
         mock_pm.get_profile_paths.return_value = {"db_url": "sqlite:///test.db"}
+        mock_ctx = Mock()
+        mock_ctx.profile_manager = mock_pm
         
-        with patch("src.bot.tgbot.profile_manager", mock_pm):
+        with patch("src.bot.tgbot.get_runtime_context", return_value=mock_ctx):
             result = _get_profile_paths()
             assert result == {"db_url": "sqlite:///test.db"}
 
     def test_get_profile_paths_no_manager(self):
         """Test getting profile paths without manager."""
-        with patch("src.bot.tgbot.profile_manager", None):
+        mock_ctx = Mock()
+        mock_ctx.profile_manager = None
+        
+        with patch("src.bot.tgbot.get_runtime_context", return_value=mock_ctx):
             with pytest.raises(RuntimeError, match="profile_manager is not initialized"):
                 _get_profile_paths()
 
@@ -391,10 +398,14 @@ class TestUtilityFunctions:
             "vector_db_path": "/tmp/vec"
         }
         
+        mock_pm = Mock()
+        mock_pm.get_current_profile.return_value = "test_profile"
+        mock_ctx = Mock()
+        mock_ctx.profile_manager = mock_pm
+        
         with patch("src.bot.tgbot.LegaleBot") as MockBot, \
-             patch("src.bot.tgbot.profile_manager") as mock_pm:
+             patch("src.bot.tgbot.get_runtime_context", return_value=mock_ctx):
             
-            mock_pm.get_current_profile.return_value = "test_profile"
             mock_instance = Mock()
             MockBot.return_value = mock_instance
             
@@ -488,9 +499,12 @@ class TestUtilityFunctions:
     @pytest.mark.asyncio
     async def test_send_message_parts_unified_empty(self):
         """Test sending empty message parts."""
-        with patch("src.bot.tgbot.telegram_app") as mock_app:
-            mock_app.bot.send_message = AsyncMock()
-            
+        mock_app = Mock()
+        mock_app.bot.send_message = AsyncMock()
+        mock_ctx = Mock()
+        mock_ctx.telegram_app = mock_app
+        
+        with patch("src.bot.tgbot.get_runtime_context", return_value=mock_ctx):
             result = await _send_message_parts_unified(123, [], empty_message="No results")
             
             assert result == 0
@@ -499,9 +513,12 @@ class TestUtilityFunctions:
     @pytest.mark.asyncio
     async def test_send_message_parts_unified_with_parts(self):
         """Test sending message parts."""
-        with patch("src.bot.tgbot.telegram_app") as mock_app:
-            mock_app.bot.send_message = AsyncMock()
-            
+        mock_app = Mock()
+        mock_app.bot.send_message = AsyncMock()
+        mock_ctx = Mock()
+        mock_ctx.telegram_app = mock_app
+        
+        with patch("src.bot.tgbot.get_runtime_context", return_value=mock_ctx):
             message_parts_list = [[{"content": "Part 1"}], [{"content": "Part 2"}]]
             result = await _send_message_parts_unified(123, message_parts_list)
             
@@ -546,10 +563,11 @@ class TestUtilityFunctions:
         admin_manager = Mock()
         access_control = Mock()
         access_control.is_allowed.return_value = (True, None)
+        mock_ctx = Mock()
+        mock_ctx.admin_manager = admin_manager
+        mock_ctx.access_control = access_control
         
-        with patch("src.bot.tgbot.admin_manager", admin_manager), \
-             patch("src.bot.tgbot.access_control", access_control):
-            
+        with patch("src.bot.tgbot.get_runtime_context", return_value=mock_ctx):
             is_allowed, reason = _check_access(123, 456, True, False, None)
             
             assert is_allowed is True
@@ -561,10 +579,11 @@ class TestUtilityFunctions:
         admin_manager = Mock()
         access_control = Mock()
         access_control.is_allowed.return_value = (False, "Not allowed")
+        mock_ctx = Mock()
+        mock_ctx.admin_manager = admin_manager
+        mock_ctx.access_control = access_control
         
-        with patch("src.bot.tgbot.admin_manager", admin_manager), \
-             patch("src.bot.tgbot.access_control", access_control):
-            
+        with patch("src.bot.tgbot.get_runtime_context", return_value=mock_ctx):
             is_allowed, reason = _check_access(123, 456, True, False, None)
             
             assert is_allowed is False
@@ -576,11 +595,12 @@ class TestUtilityFunctions:
         admin_manager = Mock()
         bot_instance = Mock()
         admin_router = Mock()
+        mock_ctx = Mock()
+        mock_ctx.admin_manager = admin_manager
+        mock_ctx.bot_instance = bot_instance
+        mock_ctx.admin_router = admin_router
         
-        with patch("src.bot.tgbot.admin_manager", admin_manager), \
-             patch("src.bot.tgbot.bot_instance", bot_instance), \
-             patch("src.bot.tgbot.admin_router", admin_router):
-            
+        with patch("src.bot.tgbot.get_runtime_context", return_value=mock_ctx):
             handler = _ensure_required_components()
             
             assert handler is not None
@@ -589,7 +609,10 @@ class TestUtilityFunctions:
     @pytest.mark.asyncio
     async def test_ensure_required_components_missing(self):
         """Test ensuring components when missing."""
-        with patch("src.bot.tgbot.admin_manager", None):
+        mock_ctx = Mock()
+        mock_ctx.admin_manager = None
+        
+        with patch("src.bot.tgbot.get_runtime_context", return_value=mock_ctx):
             handler = _ensure_required_components()
             assert handler is None
 
@@ -598,11 +621,13 @@ class TestUtilityFunctions:
         """Test ensuring handler is available."""
         handler = Mock()
         handler_func = AsyncMock(return_value="Response")
+        mock_app = Mock()
+        mock_app.bot.send_message = AsyncMock()
+        mock_ctx = Mock()
+        mock_ctx.telegram_app = mock_app
         
         with patch("src.bot.tgbot._ensure_required_components", return_value=handler), \
-             patch("src.bot.tgbot.telegram_app") as mock_app:
-            
-            mock_app.bot.send_message = AsyncMock()
+             patch("src.bot.tgbot.get_runtime_context", return_value=mock_ctx):
             
             result = await _ensure_handler_available(handler_func, 123)
             
@@ -626,10 +651,12 @@ class TestUtilityFunctions:
         """Test handling /id command."""
         message = Mock()
         message.from_user.id = 123
+        mock_app = Mock()
+        mock_app.bot.send_message = AsyncMock()
+        mock_ctx = Mock()
+        mock_ctx.telegram_app = mock_app
         
-        with patch("src.bot.tgbot.telegram_app") as mock_app:
-            mock_app.bot.send_message = AsyncMock()
-            
+        with patch("src.bot.tgbot.get_runtime_context", return_value=mock_ctx):
             result = await _handle_public_commands(message, "/id", 456)
             
             assert result is True
@@ -682,13 +709,16 @@ class TestUtilityFunctions:
         frequency_controller = Mock()
         frequency_controller.should_respond.return_value = (True, "mentioned")
         
-        with patch("src.bot.tgbot.admin_manager", admin_manager), \
-             patch("src.bot.tgbot.telegram_app") as mock_app, \
-             patch("src.bot.tgbot.frequency_controller", frequency_controller):
-            
-            mock_app.bot.username = "testbot"
-            mock_app.bot.id = 123
-            
+        mock_app = Mock()
+        mock_app.bot.username = "testbot"
+        mock_app.bot.id = 123
+        
+        mock_ctx = Mock()
+        mock_ctx.admin_manager = admin_manager
+        mock_ctx.telegram_app = mock_app
+        mock_ctx.frequency_controller = frequency_controller
+        
+        with patch("src.bot.tgbot.get_runtime_context", return_value=mock_ctx):
             respond, reason = await _determine_response_decision(message, False, True, 456)
             
             assert respond is True
@@ -697,9 +727,12 @@ class TestUtilityFunctions:
     @pytest.mark.asyncio
     async def test_send_response_if_available(self):
         """Test sending response if available."""
-        with patch("src.bot.tgbot.telegram_app") as mock_app:
-            mock_app.bot.send_message = AsyncMock()
-            
+        mock_app = Mock()
+        mock_app.bot.send_message = AsyncMock()
+        mock_ctx = Mock()
+        mock_ctx.telegram_app = mock_app
+        
+        with patch("src.bot.tgbot.get_runtime_context", return_value=mock_ctx):
             await _send_response_if_available("Response text", 123, True, True)
             
             mock_app.bot.send_message.assert_called_once_with(chat_id=123, text="Response text")
@@ -707,9 +740,12 @@ class TestUtilityFunctions:
     @pytest.mark.asyncio
     async def test_send_response_if_available_none(self):
         """Test sending response when response is None."""
-        with patch("src.bot.tgbot.telegram_app") as mock_app:
-            mock_app.bot.send_message = AsyncMock()
-            
+        mock_app = Mock()
+        mock_app.bot.send_message = AsyncMock()
+        mock_ctx = Mock()
+        mock_ctx.telegram_app = mock_app
+        
+        with patch("src.bot.tgbot.get_runtime_context", return_value=mock_ctx):
             await _send_response_if_available(None, 123, True, True)
             
             mock_app.bot.send_message.assert_not_called()
@@ -767,11 +803,13 @@ class TestUtilityFunctions:
         bot_instance = Mock()
         bot_instance.retrieval = Mock()
         bot_instance.db = Mock()
+        mock_ctx = Mock()
+        mock_ctx.bot_instance = bot_instance
         
         with patch("src.bot.tgbot._parse_search_mention", return_value=(True, "query")), \
              patch("src.bot.tgbot.search_message_contents", return_value=[]), \
              patch("src.bot.tgbot._send_search_results", new_callable=AsyncMock), \
-             patch("src.bot.tgbot.bot_instance", bot_instance):
+             patch("src.bot.tgbot.get_runtime_context", return_value=mock_ctx):
             
             result = await _handle_search_mention(message, "testbot", 123, 456)
             

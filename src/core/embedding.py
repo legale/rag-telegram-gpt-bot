@@ -75,6 +75,7 @@ class EmbeddingClient:
         resp = self.client.embeddings.create(
             input=cleaned_texts,
             model=self.model,
+            timeout=60.0  # Longer timeout for batch embeddings
         )
         return [d.embedding for d in resp.data]
 

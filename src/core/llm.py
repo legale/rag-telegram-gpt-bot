@@ -102,7 +102,8 @@ class LLMClient:
                 model=self.model,
                 messages=messages, # type: ignore
                 temperature=temperature,
-                max_tokens=max_tokens
+                max_tokens=max_tokens,
+                timeout=30.0
             )
             
             content = response.choices[0].message.content
@@ -138,7 +139,8 @@ class LLMClient:
             model=self.model,
             messages=messages,
             temperature=temperature,
-            stream=True
+            stream=True,
+            timeout=30.0
         )
         for chunk in stream:
             if chunk.choices[0].delta.content is not None:
