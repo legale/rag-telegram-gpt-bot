@@ -48,7 +48,7 @@
 
 - [x] file=src/bot/tgbot.py удалить неиспользуемую функцию _send_find_results_simple (помечена как deprecated, используется _send_message_parts_unified)
 
-- [ ] file=src/storage/db.py удалить закомментированные методы clear_chunk_topic_l1_assignments, clear_chunk_topic_l2_assignments, update_chunk_topics (clustering deprecated)
+- [x] file=src/storage/db.py удалить закомментированные методы clear_chunk_topic_l1_assignments, clear_chunk_topic_l2_assignments, update_chunk_topics (clustering deprecated)
 
 - [ ] file=src/storage/db.py удалить закомментированные методы get_by_topic_l1, get_by_topic_l2 из ChunkStore (clustering deprecated)
 

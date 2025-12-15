@@ -264,10 +264,6 @@ class Database:
         finally:
             session.close()
 
-    # clear_chunk_topic_l1_assignments removed - clustering is deprecated
-
-    # clear_chunk_topic_l2_assignments removed - L2 topics are deprecated
-
     def get_chunk_text(self, chunk_id: str) -> str:
         """Helper to get text for a chunk."""
         session = self.get_session()
@@ -308,8 +304,6 @@ class Database:
             raise e
         finally:
             session.close()
-
-    # update_chunk_topics removed - clustering is deprecated
 
     def get_chunk(self, chunk_id: str) -> Optional[ChunkModel]:
         """Get a single chunk by ID."""
