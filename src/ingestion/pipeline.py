@@ -362,10 +362,6 @@ class IngestionPipeline:
             syslog2(LOG_ERR, "failed to load model from profile config", error=str(e))
             raise ConfigurationError(f"failed to load model from profile config: {e}") from e
 
-    # run_stage4 and run_stage5 removed - clustering is deprecated
-
-    # run_stage6 and run_stage7 removed - L2 topics are deprecated
-
     def run_all(self, file_path: str, model: Optional[str] = None, batch_size: int = 128, **clustering_params):
         """
         Run all stages in sequence (stages 0-3 only).
@@ -1092,14 +1088,6 @@ class IngestionPipeline:
         except Exception as e:
             lines.append("stage3 vector_db chunks:")
             lines.append(f"error: {str(e)}")
-        
-        lines.append("")
-        
-        # Stage 4 and Stage 5 removed - clustering is deprecated
-        
-        lines.append("")
-        
-        # stage6 and stage7 removed - L2 topics are deprecated
         
         lines.append("")
         
