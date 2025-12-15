@@ -180,7 +180,7 @@
 
 - [x] file=src/storage/db.py func=get_messages_by_chunk уменьшить цикломатическую сложность: вынести получение start message в _get_start_message(), получение end message в _get_end_message(), получение messages в диапазоне в _get_messages_in_range()
 
-- [ ] file=src/storage/db.py func=get_chunk_link_info упростить: вынести извлечение chat_id в _extract_chat_id(), извлечение msg_id в _extract_msg_id(), извлечение chat_username в _extract_chat_username()
+- [x] file=src/storage/db.py func=get_chunk_link_info упростить: вынести извлечение chat_id в _extract_chat_id(), извлечение msg_id в _extract_msg_id(), извлечение chat_username в _extract_chat_username()
 
 - [x] file=src/storage/db.py func=fts_search уменьшить цикломатическую сложность: вынести построение WHERE clause в _build_fts_where_clause(), выполнение FTS запроса в _execute_fts_query(), конвертацию результатов в _convert_fts_results()
 
