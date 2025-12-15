@@ -627,6 +627,97 @@ class Database:
         finally:
             session.close()
 
+    def _build_fts_where_clause(
+        self,
+        fts_query: str,
+        chat_id: Optional[str] = None,
+        from_id: Optional[str] = None,
+        ts_min: Optional[datetime] = None,
+        ts_max: Optional[datetime] = None
+    ) -> Tuple[str, dict]:
+        """
+        Build WHERE clause for FTS5 search.
+        
+        Args:
+            fts_query: FTS5 MATCH query string
+            chat_id: Optional chat_id filter
+            from_id: Optional from_id filter
+            ts_min: Optional minimum timestamp filter
+            ts_max: Optional maximum timestamp filter
+            
+        Returns:
+            Tuple of (where_sql, params_dict)
+        """
+        where_parts = ["messages_fts MATCH :query"]
+        params = {"query": fts_query}
+        
+        if chat_id:
+            where_parts.append("messages_fts.chat_id = :chat_id")
+            params["chat_id"] = chat_id
+        
+        if from_id:
+            where_parts.append("messages_fts.from_id = :from_id")
+            params["from_id"] = from_id
+        
+        if ts_min:
+            where_parts.append("messages_fts.ts >= :ts_min")
+            params["ts_min"] = ts_min
+        
+        if ts_max:
+            where_parts.append("messages_fts.ts <= :ts_max")
+            params["ts_max"] = ts_max
+        
+        where_sql = "WHERE " + " AND ".join(where_parts)
+        return where_sql, params
+    
+    def _execute_fts_query(
+        self,
+        where_sql: str,
+        params: dict,
+        top_k: int
+    ) -> List[Tuple]:
+        """
+        Execute FTS5 search query.
+        
+        Args:
+            where_sql: WHERE clause SQL
+            params: Query parameters dictionary
+            top_k: Number of results to return
+            
+        Returns:
+            List of raw result rows (msg_id, score)
+        """
+        from sqlalchemy import text
+        session = self.get_session()
+        try:
+            params["top_k"] = top_k
+            sql = f"""
+                SELECT 
+                    messages_fts.msg_id,
+                    bm25(messages_fts) as score
+                FROM messages_fts
+                {where_sql}
+                ORDER BY bm25(messages_fts) ASC
+                LIMIT :top_k
+            """
+            
+            result = session.execute(text(sql), params)
+            return result.fetchall()
+        finally:
+            session.close()
+    
+    def _convert_fts_results(self, rows: List[Tuple]) -> List[Tuple[str, float]]:
+        """
+        Convert raw FTS query results to (msg_id, score) tuples.
+        
+        Args:
+            rows: Raw result rows from database
+            
+        Returns:
+            List of (msg_id, score) tuples
+        """
+        return [(str(row[0]), float(row[1])) for row in rows]
+    
     def fts_search(
         self,
         fts_query: str,
@@ -653,50 +744,16 @@ class Database:
         if not fts_query or not fts_query.strip():
             return []
         
-        from sqlalchemy import text
-        session = self.get_session()
         try:
-            where_parts = ["messages_fts MATCH :query"]
-            params = {"query": fts_query, "top_k": top_k}
-            
-            if chat_id:
-                where_parts.append("messages_fts.chat_id = :chat_id")
-                params["chat_id"] = chat_id
-            
-            if from_id:
-                where_parts.append("messages_fts.from_id = :from_id")
-                params["from_id"] = from_id
-            
-            if ts_min:
-                where_parts.append("messages_fts.ts >= :ts_min")
-                params["ts_min"] = ts_min
-            
-            if ts_max:
-                where_parts.append("messages_fts.ts <= :ts_max")
-                params["ts_max"] = ts_max
-            
-            where_sql = "WHERE " + " AND ".join(where_parts)
-            
-            sql = f"""
-                SELECT 
-                    messages_fts.msg_id,
-                    bm25(messages_fts) as score
-                FROM messages_fts
-                {where_sql}
-                ORDER BY bm25(messages_fts) ASC
-                LIMIT :top_k
-            """
-            
-            result = session.execute(text(sql), params)
-            rows = result.fetchall()
-            
-            return [(str(row[0]), float(row[1])) for row in rows]
+            where_sql, params = self._build_fts_where_clause(
+                fts_query, chat_id, from_id, ts_min, ts_max
+            )
+            rows = self._execute_fts_query(where_sql, params, top_k)
+            return self._convert_fts_results(rows)
             
         except Exception as e:
             syslog2(LOG_ERR, "fts_search failed", fts_query=fts_query, error=str(e))
             return []
-        finally:
-            session.close()
 
     # ========================================================================
     # Topic L1 Methods - REMOVED (clustering is deprecated)

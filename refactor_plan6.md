@@ -182,7 +182,7 @@
 
 - [ ] file=src/storage/db.py func=get_chunk_link_info упростить: вынести извлечение chat_id в _extract_chat_id(), извлечение msg_id в _extract_msg_id(), извлечение chat_username в _extract_chat_username()
 
-- [ ] file=src/storage/db.py func=fts_search уменьшить цикломатическую сложность: вынести построение WHERE clause в _build_fts_where_clause(), выполнение FTS запроса в _execute_fts_query(), конвертацию результатов в _convert_fts_results()
+- [x] file=src/storage/db.py func=fts_search уменьшить цикломатическую сложность: вынести построение WHERE clause в _build_fts_where_clause(), выполнение FTS запроса в _execute_fts_query(), конвертацию результатов в _convert_fts_results()
 
 - [x] file=src/bot/config.py упростить: вынести валидацию значений в отдельные методы _validate_chunk_token_min(), _validate_chunk_token_max(), _validate_chunk_overlap_ratio() и т.д.
 
