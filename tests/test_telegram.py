@@ -34,7 +34,7 @@ class TestTelegramFetcher:
             assert fetcher.api_id == 123
             assert fetcher.api_hash == "hash"
             assert fetcher.session_name == "test"
-            mock_client.assert_called_once_with("test", 123, "hash")
+            mock_client.assert_called_once_with("test", 123, "hash", timeout=30)
     
     def test_find_chat_by_id(self):
         """Test finding chat by ID"""
