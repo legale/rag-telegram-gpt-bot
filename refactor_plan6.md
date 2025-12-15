@@ -110,7 +110,7 @@
 
 - [ ] file=src/bot/tgbot.py func=main уменьшить цикломатическую сложность: вынести парсинг аргументов в _parse_cli_arguments(), выполнение команд в _execute_bot_command()
 
-- [ ] file=src/bot/tgbot.py func=run_server уменьшить цикломатическую сложность: вынести создание app в _create_fastapi_app(), настройку logging в _setup_server_logging(), запуск uvicorn в _start_uvicorn_server()
+- [x] file=src/bot/tgbot.py func=run_server уменьшить цикломатическую сложность: вынести создание app в _create_fastapi_app(), настройку logging в _setup_server_logging(), запуск uvicorn в _start_uvicorn_server()
 
 - [x] file=src/bot/tgbot.py func=run_daemon уменьшить цикломатическую сложность: вынести создание daemon context в _create_daemon_context(), настройку signal handlers в _setup_signal_handlers()
 
