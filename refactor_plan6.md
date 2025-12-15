@@ -50,7 +50,7 @@
 
 - [x] file=src/storage/db.py удалить закомментированные методы clear_chunk_topic_l1_assignments, clear_chunk_topic_l2_assignments, update_chunk_topics (clustering deprecated)
 
-- [ ] file=src/storage/db.py удалить закомментированные методы get_by_topic_l1, get_by_topic_l2 из ChunkStore (clustering deprecated)
+- [x] file=src/storage/db.py удалить закомментированные методы get_by_topic_l1, get_by_topic_l2 из ChunkStore (clustering deprecated)
 
 - [ ] file=src/storage/vector_store.py удалить неиспользуемые методы get_topics_l1_collection, get_topics_l2_collection (clustering deprecated)
 
