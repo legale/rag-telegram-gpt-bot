@@ -138,7 +138,7 @@
 
 - [x] file=src/storage/vector_store.py func=query упростить: вынести вычисление query embeddings в _compute_query_embeddings(), выполнение запроса в _execute_vector_query()
 
-- [ ] file=src/adapters/vector/chroma_vector_index.py func=query уменьшить цикломатическую сложность: вынести конвертацию filter в where clause в _convert_filter_to_where(), конвертацию результатов в ScoredDoc в _convert_results_to_scored_docs()
+- [x] file=src/adapters/vector/chroma_vector_index.py func=query уменьшить цикломатическую сложность: вынести конвертацию filter в where clause в _convert_filter_to_where(), конвертацию результатов в ScoredDoc в _convert_results_to_scored_docs()
 
 - [ ] file=src/adapters/persistence/sqlite_fts_index.py func=search уменьшить цикломатическую сложность: вынести построение WHERE clause в _build_where_clause(), выполнение FTS запроса в _execute_fts_query(), нормализацию текста в _normalize_query_text()
 
