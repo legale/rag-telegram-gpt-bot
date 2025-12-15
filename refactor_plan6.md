@@ -74,7 +74,7 @@
 
 - [x] file=src/adapters/persistence/sqlite_chunk_store.py func=save_batch уменьшить цикломатическую сложность: вынести подготовку данных chunk в _prepare_chunk_data(), проверку существования chunk в _chunk_exists(), создание/обновление chunk в _create_or_update_chunk()
 
-- [ ] file=src/adapters/persistence/sqlite_message_store.py func=save_batch уменьшить цикломатическую сложность: вынести конвертацию domain messages в dict в _convert_messages_to_dicts(), сохранение metadata в _save_message_metadata()
+- [x] file=src/adapters/persistence/sqlite_message_store.py func=save_batch уменьшить цикломатическую сложность: вынести конвертацию domain messages в dict в _convert_messages_to_dicts(), сохранение metadata в _save_message_metadata()
 
 - [ ] file=src/storage/db.py func=_ensure_schema уменьшить цикломатическую сложность: вынести создание FTS5 таблиц в _create_fts5_tables(), создание triggers в _create_fts5_triggers(), проверку колонок в _check_and_add_columns()
 

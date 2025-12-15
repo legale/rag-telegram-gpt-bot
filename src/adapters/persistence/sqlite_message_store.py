@@ -25,20 +25,16 @@ class SqliteMessageStore:
         self.db = database
         self._fts_index: Optional[SqliteFTSIndex] = None
 
-    def save_batch(self, messages: List[Message]) -> int:
+    def _convert_messages_to_dicts(self, messages: List[Message]) -> List[Dict]:
         """
-        Save a batch of messages to the database.
-
+        Convert domain Messages to dict format expected by Database.add_messages_batch.
+        
         Args:
             messages: List of Message domain objects
-
+            
         Returns:
-            Number of messages actually saved (excluding duplicates)
+            List of message dictionaries
         """
-        if not messages:
-            return 0
-
-        # Convert domain Messages to dict format expected by Database.add_messages_batch
         message_dicts = []
         for msg in messages:
             message_dicts.append({
@@ -48,11 +44,15 @@ class SqliteMessageStore:
                 "from_id": msg.from_id,
                 "text": msg.text,
             })
+        return message_dicts
 
-        # Save messages
-        saved_count = self.db.add_messages_batch(message_dicts)
-
-        # Save metadata separately if present
+    def _save_message_metadata(self, messages: List[Message]) -> None:
+        """
+        Save message metadata to database.
+        
+        Args:
+            messages: List of Message domain objects with metadata
+        """
         session = self.db.get_session()
         try:
             for msg in messages:
@@ -79,6 +79,28 @@ class SqliteMessageStore:
             raise e
         finally:
             session.close()
+
+    def save_batch(self, messages: List[Message]) -> int:
+        """
+        Save a batch of messages to the database.
+
+        Args:
+            messages: List of Message domain objects
+
+        Returns:
+            Number of messages actually saved (excluding duplicates)
+        """
+        if not messages:
+            return 0
+
+        # Convert domain Messages to dict format
+        message_dicts = self._convert_messages_to_dicts(messages)
+
+        # Save messages
+        saved_count = self.db.add_messages_batch(message_dicts)
+
+        # Save metadata separately if present
+        self._save_message_metadata(messages)
 
         # FTS5 indexes are updated automatically via triggers
         # But we ensure FTS tables exist
