@@ -94,7 +94,7 @@
 
 - [x] file=src/core/embedding.py func=get_embeddings_batched добавить retry логику с exponential backoff для временных ошибок API
 
-- [ ] file=src/bot/core.py func=_retry_after_reset упростить: убрать дублирование построения промпта, использовать _build_prompt_and_history()
+- [x] file=src/bot/core.py func=_retry_after_reset упростить: убрать дублирование построения промпта, использовать _build_prompt_and_history()
 
 - [ ] file=src/bot/core.py func=_is_token_limit_error упростить: использовать регулярное выражение или список ключевых слов вместо множественных проверок строк
 

@@ -428,7 +428,8 @@ class LegaleBot:
         self, 
         context_chunks: List[Dict], 
         user_task: str, 
-        custom_template: Optional[str] = None
+        custom_template: Optional[str] = None,
+        history: Optional[List[Dict[str, str]]] = None
     ) -> Tuple[str, List[Dict[str, str]]]:
         """
         Build system prompt and history for prompt (helper to reduce duplication).
@@ -437,12 +438,17 @@ class LegaleBot:
             context_chunks: Retrieved context chunks
             user_task: User task/query string
             custom_template: Optional custom system prompt template
+            history: Optional pre-built history (if None, builds from chat_history)
             
         Returns:
             Tuple of (system_prompt, history_for_prompt)
         """
-        max_messages = 5  # Default value from config
-        history_for_prompt = self._build_history_for_prompt(max_messages=max_messages)
+        if history is None:
+            max_messages = 5  # Default value from config
+            history_for_prompt = self._build_history_for_prompt(max_messages=max_messages)
+        else:
+            history_for_prompt = history
+        
         system_prompt = self.prompt_engine.construct_prompt(
             context_chunks=context_chunks,
             chat_history=history_for_prompt,
@@ -528,9 +534,16 @@ class LegaleBot:
         Returns:
             True if error is token limit related
         """
-        return ("402" in error_msg or 
-                "context_length_exceeded" in error_msg or 
-                "Prompt tokens limit exceeded" in error_msg)
+        error_lower = error_msg.lower()
+        token_limit_keywords = [
+            "402",
+            "context_length_exceeded",
+            "prompt tokens limit exceeded",
+            "token limit exceeded",
+            "maximum context length",
+            "context length exceeded",
+        ]
+        return any(keyword in error_lower for keyword in token_limit_keywords)
     
     def _retry_after_reset(self, context_chunks: List[Dict], user_input: str, 
                           system_prompt_template: Optional[str] = None) -> str:
@@ -551,13 +564,12 @@ class LegaleBot:
         # Force reset context
         self.reset_context()
         
-        # Reconstruct prompt without history
-        system_prompt = self.prompt_engine.construct_prompt(
+        # Reconstruct prompt without history using _build_prompt_and_history
+        system_prompt, _ = self._build_prompt_and_history(
             context_chunks=context_chunks,
-            chat_history=[],
             user_task=user_input,
             custom_template=system_prompt_template,
-            log_level=self.log_level
+            history=[]  # Empty history after reset
         )
         
         messages = [
