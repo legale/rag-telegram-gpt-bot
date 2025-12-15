@@ -17,6 +17,75 @@ class CommandValidator:
     
     # Valid profile name pattern: alphanumeric, underscores, hyphens
     PROFILE_NAME_PATTERN = re.compile(r'^[a-zA-Z0-9_-]+$')
+    # Valid command name pattern: alphanumeric, underscores, hyphens
+    COMMAND_NAME_PATTERN = re.compile(r'^[a-zA-Z0-9_-]+$')
+    
+    @staticmethod
+    def _validate_command_name(command_name: str) -> Tuple[bool, str]:
+        """
+        Validate command name format.
+        
+        Args:
+            command_name: Command name to validate
+            
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        if not command_name:
+            return False, "Имя команды не может быть пустым"
+        
+        if len(command_name) > 50:
+            return False, "Имя команды слишком длинное (макс. 50 символов)"
+        
+        if not CommandValidator.COMMAND_NAME_PATTERN.match(command_name):
+            return False, "Имя команды может содержать только буквы, цифры, '_' и '-'"
+        
+        return True, ""
+    
+    @staticmethod
+    def _validate_args(args: List[str], min_count: int = 0, 
+                      max_count: Optional[int] = None,
+                      usage: str = "") -> Tuple[bool, str]:
+        """
+        Validate command arguments.
+        
+        Args:
+            args: List of arguments
+            min_count: Minimum required arguments
+            max_count: Maximum allowed arguments (None = unlimited)
+            usage: Usage string to show in error message
+            
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        return CommandValidator.validate_args_count(args, min_count, max_count, usage)
+    
+    @staticmethod
+    def validate(command_name: str, args: List[str], 
+                min_args: int = 0, max_args: Optional[int] = None,
+                usage: str = "") -> Tuple[bool, str]:
+        """
+        Validate command name and arguments.
+        
+        Args:
+            command_name: Command name to validate
+            args: List of command arguments
+            min_args: Minimum required arguments
+            max_args: Maximum allowed arguments (None = unlimited)
+            usage: Usage string to show in error message
+            
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        is_valid, error = CommandValidator._validate_command_name(command_name)
+        if not is_valid:
+            return False, error
+        
+        is_valid, error = CommandValidator._validate_args(args, min_args, max_args, usage)
+        if not is_valid:
+            return False, error
+        
+        return True, ""
     
     @staticmethod
     def validate_profile_name(name: str) -> Tuple[bool, str]:

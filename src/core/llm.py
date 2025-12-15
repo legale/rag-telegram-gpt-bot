@@ -70,11 +70,24 @@ class LLMClient:
         """
         num_tokens = 0
         for message in messages:
-            # Every message follows <|start|>{role/name}\n{content}<|end|>\n
-            num_tokens += 4  # message overhead
-            for key, value in message.items():
-                num_tokens += len(self.encoding.encode(str(value)))
+            num_tokens += self._count_message_tokens(message)
         num_tokens += 2  # every reply is primed with <|start|>assistant
+        return num_tokens
+    
+    def _count_message_tokens(self, message: Dict[str, str]) -> int:
+        """
+        Count the number of tokens for a single message.
+        
+        Args:
+            message: Message dictionary (role, content).
+            
+        Returns:
+            Number of tokens for this message.
+        """
+        # Every message follows <|start|>{role/name}\n{content}<|end|>\n
+        num_tokens = 4  # message overhead
+        for key, value in message.items():
+            num_tokens += len(self.encoding.encode(str(value)))
         return num_tokens
 
     def _is_retryable_error(self, error: Exception) -> bool:
