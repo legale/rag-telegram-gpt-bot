@@ -283,7 +283,9 @@ def main():
     # Configure logging
     syslog_level = LOG_WARNING
     
-    if log_level_str:
+    if log_level_str is not None:
+        # Поддерживаем как строковые уровни (DEBUG, INFO, ...),
+        # так и числовые значения (например, 7 для LOG_DEBUG)
         level_map = {
             "DEBUG": LOG_DEBUG,
             "INFO": LOG_INFO,
@@ -291,9 +293,16 @@ def main():
             "WARNING": LOG_WARNING,
             "ERR": LOG_ERR,
             "CRIT": LOG_CRIT,
-            "ALERT": LOG_ALERT
+            "ALERT": LOG_ALERT,
         }
-        syslog_level = level_map.get(log_level_str.upper(), LOG_WARNING)
+        if isinstance(log_level_str, int):
+            syslog_level = log_level_str
+        else:
+            s = str(log_level_str).strip()
+            if s.isdigit():
+                syslog_level = int(s)
+            else:
+                syslog_level = level_map.get(s.upper(), LOG_WARNING)
 
     
     setup_log(syslog_level)
