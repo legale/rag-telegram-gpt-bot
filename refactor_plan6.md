@@ -136,7 +136,7 @@
 
 - [ ] file=src/storage/vector_store.py func=add_documents_with_embeddings уменьшить цикломатическую сложность: вынести валидацию входных данных в _validate_batch_inputs(), обработку батчей в _process_batch()
 
-- [ ] file=src/storage/vector_store.py func=query упростить: вынести вычисление query embeddings в _compute_query_embeddings(), выполнение запроса в _execute_vector_query()
+- [x] file=src/storage/vector_store.py func=query упростить: вынести вычисление query embeddings в _compute_query_embeddings(), выполнение запроса в _execute_vector_query()
 
 - [ ] file=src/adapters/vector/chroma_vector_index.py func=query уменьшить цикломатическую сложность: вынести конвертацию filter в where clause в _convert_filter_to_where(), конвертацию результатов в ScoredDoc в _convert_results_to_scored_docs()
 

@@ -92,8 +92,8 @@ class CommandDispatcher:
             command_name: Command name (e.g., "start", "help", "find")
             handler: CommandHandler instance
         """
-        # Normalize command name (remove leading slash, lowercase)
-        normalized = command_name.lstrip("/").lower()
+        # Normalize command name using shared method
+        normalized = self._normalize_command_name(command_name)
         self.handlers[normalized] = handler
 
     def register_async(self, command_name: str, handler: AsyncCommandHandler) -> None:
@@ -104,8 +104,8 @@ class CommandDispatcher:
             command_name: Command name (e.g., "admin", "admin_set")
             handler: AsyncCommandHandler instance
         """
-        # Normalize command name (remove leading slash, lowercase)
-        normalized = command_name.lstrip("/").lower()
+        # Normalize command name using shared method
+        normalized = self._normalize_command_name(command_name)
         self.async_handlers[normalized] = handler
 
     def _normalize_command_name(self, command_name: str) -> str:

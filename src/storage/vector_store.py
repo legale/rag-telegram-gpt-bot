@@ -120,9 +120,34 @@ class VectorStore:
         if not query_texts:
             return {"ids": [], "documents": [], "distances": []}
 
-        query_embs = self.embedding_client.get_embeddings(query_texts)
+        query_embs = self._compute_query_embeddings(query_texts)
+        return self._execute_vector_query(query_embs, n_results)
+
+    def _compute_query_embeddings(self, query_texts: List[str]) -> List[List[float]]:
+        """
+        Compute embeddings for query texts.
+        
+        Args:
+            query_texts: List of query text strings
+            
+        Returns:
+            List of embedding vectors
+        """
+        return self.embedding_client.get_embeddings(query_texts)
+
+    def _execute_vector_query(self, query_embeddings: List[List[float]], n_results: int) -> Dict[str, Any]:
+        """
+        Execute vector query using precomputed embeddings.
+        
+        Args:
+            query_embeddings: List of query embedding vectors
+            n_results: Number of results to return
+            
+        Returns:
+            Dictionary with query results (ids, documents, distances, etc.)
+        """
         return self.collection.query(
-            query_embeddings=query_embs,
+            query_embeddings=query_embeddings,
             n_results=n_results,
         )
 
