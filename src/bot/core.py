@@ -332,6 +332,33 @@ class LegaleBot:
         """
         return self.active_context_chunks is None
     
+    def _build_new_context(self, user_input: str, n_results: int) -> List[Dict]:
+        """
+        Build new RAG context by retrieving chunks.
+        
+        Args:
+            user_input: User query string
+            n_results: Number of chunks to retrieve
+            
+        Returns:
+            List of context chunk dictionaries
+        """
+        return self.retrieval_service.retrieve(
+            user_input, n_results=n_results, score_threshold=self.config.fts5_score_thr
+        )
+    
+    def _evaluate_context_quality(self, context_chunks: List[Dict]) -> tuple[bool, float]:
+        """
+        Evaluate context quality and return (is_good, max_score).
+        
+        Args:
+            context_chunks: List of context chunk dictionaries
+            
+        Returns:
+            Tuple of (is_good, max_score)
+        """
+        return self._is_good_context(context_chunks)
+    
     def _get_or_build_context(self, user_input: str, n_results: int) -> List[Dict]:
         """
         Get cached RAG context or build new one if needed.
@@ -344,13 +371,11 @@ class LegaleBot:
             List of context chunk dictionaries
         """
         if self._should_refresh_context():
-            # Need to build new context
-            context_chunks = self.retrieval_service.retrieve(
-                user_input, n_results=n_results, score_threshold=self.config.fts5_score_thr
-            )
+            # Build new context
+            context_chunks = self._build_new_context(user_input, n_results)
             
             # Evaluate context quality
-            is_good, max_score = self._is_good_context(context_chunks)
+            is_good, max_score = self._evaluate_context_quality(context_chunks)
             
             if is_good:
                 # Cache the context
