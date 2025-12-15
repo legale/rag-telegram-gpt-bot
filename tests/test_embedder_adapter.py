@@ -1,49 +1,38 @@
-"""
-Tests for EmbedderAdapter.
-"""
+"""Tests for src/adapters/embedding/embedder_adapter.py"""
 
 import pytest
+from unittest.mock import Mock
 from src.adapters.embedding.embedder_adapter import EmbedderAdapter
-from src.core.embedding import EmbeddingClient, LocalEmbeddingClient
 
 
 class TestEmbedderAdapter:
-    """Tests for EmbedderAdapter class."""
+    """Tests for EmbedderAdapter"""
     
-    def test_init_with_embedding_client(self):
-        """Test initialization with EmbeddingClient."""
-        # Use LocalEmbeddingClient to avoid API key requirement
-        client = LocalEmbeddingClient(model="all-MiniLM-L6-v2")
-        adapter = EmbedderAdapter(client)
-        assert adapter.client == client
-    
-    def test_init_with_local_embedding_client(self):
-        """Test initialization with LocalEmbeddingClient."""
-        client = LocalEmbeddingClient(model="all-MiniLM-L6-v2")
-        adapter = EmbedderAdapter(client)
-        assert adapter.client == client
+    def test_init(self):
+        """Test EmbedderAdapter initialization"""
+        mock_client = Mock()
+        adapter = EmbedderAdapter(mock_client)
+        
+        assert adapter.client == mock_client
     
     def test_embed_documents(self):
-        """Test embed_documents method."""
-        client = LocalEmbeddingClient(model="all-MiniLM-L6-v2")
-        adapter = EmbedderAdapter(client)
+        """Test embed_documents method"""
+        mock_client = Mock()
+        mock_client.get_embeddings.return_value = [[0.1, 0.2], [0.3, 0.4]]
+        adapter = EmbedderAdapter(mock_client)
         
-        texts = ["Hello world", "Test text"]
-        embeddings = adapter.embed_documents(texts)
+        result = adapter.embed_documents(["text1", "text2"])
         
-        assert len(embeddings) == 2
-        assert len(embeddings[0]) > 0
-        assert len(embeddings[1]) > 0
+        assert result == [[0.1, 0.2], [0.3, 0.4]]
+        mock_client.get_embeddings.assert_called_once_with(["text1", "text2"])
     
     def test_embed_query(self):
-        """Test embed_query method."""
-        client = LocalEmbeddingClient(model="all-MiniLM-L6-v2")
-        adapter = EmbedderAdapter(client)
+        """Test embed_query method"""
+        mock_client = Mock()
+        mock_client.get_embedding.return_value = [0.1, 0.2, 0.3]
+        adapter = EmbedderAdapter(mock_client)
         
-        query = "test query"
-        embedding = adapter.embed_query(query)
+        result = adapter.embed_query("test query")
         
-        assert len(embedding) > 0
-        assert isinstance(embedding, list)
-        assert all(isinstance(x, float) for x in embedding)
-
+        assert result == [0.1, 0.2, 0.3]
+        mock_client.get_embedding.assert_called_once_with("test query")

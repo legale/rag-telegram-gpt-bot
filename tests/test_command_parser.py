@@ -1,106 +1,138 @@
-"""
-Tests for command_parser module.
-"""
+"""Tests for src/bot/command_parser.py"""
 
 import pytest
+from unittest.mock import Mock
 from src.bot.command_parser import parse_find_command_args
-from src.bot.admin import AdminManager
-from pathlib import Path
-import tempfile
-import json
-
-
-@pytest.fixture
-def temp_profile_dir(tmp_path):
-    """Create a temporary profile directory with config."""
-    profile_dir = tmp_path / "profile"
-    profile_dir.mkdir()
-    config_file = profile_dir / "config.json"
-    config_data = {
-        "cosine_distance_thr": 1.5,
-        "embedding_model": "test-model",
-        "embedding_generator": "local"
-    }
-    config_file.write_text(json.dumps(config_data))
-    return str(profile_dir)
-
-
-@pytest.fixture
-def admin_manager(temp_profile_dir):
-    """Create AdminManager instance."""
-    return AdminManager(temp_profile_dir)
 
 
 class TestParseFindCommandArgs:
-    """Tests for parse_find_command_args function."""
+    """Tests for parse_find_command_args"""
     
-    def test_parse_with_rag_method_and_query(self):
-        """Test parsing with rag_method and query."""
-        rag_method, action, query = parse_find_command_args("hybrid vpn туннель")
+    def test_parse_with_hybrid_method(self):
+        """Test parsing with hybrid method"""
+        rag_method, action, query = parse_find_command_args("hybrid test query")
+        
         assert rag_method == "hybrid"
         assert action is None
-        assert query == "vpn туннель"
+        assert query == "test query"
     
-    def test_parse_with_list_action(self):
-        """Test parsing with list action."""
-        rag_method, action, query = parse_find_command_args("hybrid list")
-        assert rag_method == "hybrid"
-        assert action == "list"
-        assert query is None
-    
-    def test_parse_with_slash_find_prefix(self):
-        """Test parsing with /find prefix."""
-        rag_method, action, query = parse_find_command_args("/find vector_only test query")
+    def test_parse_with_vector_only_method(self):
+        """Test parsing with vector_only method"""
+        rag_method, action, query = parse_find_command_args("vector_only test query")
+        
         assert rag_method == "vector_only"
         assert action is None
         assert query == "test query"
     
-    def test_parse_with_fts_only(self):
-        """Test parsing with fts_only method."""
-        rag_method, action, query = parse_find_command_args("/find fts_only поиск")
+    def test_parse_with_fts_only_method(self):
+        """Test parsing with fts_only method"""
+        rag_method, action, query = parse_find_command_args("fts_only test query")
+        
         assert rag_method == "fts_only"
         assert action is None
-        assert query == "поиск"
+        assert query == "test query"
     
-    def test_parse_empty_string(self):
-        """Test parsing empty string."""
-        rag_method, action, error = parse_find_command_args("")
-        assert rag_method is None
-        assert action is None
-        assert "Использование" in error
+    def test_parse_with_list_action(self):
+        """Test parsing with list action"""
+        rag_method, action, query = parse_find_command_args("hybrid list")
+        
+        assert rag_method == "hybrid"
+        assert action == "list"
+        assert query is None
     
-    def test_parse_invalid_rag_method(self):
-        """Test parsing with invalid rag_method."""
-        rag_method, action, error = parse_find_command_args("invalid_method query")
-        assert rag_method is None
-        assert action is None
-        assert "Неизвестный метод RAG" in error
-    
-    def test_parse_only_rag_method(self):
-        """Test parsing with only rag_method (no query or list)."""
-        rag_method, action, error = parse_find_command_args("hybrid")
-        assert rag_method is None
-        assert action is None
-        assert "Необходимо указать действие или запрос" in error
-    
-    def test_parse_with_multi_word_query(self):
-        """Test parsing with multi-word query."""
-        rag_method, action, query = parse_find_command_args("hybrid vpn туннель настройка")
+    def test_parse_with_slash_prefix(self):
+        """Test parsing with /find prefix"""
+        rag_method, action, query = parse_find_command_args("/find hybrid test query")
+        
         assert rag_method == "hybrid"
         assert action is None
-        assert query == "vpn туннель настройка"
+        assert query == "test query"
     
-    def test_parse_case_insensitive_rag_method(self):
-        """Test parsing with case-insensitive rag_method."""
-        rag_method, action, query = parse_find_command_args("HYBRID test")
+    def test_parse_empty_text(self):
+        """Test parsing empty text"""
+        rag_method, action, query = parse_find_command_args("")
+        
+        assert rag_method is None
+        assert action is None
+        assert "Использование" in query
+    
+    def test_parse_whitespace_only(self):
+        """Test parsing whitespace-only text"""
+        rag_method, action, query = parse_find_command_args("   ")
+        
+        assert rag_method is None
+        assert action is None
+        assert "Использование" in query
+    
+    def test_parse_invalid_method(self):
+        """Test parsing with invalid method"""
+        rag_method, action, query = parse_find_command_args("invalid_method test")
+        
+        assert rag_method is None
+        assert action is None
+        assert "Неизвестный метод RAG" in query
+    
+    def test_parse_missing_action_or_query(self):
+        """Test parsing with missing action or query"""
+        rag_method, action, query = parse_find_command_args("hybrid")
+        
+        assert rag_method is None
+        assert action is None
+        assert "Необходимо указать действие" in query
+    
+    def test_parse_single_word_query(self):
+        """Test parsing single word query"""
+        rag_method, action, query = parse_find_command_args("hybrid test")
+        
         assert rag_method == "hybrid"
         assert action is None
         assert query == "test"
     
-    def test_parse_list_case_insensitive(self):
-        """Test parsing with case-insensitive list action."""
-        rag_method, action, query = parse_find_command_args("vector_only LIST")
-        assert rag_method == "vector_only"
+    def test_parse_multi_word_query(self):
+        """Test parsing multi-word query"""
+        rag_method, action, query = parse_find_command_args("hybrid test query with multiple words")
+        
+        assert rag_method == "hybrid"
+        assert action is None
+        assert query == "test query with multiple words"
+    
+    def test_parse_case_insensitive_method(self):
+        """Test parsing is case-insensitive for method"""
+        rag_method, action, query = parse_find_command_args("HYBRID test")
+        
+        assert rag_method == "hybrid"
+        assert action is None
+        assert query == "test"
+    
+    def test_parse_case_insensitive_list(self):
+        """Test parsing is case-insensitive for list action"""
+        rag_method, action, query = parse_find_command_args("hybrid LIST")
+        
+        assert rag_method == "hybrid"
         assert action == "list"
         assert query is None
-
+    
+    def test_parse_empty_query_after_method(self):
+        """Test parsing when query is empty after method"""
+        rag_method, action, query = parse_find_command_args("hybrid ")
+        
+        assert rag_method is None
+        assert action is None
+        assert "Необходимо указать действие" in query or "Необходимо указать запрос" in query
+    
+    def test_parse_with_admin_manager_ignored(self):
+        """Test that admin_manager parameter is accepted but not used"""
+        mock_admin = Mock()
+        rag_method, action, query = parse_find_command_args("hybrid test", mock_admin)
+        
+        assert rag_method == "hybrid"
+        assert action is None
+        assert query == "test"
+    
+    def test_parse_with_default_threshold_ignored(self):
+        """Test that default_threshold parameter is accepted but not used"""
+        rag_method, action, query = parse_find_command_args("hybrid test", None, 2.0)
+        
+        assert rag_method == "hybrid"
+        assert action is None
+        assert query == "test"
