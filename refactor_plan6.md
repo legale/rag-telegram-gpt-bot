@@ -208,7 +208,7 @@
 
 - [x] file=src/bot/utils/command_validator.py func=validate упростить: вынести валидацию command name в _validate_command_name(), валидацию args в _validate_args()
 
-- [w] file=src/core/query_rewriter.py func=rephrase_for_embedding упростить: вынести построение prompt для rephrasing в _build_rephrase_prompt(), вызов LLM в _call_llm_for_rephrasing()
+- [x] file=src/core/query_rewriter.py func=rephrase_for_embedding упростить: вынести построение prompt для rephrasing в _build_rephrase_prompt(), вызов LLM в _call_llm_for_rephrasing()
 
 - [x] file=src/core/llm.py func=count_tokens упростить: вынести подсчет токенов для одного message в _count_message_tokens()
 
