@@ -84,7 +84,7 @@
 
 - [x] file=src/bot/admin_router.py func=_route_with_subcommand уменьшить цикломатическую сложность: вынести проверку доступа в _check_admin_access(), выполнение handler в _execute_handler_with_error_handling()
 
-- [ ] file=src/bot/admin_tasks.py func=_persist_sql уменьшить цикломатическую сложность: вынести подготовку chunk models в _prepare_chunk_models(), сохранение в БД в _save_chunks_to_database()
+- [x] file=src/bot/admin_tasks.py func=_persist_sql уменьшить цикломатическую сложность: вынести подготовку chunk models в _prepare_chunk_models(), сохранение в БД в _save_chunks_to_database()
 
 - [ ] file=src/bot/admin_tasks.py func=_persist_vectors уменьшить цикломатическую сложность: вынести подготовку данных для vector store в _prepare_vector_data(), синхронизацию в _sync_to_vector_store()
 

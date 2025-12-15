@@ -130,6 +130,69 @@ class IngestionTask:
         
         return chunks, chunk_count
     
+    def _prepare_chunk_models(
+        self, 
+        chunks: List
+    ) -> Tuple[List, List[str], List[str], List[Dict]]:
+        """
+        Prepare chunk models and vector store data.
+        
+        Args:
+            chunks: List of chunks to prepare
+            
+        Returns:
+            Tuple of (chunk_models, ids, documents, metadatas)
+        """
+        import uuid
+        import json
+        from src.storage.db import ChunkModel
+        
+        chunk_models = []
+        ids = []
+        documents = []
+        metadatas = []
+        
+        for chunk in chunks:
+            chunk_id = str(uuid.uuid4())
+            
+            # SQL Model
+            model = ChunkModel(
+                id=chunk_id,
+                text=chunk.text,
+                metadata_json=json.dumps(chunk.metadata)
+            )
+            chunk_models.append(model)
+            
+            # Vector Store Data
+            ids.append(chunk_id)
+            documents.append(chunk.text)
+            metadatas.append(chunk.metadata)
+        
+        return chunk_models, ids, documents, metadatas
+
+    async def _save_chunks_to_database(
+        self, 
+        pipeline, 
+        chunk_models: List
+    ) -> None:
+        """
+        Save chunk models to database.
+        
+        Args:
+            pipeline: Pipeline instance with database
+            chunk_models: List of ChunkModel instances to save
+        """
+        session = pipeline.db.get_session()
+        try:
+            session.add_all(chunk_models)
+            session.commit()
+            syslog2(LOG_NOTICE, "saved chunks to database", count=len(chunk_models))
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
+
     async def _persist_sql(
         self, 
         pipeline, 
@@ -139,50 +202,20 @@ class IngestionTask:
         message_id: int
     ) -> Tuple[List[str], List[str], List[Dict]]:
         """Persist chunks to SQLite database."""
-        import uuid
-        import json
-        from src.storage.db import ChunkModel
+        chunk_count = len(chunks)
         
-        session = pipeline.db.get_session()
-        try:
-            chunk_models = []
-            ids = []
-            documents = []
-            metadatas = []
-            
-            chunk_count = len(chunks)
-            for i, chunk in enumerate(chunks):
-                chunk_id = str(uuid.uuid4())
-                
-                # SQL Model
-                model = ChunkModel(
-                    id=chunk_id,
-                    text=chunk.text,
-                    metadata_json=json.dumps(chunk.metadata)
-                )
-                chunk_models.append(model)
-                
-                # Vector Store Data
-                ids.append(chunk_id)
-                documents.append(chunk.text)
-                metadatas.append(chunk.metadata)
-                
-                # Update progress every 100 chunks
-                if (i + 1) % 100 == 0:
-                    self.progress = i + 1
-                    await self._update_progress_with_percentage(
-                        bot, chat_id, message_id, self.progress, chunk_count
-                    )
-            
-            session.add_all(chunk_models)
-            session.commit()
-            syslog2(LOG_NOTICE, "saved chunks to database", count=len(chunk_models))
-            
-        except Exception as e:
-            session.rollback()
-            raise e
-        finally:
-            session.close()
+        # Prepare chunk models and vector store data
+        chunk_models, ids, documents, metadatas = self._prepare_chunk_models(chunks)
+        
+        # Update progress during preparation
+        for i in range(100, chunk_count + 1, 100):
+            self.progress = i
+            await self._update_progress_with_percentage(
+                bot, chat_id, message_id, self.progress, chunk_count
+            )
+        
+        # Save to database
+        await self._save_chunks_to_database(pipeline, chunk_models)
         
         await self._update_progress_simple(bot, chat_id, message_id, "Данные сохранены в БД", "Создание векторных эмбеддингов...")
         
