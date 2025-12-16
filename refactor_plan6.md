@@ -246,13 +246,13 @@
 
 - [x] file=src/bot/cli.py func=main упростить: вынести инициализацию bot в _init_bot(), обработку команд в _handle_user_input(), обработку ошибок в _handle_error()
 
-- [ ] file=src/bot/command_parser.py func=parse_find_command_args упростить: вынести парсинг rag_method в _parse_rag_method(), парсинг query в _parse_query(), валидацию args в _validate_args()
+- [w] file=src/bot/command_parser.py func=parse_find_command_args упростить: вынести парсинг rag_method в _parse_rag_method(), парсинг query в _parse_query(), валидацию args в _validate_args()
 
 - [ ] file=src/core/ingest_use_cases/ingest_messages.py func=execute упростить: вынести парсинг файла в _parse_file(), сохранение messages в _save_messages()
 
 - [x] file=src/core/ingest_use_cases/process_chunks.py func=execute упростить: вынести получение messages в _load_messages(), создание chunks в _create_chunks(), сохранение chunks в _save_chunks()
 
-- [ ] file=src/core/ingest_use_cases/generate_embeddings.py func=execute упростить: вынести получение chunks без embeddings в _get_chunks_without_embeddings(), генерацию embeddings в _generate_embeddings(), сохранение embeddings в _save_embeddings()
+- [x] file=src/core/ingest_use_cases/generate_embeddings.py func=execute упростить: вынести получение chunks без embeddings в _get_chunks_without_embeddings(), генерацию embeddings в _generate_embeddings(), сохранение embeddings в _save_embeddings()
 
 - [ ] file=src/core/ingest_use_cases/sync_to_vector_store.py func=execute упростить: вынести подготовку данных в _prepare_vector_data(), синхронизацию в _sync_to_vector_store()
 
