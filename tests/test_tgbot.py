@@ -842,7 +842,7 @@ class TestUtilityFunctions:
             mock_update = Mock()
             mock_de_json.return_value = mock_update
             
-            result = await _parse_webhook_update(request)
+            result = await _parse_webhook_update(request, mock_ctx)
             
             assert result == mock_update
 
@@ -851,8 +851,9 @@ class TestUtilityFunctions:
         """Test parsing webhook update with error."""
         request = Mock()
         request.json = AsyncMock(side_effect=Exception("Parse error"))
+        mock_ctx = Mock()
         
-        result = await _parse_webhook_update(request)
+        result = await _parse_webhook_update(request, mock_ctx)
         
         assert result is None
 
@@ -870,11 +871,10 @@ class TestUtilityFunctions:
         mock_ctx.ingest_commands = ingest_commands
         mock_ctx.admin_manager = admin_manager
         
-        with patch("src.bot.tgbot.get_runtime_context", return_value=mock_ctx), \
-             patch("src.bot.tgbot.process_document_update", new_callable=AsyncMock) as mock_process_doc:
+        with patch("src.bot.tgbot.process_document_update", new_callable=AsyncMock) as mock_process_doc:
             mock_process_doc.return_value = "File uploaded"
             
-            result = await _process_webhook_update(update)
+            result = await _process_webhook_update(update, mock_ctx)
             
             assert result == "File uploaded"
 

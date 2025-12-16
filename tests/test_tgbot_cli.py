@@ -143,8 +143,7 @@ async def test_init_runtime_for_current_profile():
     mock_ctx = Mock()
     mock_ctx.profile_manager = mock_pm
     
-    with patch("src.bot.tgbot.get_runtime_context", return_value=mock_ctx), \
-         patch("src.bot.tgbot.LegaleBot") as MockBot, \
+    with patch("src.bot.tgbot.LegaleBot") as MockBot, \
          patch("src.bot.tgbot.AdminManager") as MockAdmin, \
          patch("src.bot.tgbot.AdminCommandRouter") as MockRouter, \
          patch("src.bot.tgbot.TaskManager"), \
@@ -160,7 +159,7 @@ async def test_init_runtime_for_current_profile():
         mock_admin_instance = MockAdmin.return_value
         mock_admin_instance.config.current_model = "gpt-4"
         
-        paths = await init_runtime_for_current_profile()
+        paths = await init_runtime_for_current_profile(mock_ctx)
         
         assert paths == mock_pm.get_profile_paths.return_value
         MockAdmin.assert_called_with("prof_dir")
@@ -177,6 +176,5 @@ async def test_init_runtime_no_profile_manager():
     mock_ctx = Mock()
     mock_ctx.profile_manager = None
     
-    with patch("src.bot.tgbot.get_runtime_context", return_value=mock_ctx):
-        with pytest.raises(RuntimeError, match="profile_manager is not initialized"):
-            await init_runtime_for_current_profile()
+    with pytest.raises(RuntimeError, match="profile_manager is not initialized"):
+        await init_runtime_for_current_profile(mock_ctx)

@@ -312,7 +312,7 @@
 
 - [x] file=src/core/admin_commands.py удалить: перенести admin команды в src/core/commands/admin.py, убрать дублирование с src/bot/admin_commands.py
 
-- [ ] file=src/bot/admin_commands.py удалить: транспортный слой не содержит бизнес команд, только адаптация входа-выхода
+- [w] file=src/bot/admin_commands.py удалить: транспортный слой не содержит бизнес команд, только адаптация входа-выхода
 
 - [ ] file=src/core/dispatcher.py func=dispatch убрать из runtime: заменить на CommandService с простым registry dict[name]=handler, без async ветвления если не критично
 
