@@ -52,6 +52,7 @@ class HybridRetrievalService:
         log_level: int = LOG_WARNING,
         fts_only: bool = False,
         llm: Optional[LLM] = None,
+        rag_ntop: int = 0,
     ):
         """
         Initialize HybridRetrievalService.
@@ -65,6 +66,7 @@ class HybridRetrievalService:
             log_level: Logging level
             fts_only: If True, skip vector reranking and return FTS results directly
             llm: Optional LLM for query rephrasing before vector search
+            rag_ntop: Configured top N results limit
         """
         self.fts_index = fts_index
         self.vector_index = vector_index
@@ -75,8 +77,7 @@ class HybridRetrievalService:
         self.fts_only = fts_only
         # Query rewriter for rephrasing before vector search
         self.query_rewriter = QueryRewriter(llm=llm, log_level=log_level)
-        # Compatibility attributes
-        self.rag_ntop = 0  # Not used in hybrid retrieval, kept for compatibility
+        self.rag_ntop = rag_ntop
 
     def search(
         self,
@@ -104,19 +105,25 @@ class HybridRetrievalService:
         if not query or not query.strip():
             return []
 
+        # Determine effective limits based on configuration
+        effective_rerank_top_k = self.rag_ntop if self.rag_ntop > 0 else rerank_top_k
+        # Ensure we fetch enough candidates for reranking (e.g. 3x)
+        # If rag_ntop is set, override top_k to ensure proportional candidates
+        effective_top_k = max(top_k, effective_rerank_top_k * 3) if self.rag_ntop > 0 else top_k
+
         # Step 1: FTS5 search for candidates
         if self.log_level <= LOG_DEBUG:
-            syslog2(LOG_DEBUG, "hybrid_retrieval: FTS5 search", query=query, top_k=top_k, fts_only=self.fts_only)
+            syslog2(LOG_DEBUG, "hybrid_retrieval: FTS5 search", query=query, top_k=effective_top_k, fts_only=self.fts_only, rag_ntop=self.rag_ntop)
         
         # Use search with table parameter for chunks
         # Note: FTSIndex.search() should support table parameter, but interface doesn't specify it
         # For now, we'll use a workaround - check if it's SqliteFTSIndex
         try:
             if hasattr(self.fts_index, 'search_chunks'):
-                fts_results = self.fts_index.search_chunks(query, top_k=top_k, filters=filters)
+                fts_results = self.fts_index.search_chunks(query, top_k=effective_top_k, filters=filters)
             else:
                 # Fallback: use generic search (assumes chunks)
-                fts_results = self.fts_index.search(query, top_k=top_k, filters=filters)
+                fts_results = self.fts_index.search(query, top_k=effective_top_k, filters=filters)
         except Exception as e:
             syslog2(LOG_ERR, "hybrid_retrieval: FTS5 search failed", query=query, error=str(e))
             return []
@@ -131,7 +138,7 @@ class HybridRetrievalService:
 
         # FTS-only mode: skip vector reranking and return FTS results directly
         if self.fts_only:
-            top_candidates = self._search_fts_only(fts_results, rerank_top_k)
+            top_candidates = self._search_fts_only(fts_results, effective_rerank_top_k)
         else:
             # Step 2: Get embeddings for candidates
             candidate_ids = [doc.id for doc in fts_results]
@@ -152,26 +159,26 @@ class HybridRetrievalService:
                 query_vector = self.embedder.embed_query(rephrased_query)
             except EmbeddingError as e:
                 syslog2(LOG_ERR, "hybrid_retrieval: embedding error", query=query, error=str(e))
-                top_candidates = self._handle_embedding_error(e, query, fts_results, candidate_chunks, rerank_top_k)
+                top_candidates = self._handle_embedding_error(e, query, fts_results, candidate_chunks, effective_rerank_top_k)
             except Exception as e:
                 # Wrap unexpected embedding errors as EmbeddingError
                 syslog2(LOG_ERR, "hybrid_retrieval: unexpected embedding error", query=query, error=str(e))
                 embedding_error = EmbeddingError(f"Embedding generation failed: {e}")
-                top_candidates = self._handle_embedding_error(embedding_error, query, fts_results, candidate_chunks, rerank_top_k)
+                top_candidates = self._handle_embedding_error(embedding_error, query, fts_results, candidate_chunks, effective_rerank_top_k)
             else:
                 try:
-                    top_candidates = self._rerank_with_vectors(query_vector, fts_results, candidate_chunks, rerank_top_k)
+                    top_candidates = self._rerank_with_vectors(query_vector, fts_results, candidate_chunks, effective_rerank_top_k)
                 except VectorIndexError as e:
                     syslog2(LOG_ERR, "hybrid_retrieval: vector index error", query=query, error=str(e))
                     # Fallback to FTS-only if vector index fails
                     if self.log_level <= LOG_DEBUG:
                         syslog2(LOG_DEBUG, "hybrid_retrieval: falling back to FTS-only after vector index error")
-                    top_candidates = self._handle_embedding_error(e, query, fts_results, candidate_chunks, rerank_top_k)
+                    top_candidates = self._handle_embedding_error(e, query, fts_results, candidate_chunks, effective_rerank_top_k)
                 except Exception as e:
                     # Wrap unexpected vector errors as VectorIndexError
                     syslog2(LOG_ERR, "hybrid_retrieval: unexpected vector index error", query=query, error=str(e))
                     vector_error = VectorIndexError(f"Vector index operation failed: {e}")
-                    top_candidates = self._handle_embedding_error(vector_error, query, fts_results, candidate_chunks, rerank_top_k)
+                    top_candidates = self._handle_embedding_error(vector_error, query, fts_results, candidate_chunks, effective_rerank_top_k)
 
         if self.log_level <= LOG_DEBUG:
             syslog2(LOG_DEBUG, "hybrid_retrieval: after rerank", count=len(top_candidates))
@@ -335,7 +342,7 @@ class HybridRetrievalService:
         missing_embedding_ids = []
         
         for chunk in candidate_chunks:
-            if chunk.embedding:
+            if chunk.embedding is not None:
                 candidate_embeddings[chunk.id] = chunk.embedding
             else:
                 missing_embedding_ids.append(chunk.id)
@@ -350,7 +357,7 @@ class HybridRetrievalService:
                 if hasattr(self.vector_index, 'get_embeddings_by_ids'):
                     fetched_embeddings = self.vector_index.get_embeddings_by_ids(missing_embedding_ids)
                     for chunk_id, embedding in fetched_embeddings.items():
-                        if embedding:
+                        if embedding is not None:
                             candidate_embeddings[chunk_id] = embedding
             except Exception as e:
                 syslog2(LOG_WARNING, "hybrid_retrieval: failed to fetch missing embeddings", error=str(e))

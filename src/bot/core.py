@@ -70,7 +70,8 @@ class LegaleBot:
         vector_db_path: str,
         profile_dir: Optional[Union[str, Path]],
         retrieval_type: str,
-        llm_client: LLMClient
+        llm_client: LLMClient,
+        rag_ntop: int = 0
     ):
         """
         Create retrieval service based on retrieval type.
@@ -81,6 +82,7 @@ class LegaleBot:
             profile_dir: Optional profile directory path
             retrieval_type: Retrieval type ("hybrid", "fts_only", "vector_only")
             llm_client: LLM client instance
+            rag_ntop: Configured top N results for RAG
             
         Returns:
             Retrieval service instance
@@ -96,6 +98,7 @@ class LegaleBot:
                 fts_only=False,  # Explicitly set for hybrid
                 llm_client=llm_client,  # Pass LLM for query rephrasing
                 retrieval_mode="hybrid",
+                rag_ntop=rag_ntop,
             )
         elif retrieval_type == "fts_only":
             # FTS-only mode: skip vector reranking
@@ -108,6 +111,7 @@ class LegaleBot:
                 fts_only=True,  # Explicitly set for fts_only
                 llm_client=None,  # No LLM needed for FTS-only
                 retrieval_mode="fts_only",
+                rag_ntop=rag_ntop,
             )
         elif retrieval_type == "vector_only":
             # Vector-only mode: skip FTS5, use only vector search
@@ -120,6 +124,7 @@ class LegaleBot:
                 fts_only=False,
                 llm_client=llm_client,  # Pass LLM for query rephrasing
                 retrieval_mode="vector_only",
+                rag_ntop=rag_ntop,
             )
         else:
             raise ValueError(f"Unknown retrieval_type: {retrieval_type}. Use: hybrid, fts_only, vector_only")
@@ -159,13 +164,15 @@ class LegaleBot:
         
         # Model getting support (needed before creating retrieval service)
         self.model_max_tokens = {}
-        self.available_models = self._load_available_models()
-        if not model_name and self.available_models:
-            model_name = self.available_models[0]
+        # Initial load of models
+        available = self.available_models
+        if not model_name and available:
+            model_name = available[0]
             
         # Find initial model index
-        if model_name and model_name in self.available_models:
-            self.current_model_index = self.available_models.index(model_name)
+        self.current_model_index = 0
+        if model_name and available and model_name in available:
+            self.current_model_index = available.index(model_name)
             
         if not model_name:
              # This means available_models is empty and no model provided
@@ -181,7 +188,8 @@ class LegaleBot:
             vector_db_path=vector_db_path,
             profile_dir=profile_dir,
             retrieval_type=retrieval_type,
-            llm_client=self.llm_client
+            llm_client=self.llm_client,
+            rag_ntop=self.config.rag_ntop
         )
         self.retrieval = self.retrieval_service
         
@@ -258,6 +266,14 @@ class LegaleBot:
         """Backward compatibility: allow tests/legacy code to replace active_context_score."""
         self.conversation_state.active_context_score = value
     
+    @property
+    def available_models(self) -> List[str]:
+        """
+        Get list of available models, reloading from file on each access.
+        Also updates self.model_max_tokens.
+        """
+        return self._load_available_models()
+
     def _load_available_models(self) -> List[str]:
         """
         Load available models from models.txt file.
@@ -299,12 +315,22 @@ class LegaleBot:
         Returns:
             Message with the new model name.
         """
-        if not self.available_models:
+        models = self.available_models
+        if not models:
             return "Нет доступных моделей для переключения."
         
+        # Recalculate index based on current model name, in case list changed
+        current_name = self.current_model_name
+        try:
+            current_idx = models.index(current_name)
+        except ValueError:
+            current_idx = -1
+            
         # Move to next model (cyclic)
-        self.current_model_index = (self.current_model_index + 1) % len(self.available_models)
-        new_model = self.available_models[self.current_model_index]
+        next_idx = (current_idx + 1) % len(models)
+        new_model = models[next_idx]
+        
+        self.current_model_index = next_idx
         
         # Recreate LLM client with new model
         self.llm_client = LLMClient(model=new_model, log_level=self.log_level)
@@ -315,7 +341,7 @@ class LegaleBot:
         if self.log_level <= LOG_INFO:
             syslog2(LOG_NOTICE, "model geted", new_model=new_model, max_tokens=self.max_context_tokens)
         
-        return f"Модель переключена на: {new_model}\n({self.current_model_index + 1}/{len(self.available_models)})"
+        return f"Модель переключена на: {new_model}\n({next_idx + 1}/{len(models)})"
 
     def set_model(self, model_name: str) -> str:
         """

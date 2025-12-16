@@ -831,6 +831,7 @@ async def init_runtime_for_current_profile(
     создать/переинициализировать bot_instance, admin_manager, admin_router и связанные команды
     под текущий активный профиль profile_manager
     """
+    global _bot_instance, _admin_manager, _admin_router, _task_manager, _ingest_commands, _command_service, _debug_rag_mode
     if ctx is None:
         ctx = get_runtime_context()
 
@@ -856,13 +857,21 @@ async def init_runtime_for_current_profile(
     )
 
     # только после успешного создания всех локальных объектов – публикуем их в runtime context
+    _bot_instance = bot_instance_local
+    _admin_manager = admin_manager_local
+    _admin_router = admin_router_local
+    _task_manager = task_manager_local
+    _ingest_commands = ingest_commands_local
+    _command_service = command_service_local
+    _debug_rag_mode = debug_rag
+    
     ctx.bot_instance = bot_instance_local
     ctx.admin_manager = admin_manager_local
     ctx.admin_router = admin_router_local
     ctx.task_manager = task_manager_local
     ctx.ingest_commands = ingest_commands_local
     ctx.command_service = command_service_local
-
+    
     return paths
 
 
@@ -974,6 +983,7 @@ def setup_logging(log_level: Optional[str] = None, use_syslog: bool = False):
 
 async def _init_profile_manager() -> None:
     """Initialize profile manager."""
+    global _profile_manager
     ctx = get_runtime_context()
     try:
         from pathlib import Path
@@ -986,7 +996,8 @@ async def _init_profile_manager() -> None:
         from legale import ProfileManager
         
         # Create ProfileManager instance
-        ctx.profile_manager = ProfileManager(project_root)
+        _profile_manager = ProfileManager(project_root)
+        ctx.profile_manager = _profile_manager
         
         logger.info("Profile manager initialized")
         syslog2(LOG_NOTICE, "profile manager initialized", profile=ctx.profile_manager.get_current_profile())
@@ -1007,13 +1018,15 @@ async def _init_runtime(args: Optional[SimpleNamespace] = None) -> None:
 
 async def _init_telegram_app() -> None:
     """Initialize Telegram application."""
+    global _telegram_app
     ctx = get_runtime_context()
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     if not token:
         syslog2(LOG_ERR, "telegram token missing")
         raise ValueError("TELEGRAM_BOT_TOKEN is required")
     
-    ctx.telegram_app = Application.builder().token(token).build()
+    _telegram_app = Application.builder().token(token).build()
+    ctx.telegram_app = _telegram_app
     await ctx.telegram_app.initialize()
     syslog2(LOG_NOTICE, "telegram app initialized")
 
@@ -1033,9 +1046,14 @@ async def lifespan(app: FastAPI, args: Optional[SimpleNamespace] = None):
     await _init_runtime(args)
     await _init_telegram_app()
     
+    # Refresh context to get updated globals
+    ctx = get_runtime_context()
+    
     # Initialize access control service
     if ctx.admin_manager:
-        ctx.access_control = AccessControlService(ctx.admin_manager)
+        global _access_control
+        _access_control = AccessControlService(ctx.admin_manager)
+        ctx.access_control = _access_control
         syslog2(LOG_NOTICE, "access control initialized")
     else:
         syslog2(LOG_WARNING, "access control not initialized", reason="admin_manager is None")
@@ -1496,7 +1514,7 @@ async def _send_handler_response(response: str, chat_id: int) -> None:
         response: Response text to send
         chat_id: Chat ID for sending response
     """
-    ctx = await get_runtime_context()
+    ctx = get_runtime_context()
     await ctx.telegram_app.bot.send_message(chat_id=chat_id, text=response)
 
 
@@ -1990,7 +2008,7 @@ async def _route_message_step(text: str, update: Update, is_command: bool, respo
     Returns:
         Response text or None if message should be ignored
     """
-    ctx = await get_runtime_context()
+    ctx = get_runtime_context()
     
     if is_command:
         return await _process_command_message(text, update, respond)

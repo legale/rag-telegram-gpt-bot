@@ -130,6 +130,7 @@ def create_hybrid_retrieval(
     fts_only: bool = False,
     llm_client: Optional[LLMClient] = None,
     retrieval_mode: str = "hybrid",
+    rag_ntop: int = 0,
 ) -> HybridRetrievalService:
     """
     Create and configure HybridRetrievalService with all dependencies.
@@ -146,6 +147,7 @@ def create_hybrid_retrieval(
         fts_only: If True, skip vector reranking and use FTS-only mode (deprecated, use retrieval_mode)
         llm_client: Optional LLM client for query rephrasing before vector search
         retrieval_mode: "fts_only", "hybrid", or "vector_only"
+        rag_ntop: Configured top N results limit
 
     Returns:
         Configured HybridRetrievalService instance
@@ -189,6 +191,7 @@ def create_hybrid_retrieval(
         log_level=log_level,
         fts_only=fts_only,
         llm=llm,
+        rag_ntop=rag_ntop,
     )
 
     return hybrid_retrieval
