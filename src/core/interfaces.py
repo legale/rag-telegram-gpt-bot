@@ -32,6 +32,15 @@ class SearchFilters:
 
 
 class MessageStore(Protocol):
+    """Contract for persisting chat messages.
+
+    Example:
+
+        class SQLiteMessageStore(MessageStore):
+            def save_batch(self, messages):
+                ...
+    """
+
     def save_batch(self, messages: List[Message]) -> int:
         ...
 
@@ -46,6 +55,15 @@ class MessageStore(Protocol):
 
 
 class ChunkStore(Protocol):
+    """Persistence boundary for chunks derived from messages.
+
+    Example:
+
+        class InMemoryChunkStore(ChunkStore):
+            def get_by_ids(self, ids):
+                ...
+    """
+
     def save_batch(self, chunks: List[Chunk]) -> int:
         ...
 
@@ -62,6 +80,15 @@ class ChunkStore(Protocol):
 
 
 class VectorIndex(Protocol):
+    """Vector index interface used by core search and retrieval layers.
+
+    Example:
+
+        class ChromaIndex(VectorIndex):
+            def query(self, vector, top_k, filter=None):
+                ...
+    """
+
     def upsert(self, items: List[VectorDoc]) -> None:
         ...
 
@@ -94,6 +121,15 @@ class VectorIndex(Protocol):
 
 
 class Embedder(Protocol):
+    """Embedding client interface for documents and queries.
+
+    Example:
+
+        class OpenAIEmbedder(Embedder):
+            def embed_query(self, text):
+                return ...
+    """
+
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
         ...
 
@@ -102,7 +138,14 @@ class Embedder(Protocol):
 
 
 class FTSIndex(Protocol):
-    """Interface for Full-Text Search index (FTS5)."""
+    """Interface for Full-Text Search index (FTS5).
+
+    Example:
+
+        class SQLiteFTSIndex(FTSIndex):
+            def search(self, query, top_k, filters=None):
+                ...
+    """
     
     def search(
         self,
@@ -142,61 +185,33 @@ class FTSIndex(Protocol):
 
 
 class LLM(Protocol):
+    """High-level interface for language model completions.
+
+    Example:
+
+        class OpenAILLM(LLM):
+            def complete(self, prompt, system=None, **kwargs):
+                ...
+    """
+
     def complete(self, prompt: str, system: Optional[str] = None, **kwargs) -> str:
         ...
 
 
 class ConfigProvider(Protocol):
-    """Protocol for configuration providers. Core uses this interface instead of direct BotConfig access."""
+    """Protocol for configuration providers. Core uses this interface instead of direct BotConfig access.
+
+    Example:
+
+        class InMemoryConfig(ConfigProvider):
+            @property
+            def admin_password(self):
+                return "secret"
+    """
     
     @property
     def admin_password(self) -> str:
         """Get admin password."""
-        ...
-    
-    @admin_password.setter
-    def admin_password(self, value: str) -> None:
-        """Set admin password."""
-        ...
-    
-    @property
-    def allowed_chats(self) -> List[int]:
-        """Get list of allowed chat IDs."""
-        ...
-    
-    @allowed_chats.setter
-    def allowed_chats(self, value: List[int]) -> None:
-        """Set list of allowed chat IDs."""
-        ...
-    
-    @property
-    def response_frequency(self) -> int:
-        """Get response frequency limit."""
-        ...
-    
-    @response_frequency.setter
-    def response_frequency(self, value: int) -> None:
-        """Set response frequency limit."""
-        ...
-    
-    @property
-    def current_model(self) -> str:
-        """Get current LLM model name."""
-        ...
-    
-    @current_model.setter
-    def current_model(self, value: str) -> None:
-        """Set current LLM model name."""
-        ...
-    
-    @property
-    def system_prompt(self) -> str:
-        """Get system prompt."""
-        ...
-    
-    @system_prompt.setter
-    def system_prompt(self, value: str) -> None:
-        """Set system prompt."""
         ...
     
     def get_system_prompt(self) -> str:
@@ -289,4 +304,3 @@ class ConfigProvider(Protocol):
 
 
 # TopicIndex and TopicIndexProvider removed - clustering is deprecated
-

@@ -282,7 +282,7 @@
 
 - [x] file=src/core/domain.py упростить: добавить методы валидации для domain objects (Message.validate(), Chunk.validate())
 
-- [ ] file=src/core/interfaces.py упростить: добавить документацию с примерами использования для каждого Protocol
+- [x] file=src/core/interfaces.py упростить: добавить документацию с примерами использования для каждого Protocol
 
 - [ ] file=src/lib/syslog2.py func=syslog2 упростить: вынести форматирование сообщения в _format_message(), логирование в _log_message()
 

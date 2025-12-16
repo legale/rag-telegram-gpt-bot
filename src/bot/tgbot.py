@@ -817,7 +817,7 @@ def _create_command_dispatcher(
     debug_rag: bool
 ):
     """
-    Create command dispatcher.
+    Create command dispatcher via CommandService.
     
     Args:
         bot_instance_local: LegaleBot instance
@@ -826,17 +826,17 @@ def _create_command_dispatcher(
         debug_rag: Debug RAG flag
         
     Returns:
-        CommandDispatcher instance
+        CommandDispatcher instance (from CommandService for backward compatibility)
     """
-    from src.app.main_cli import create_dispatcher
-    command_dispatcher_local = create_dispatcher(
-        bot_instance_local,
-        admin_manager_local,
-        admin_router_local,
-        debug_rag
-    )
+    from src.core.command_service import CommandService
+    from src.app.main_cli import register_sync_handlers, register_async_handlers
+    
+    command_service = CommandService()
+    register_sync_handlers(command_service, bot_instance_local, admin_manager_local, debug_rag)
+    register_async_handlers(command_service, admin_manager_local, admin_router_local)
+    
     syslog2(LOG_NOTICE, "command dispatcher initialized with admin handlers")
-    return command_dispatcher_local
+    return command_service.dispatcher
 
 
 # инициализация рантайма под текущий профиль
