@@ -6,11 +6,11 @@
 
 ## План задач рефакторинга
 
-- [x] file=src/bot/tgbot.py убрать глобальные переменные bot_instance, admin_manager, admin_router, task_manager, ingest_commands, command_dispatcher: создать класс RuntimeContext для хранения состояния и передавать его через dependency injection (частично выполнено: RuntimeContext создан, глобальные переменные убраны, но dependency injection не реализован - везде используется get_runtime_context() как глобальный синглтон вместо передачи через параметры функций)
+- [ ] file=src/bot/tgbot.py убрать глобальные переменные bot_instance, admin_manager, admin_router, task_manager, ingest_commands, command_dispatcher: создать класс RuntimeContext для хранения состояния и передавать его через dependency injection (частично выполнено: RuntimeContext создан, глобальные переменные убраны, но dependency injection не реализован - везде используется get_runtime_context() как глобальный синглтон вместо передачи через параметры функций. Нужно: заменить все вызовы get_runtime_context() на передачу ctx: RuntimeContext через параметры функций, убрать глобальную переменную _runtime_context и функцию get_runtime_context())
 
 - [x] file=src/bot/tgbot.py func=init_runtime_for_current_profile уменьшить цикломатическую сложность: разбить на отдельные функции _create_bot_instance(), _create_admin_components(), _create_command_dispatcher()
 
-- [x] file=src/bot/tgbot.py func=_process_webhook_update уменьшить цикломатическую сложность: вынести обработку команд и обработку обычных сообщений в отдельные функции _handle_command() и _handle_user_message()
+- [ ] file=src/bot/tgbot.py func=_process_webhook_update уменьшить цикломатическую сложность: вынести обработку команд и обработку обычных сообщений в отдельные функции _handle_command() и _handle_user_message() (частично выполнено: функции _handle_command() и _handle_user_message() созданы, но не используются в _process_webhook_update - он использует новый транспортный слой. Нужно: либо интегрировать эти функции в _process_webhook_update, либо удалить их, если они не нужны)
 
 - [x] file=src/bot/core.py func=chat уменьшить цикломатическую сложность: вынести логику получения контекста в _get_context_for_query(), логику построения промпта в _build_llm_messages(), логику вызова LLM в _call_llm_with_context()
 
@@ -310,7 +310,7 @@
 
 - [x] file=src/core/commands.py удалить: перенести все user команды в src/core/commands/user.py, оставить только thin registration layer или удалить целиком
 
-- [ ] file=src/core/admin_commands.py удалить: перенести admin команды в src/core/commands/admin.py, убрать дублирование с src/bot/admin_commands.py
+- [x] file=src/core/admin_commands.py удалить: перенести admin команды в src/core/commands/admin.py, убрать дублирование с src/bot/admin_commands.py
 
 - [ ] file=src/bot/admin_commands.py удалить: транспортный слой не содержит бизнес команд, только адаптация входа-выхода
 
