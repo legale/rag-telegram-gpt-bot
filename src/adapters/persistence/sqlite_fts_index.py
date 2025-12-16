@@ -166,14 +166,10 @@ class SqliteFTSIndex:
         if not text:
             return ""
         
-        # Lowercase
-        normalized = text.lower()
-        
-        # ё -> е
-        normalized = normalized.replace('ё', 'е').replace('Ё', 'е')
-        
-        # Remove punctuation (keep spaces and alphanumeric)
-        normalized = re.sub(r'[^\w\s]', ' ', normalized)
+        # Apply normalization steps
+        normalized = self._to_lowercase(text)
+        normalized = self._replace_yo(normalized)
+        normalized = self._remove_punctuation(normalized)
         
         # Normalize unicode (NFD -> NFC)
         normalized = unicodedata.normalize('NFC', normalized)
@@ -182,6 +178,42 @@ class SqliteFTSIndex:
         normalized = re.sub(r'\s+', ' ', normalized).strip()
         
         return normalized
+    
+    def _to_lowercase(self, text: str) -> str:
+        """
+        Convert text to lowercase.
+        
+        Args:
+            text: Text to convert
+            
+        Returns:
+            Lowercase text
+        """
+        return text.lower()
+    
+    def _replace_yo(self, text: str) -> str:
+        """
+        Replace ё and Ё with е.
+        
+        Args:
+            text: Text to process
+            
+        Returns:
+            Text with ё replaced by е
+        """
+        return text.replace('ё', 'е').replace('Ё', 'е')
+    
+    def _remove_punctuation(self, text: str) -> str:
+        """
+        Remove punctuation from text, keeping spaces and alphanumeric characters.
+        
+        Args:
+            text: Text to process
+            
+        Returns:
+            Text with punctuation removed
+        """
+        return re.sub(r'[^\w\s]', ' ', text)
 
     def _check_database_integrity(self) -> bool:
         """

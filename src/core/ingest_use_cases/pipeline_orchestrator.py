@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, NoReturn
 
 from .ingest_messages import IngestMessages
 from .process_chunks import ProcessChunks
@@ -67,7 +67,7 @@ class PipelineOrchestrator:
         except Exception as e:
             return self._handle_stage_error(stage_name, stage_num, e)
     
-    def _handle_stage_error(self, stage_name: str, stage_num: int, error: Exception) -> None:
+    def _handle_stage_error(self, stage_name: str, stage_num: int, error: Exception) -> NoReturn:
         """
         Handle error that occurred during stage execution.
         
@@ -76,8 +76,8 @@ class PipelineOrchestrator:
             stage_num: Stage number that failed
             error: Exception that occurred
             
-        Returns:
-            None (always raises exception after logging)
+        Raises:
+            Exception: Always raises the provided exception after logging
         """
         syslog2(LOG_ERR, f"stage{stage_num} failed", stage=stage_name, error=str(error))
         raise error
