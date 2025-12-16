@@ -2,6 +2,7 @@
 import sys
 import os
 from pathlib import Path
+import asyncio
 
 # Add project root to sys.path to allow imports from src
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -11,7 +12,8 @@ if project_root not in sys.path:
 
 try:
     from src.bot.core import LegaleBot
-    from src.app.main_cli import create_dispatcher, handle_command
+    from src.app.main_cli import create_dispatcher, handle_command, handle_command_async
+    from src.bot.admin_router import AdminCommandRouter
     from src.bot.admin import AdminManager
 except ImportError as e:
     # Only try auto-poetry execution if NOT already running under poetry
@@ -172,8 +174,12 @@ def main():
         except Exception:
             admin_manager = None
 
-    dispatcher = create_dispatcher(bot, admin_manager=admin_manager)
-    _handle_user_input(bot, dispatcher, chunks, debug_rag)
+    admin_router = None
+    if admin_manager:
+        admin_router = AdminCommandRouter()
+
+    dispatcher = create_dispatcher(bot, admin_manager=admin_manager, admin_router=admin_router)
+
 
 
 def _init_bot(db_url: str, vector_db_path: str, model_name: str, syslog_level: int, debug_rag: bool, profile_dir: Optional[str], retrieval_type: str):
@@ -260,12 +266,34 @@ def _handle_user_input(bot, dispatcher, chunks: int, debug_rag: bool) -> None:
                 print(f"Token count: {debug_info.get('token_count', 'N/A')}")
                 print("=" * 70 + "\n")
             
-            command_response = handle_command(
+            # Prepare metadata for admin commands
+            metadata = {}
+            if bot.profile_dir:
+                try:
+                   metadata['admin_manager'] = AdminManager(Path(bot.profile_dir))
+                except:
+                   pass
+            # Dummy update for admin commands (CLI doesn't have real Telegram updates)
+            # We construct a minimal object that emulates what admin commands need
+            from types import SimpleNamespace
+            metadata['update'] = SimpleNamespace(
+                message=SimpleNamespace(
+                    from_user=SimpleNamespace(id=0, username="cli_user", first_name="CLI", last_name="User"),
+                    text=user_input
+                )
+            )
+
+            # Execute command
+            command_message, command_data = asyncio.run(handle_command_async(
                 command=user_input,
                 dispatcher=dispatcher,
-            )
-            if command_response is not None:
-                print(f"Bot: {command_response}")
+                user_id="0", # CLI user ID
+                chat_id="0", # CLI chat ID
+                metadata=metadata
+            ))
+            
+            if command_message is not None:
+                print(f"Bot: {command_message}")
                 print("-" * 50)
                 continue
 

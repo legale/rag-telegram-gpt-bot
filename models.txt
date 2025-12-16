@@ -1,4 +1,8 @@
-openai/gpt-oss-20b:free
-nvidia/nemotron-nano-9b-v2:free
-cognitivecomputations/dolphin-mistral-24b-venice-edition:free
-google/gemma-3-27b-it:free
+openai/gpt-oss-20b:free 140000
+openai/gpt-oss-120b:free 140000
+nvidia/nemotron-nano-9b-v2:free 140000
+cognitivecomputations/dolphin-mistral-24b-venice-edition:free 140000
+google/gemma-3-27b-it:free 140000
+google/gemini-2.0-flash-exp:free 140000
+meta-llama/llama-3.3-70b-instruct:free 140000
+amazon/nova-2-lite-v1:free 140000
