@@ -244,7 +244,7 @@
 
 - [x] file=src/bot/cli.py func=handle_cli_command упростить: использовать CommandDispatcher вместо дублирования логики обработки команд
 
-- [ ] file=src/bot/cli.py func=main упростить: вынести инициализацию bot в _init_bot(), обработку команд в _handle_user_input(), обработку ошибок в _handle_error()
+- [x] file=src/bot/cli.py func=main упростить: вынести инициализацию bot в _init_bot(), обработку команд в _handle_user_input(), обработку ошибок в _handle_error()
 
 - [ ] file=src/bot/command_parser.py func=parse_find_command_args упростить: вынести парсинг rag_method в _parse_rag_method(), парсинг query в _parse_query(), валидацию args в _validate_args()
 

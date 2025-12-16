@@ -246,6 +246,29 @@ def main():
         print("Please use 'legale chat' command instead of running cli.py directly.")
         return
 
+    bot, dispatcher = _init_bot(db_url, vector_db_path, model_name, syslog_level, debug_rag, profile_dir, retrieval_type)
+    if bot is None:
+        return
+
+    _handle_user_input(bot, dispatcher, chunks, debug_rag)
+
+
+def _init_bot(db_url: str, vector_db_path: str, model_name: str, syslog_level: int, debug_rag: bool, profile_dir: Optional[str], retrieval_type: str):
+    """
+    Initialize bot and dispatcher.
+    
+    Args:
+        db_url: Database URL
+        vector_db_path: Vector database path
+        model_name: Model name
+        syslog_level: Logging level
+        debug_rag: Whether to enable debug RAG mode
+        profile_dir: Profile directory path
+        retrieval_type: Retrieval type
+        
+    Returns:
+        Tuple of (bot, dispatcher) or (None, None) if initialization failed
+    """
     try:
         bot = LegaleBot(
             db_url=db_url,
@@ -273,10 +296,24 @@ def main():
         # Create dispatcher once before the loop
         from src.app.main_cli import create_dispatcher, handle_command
         dispatcher = create_dispatcher(bot, admin_manager, debug_rag)
+        return bot, dispatcher
     except Exception as e:
-        syslog2(LOG_ERR, "bot init failed", error=str(e))
-        return
+        _handle_error("bot initialization", e)
+        return None, None
 
+
+def _handle_user_input(bot: LegaleBot, dispatcher, chunks: int, debug_rag: bool) -> None:
+    """
+    Handle user input in interactive loop.
+    
+    Args:
+        bot: LegaleBot instance
+        dispatcher: CommandDispatcher instance
+        chunks: Number of chunks to retrieve
+        debug_rag: Whether to show debug RAG info
+    """
+    from src.app.main_cli import handle_command
+    
     while True:
         try:
             user_input = input("You: ")
@@ -331,7 +368,18 @@ def main():
             print("\nGoodbye!")
             break
         except Exception as e:
-            syslog2(LOG_ERR, "chat error", error=str(e))
+            _handle_error("chat", e)
+
+
+def _handle_error(context: str, error: Exception) -> None:
+    """
+    Handle error with logging.
+    
+    Args:
+        context: Context description (e.g., "bot initialization", "chat")
+        error: Exception that occurred
+    """
+    syslog2(LOG_ERR, f"{context} error", error=str(error))
 
 if __name__ == "__main__":
     main()

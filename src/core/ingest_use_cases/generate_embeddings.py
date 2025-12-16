@@ -46,6 +46,37 @@ class GenerateEmbeddings:
         """
         syslog2(LOG_NOTICE, "starting embedding generation", batch_size=batch_size)
 
+        # Get chunks without embeddings
+        chunks_to_embed = self._get_chunks_without_embeddings(chunk_ids)
+        
+        if not chunks_to_embed:
+            syslog2(LOG_NOTICE, "all specified chunks already have embeddings")
+            return 0
+
+        syslog2(LOG_NOTICE, "chunks to embed", total=len(chunks_to_embed))
+
+        # Generate embeddings
+        chunks_with_embeddings = self._generate_embeddings(chunks_to_embed, batch_size)
+
+        # Save embeddings
+        saved_count = self._save_embeddings(chunks_with_embeddings)
+
+        syslog2(LOG_NOTICE, "embedding generation complete", processed=saved_count)
+        return saved_count
+    
+    def _get_chunks_without_embeddings(self, chunk_ids: Optional[List[str]]) -> List[Chunk]:
+        """
+        Get chunks that don't have embeddings yet.
+        
+        Args:
+            chunk_ids: Optional list of chunk IDs to check (if None, raises NotImplementedError)
+            
+        Returns:
+            List of Chunk objects without embeddings
+            
+        Raises:
+            NotImplementedError: If chunk_ids is None (getting all chunks without embeddings not supported)
+        """
         # Note: This is a simplified implementation.
         # Full implementation would need ChunkStore to support:
         # - get_chunks_without_embeddings() method
@@ -66,24 +97,32 @@ class GenerateEmbeddings:
         
         # Filter chunks without embeddings
         chunks_to_embed = [chunk for chunk in chunks if chunk.embedding is None]
+        return chunks_to_embed
+    
+    def _generate_embeddings(self, chunks: List[Chunk], batch_size: int) -> List[Chunk]:
+        """
+        Generate embeddings for chunks in batches.
         
-        if not chunks_to_embed:
-            syslog2(LOG_NOTICE, "all specified chunks already have embeddings")
-            return 0
-
-        syslog2(LOG_NOTICE, "chunks to embed", total=len(chunks_to_embed))
+        Args:
+            chunks: List of Chunk objects to generate embeddings for
+            batch_size: Batch size for embedding generation
+            
+        Returns:
+            List of Chunk objects with embeddings
+        """
+        chunks_with_embeddings: List[Chunk] = []
+        total = len(chunks)
+        processed = 0
 
         # Process in batches
-        processed = 0
-        for i in range(0, len(chunks_to_embed), batch_size):
-            batch = chunks_to_embed[i:i + batch_size]
+        for i in range(0, total, batch_size):
+            batch = chunks[i:i + batch_size]
             batch_texts = [chunk.text for chunk in batch]
             
             # Generate embeddings
             batch_embeddings = self.embedder.embed_documents(batch_texts)
             
             # Update chunks with embeddings
-            updated_chunks = []
             for chunk, embedding in zip(batch, batch_embeddings):
                 # Create updated chunk with embedding
                 updated_chunk = Chunk(
@@ -94,16 +133,26 @@ class GenerateEmbeddings:
                     embedding=embedding,
                     metadata=chunk.metadata
                 )
-                updated_chunks.append(updated_chunk)
+                chunks_with_embeddings.append(updated_chunk)
             
-            # Save updated chunks (ChunkStore.save_batch should handle updates)
-            self.chunk_store.save_batch(updated_chunks)
             processed += len(batch)
-            
-            pct = (processed * 100) // len(chunks_to_embed) if chunks_to_embed else 0
-            print(f"\rProcessing embeddings: {processed}/{len(chunks_to_embed)} ({pct}%)", flush=True, end="")
+            pct = (processed * 100) // total if total > 0 else 0
+            print(f"\rProcessing embeddings: {processed}/{total} ({pct}%)", flush=True, end="")
 
         print()  # Newline after progress
-        syslog2(LOG_NOTICE, "embedding generation complete", processed=processed)
-        return processed
+        return chunks_with_embeddings
+    
+    def _save_embeddings(self, chunks_with_embeddings: List[Chunk]) -> int:
+        """
+        Save chunks with embeddings to store.
+        
+        Args:
+            chunks_with_embeddings: List of Chunk objects with embeddings
+            
+        Returns:
+            Number of chunks saved
+        """
+        # Save updated chunks (ChunkStore.save_batch should handle updates)
+        self.chunk_store.save_batch(chunks_with_embeddings)
+        return len(chunks_with_embeddings)
 
