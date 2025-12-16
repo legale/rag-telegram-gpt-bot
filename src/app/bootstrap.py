@@ -223,9 +223,14 @@ def create_app(
     Returns:
         Configured App instance
     """
-    from src.bot.core import LegaleBot
-    from src.bot.admin import AdminManager
+    from types import MethodType
+
     from src.app.app import App
+    from src.app.main_cli import register_async_handlers, register_sync_handlers
+    from src.bot.admin import AdminManager
+    from src.bot.admin_router import AdminCommandRouter
+    from src.bot.core import LegaleBot
+    from src.core.command_service import CommandService
     
     # Create bot
     bot = LegaleBot(
@@ -247,13 +252,30 @@ def create_app(
         except Exception:
             # Continue without admin_manager if it fails
             pass
+
+    admin_router = None
+    if admin_manager is not None:
+        try:
+            admin_router = AdminCommandRouter(admin_manager)
+        except Exception:
+            admin_router = None
+
+    command_service = CommandService()
+    register_sync_handlers(command_service, bot, admin_manager=admin_manager, debug_rag=debug_rag)
+    if admin_manager is not None or admin_router is not None:
+        register_async_handlers(command_service, admin_manager=admin_manager, admin_router=admin_router)
     
-    # Create App (dispatcher will be created inside App)
+    # Create App with unified entry points
     app = App(
         bot=bot,
+        command_service=command_service,
         admin_manager=admin_manager,
         debug_rag=debug_rag
     )
+
+    def _ingest(*_args, **_kwargs):
+        raise NotImplementedError("App.ingest is not implemented yet")
+
+    app.ingest = MethodType(_ingest, app)
     
     return app
-

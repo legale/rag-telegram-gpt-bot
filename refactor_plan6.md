@@ -294,7 +294,7 @@
 
 - [x] file=src/bot/tgbot.py func=_process_webhook_update упростить: оставить только parse_update()-_to_app_request()-call app.handle_request()-send_response(), весь access control-rate limit-command routing вынести из transport
 
-- [ ] file=src/app/bootstrap.py func=create_app добавить: собрать все зависимости и вернуть объект App с методами handle_request(), handle_command(), ingest(), никаких импортов src/bot внутри core
+- [x] file=src/app/bootstrap.py func=create_app добавить: собрать все зависимости и вернуть объект App с методами handle_request(), handle_command(), ingest(), никаких импортов src/bot внутри core
 
 - [ ] file=src/app/app.py func=handle_request создать: единая точка обработки входа (telegram или cli), вход AppRequest (user_id-chat_id-text-transport-meta), выход AppResponse (text-actions)
 
@@ -345,8 +345,6 @@
 - [x] file=src/bot/cli.py func=main упростить: CLI как transport, делает AppRequest и печатает AppResponse, без прямого вызова LegaleBot и без регистрации команд
 
 - [w] file=src/app/main_cli.py func=create_dispatcher удалить: заменить на create_app() + CommandService registry, чтобы не было второго центра регистрации
-
-- [ ] file=src/lib/syslog2.py scope=api унифицировать: сделать интерфейс Logging, syslog2 оставить реализацией, core не зависит от конкретного логгера
 
 - [ ] file=src/core/llm.py class=LLMClient разгрузить: вынести retry-timeouts-backoff в src/core/llm_gateway.py, LLMClient оставить как тонкий HTTP клиент
 
