@@ -264,11 +264,11 @@
 
 - [x] file=src/adapters/persistence/sqlite_message_store.py func=get_by_chat упростить: вынести получение messages из БД в _fetch_messages_from_db(), конвертацию в domain objects в _convert_to_domain_messages()
 
-- [w] file=src/adapters/persistence/sqlite_message_store.py func=get_context упростить: вынести вычисление time window в _calculate_time_window(), получение messages в window в _get_messages_in_window()
+- [x] file=src/adapters/persistence/sqlite_message_store.py func=get_context упростить: вынести вычисление time window в _calculate_time_window(), получение messages в window в _get_messages_in_window()
 
 - [ ] file=src/adapters/persistence/sqlite_fts_index.py func=normalize_text упростить: вынести lowercase в _to_lowercase(), замену ё->е в _replace_yo(), удаление пунктуации в _remove_punctuation()
 
-- [ ] file=src/adapters/vector/chroma_vector_index.py func=upsert упростить: вынести извлечение данных из VectorDoc в _extract_vector_doc_data(), подготовку documents в _prepare_documents()
+- [w] file=src/adapters/vector/chroma_vector_index.py func=upsert упростить: вынести извлечение данных из VectorDoc в _extract_vector_doc_data(), подготовку documents в _prepare_documents()
 
 - [ ] file=src/adapters/vector/chroma_vector_index.py func=get_embeddings_by_ids упростить: вынести получение embeddings из collection в _fetch_embeddings(), конвертацию результатов в _convert_to_dict()
 

@@ -179,6 +179,49 @@ class SqliteMessageStore:
         finally:
             session.close()
 
+    def _calculate_time_window(self, time_point: datetime, window_sec: int) -> tuple[datetime, datetime]:
+        """
+        Calculate time window boundaries.
+        
+        Args:
+            time_point: Central time point
+            window_sec: Time window in seconds (half-window before and after)
+            
+        Returns:
+            Tuple of (time_start, time_end)
+        """
+        time_start = time_point - timedelta(seconds=window_sec)
+        time_end = time_point + timedelta(seconds=window_sec)
+        return time_start, time_end
+
+    def _get_messages_in_window(
+        self,
+        session,
+        chat_id: str,
+        time_start: datetime,
+        time_end: datetime
+    ) -> List[Message]:
+        """
+        Get messages within a time window.
+        
+        Args:
+            session: Database session
+            chat_id: Chat ID to filter by
+            time_start: Start of time window
+            time_end: End of time window
+            
+        Returns:
+            List of Message domain objects within the time window
+        """
+        query = session.query(MessageModel).filter(
+            MessageModel.chat_id == chat_id,
+            MessageModel.ts >= time_start,
+            MessageModel.ts <= time_end
+        ).order_by(MessageModel.ts)
+        
+        models = query.all()
+        return [self._model_to_domain(model, session) for model in models]
+
     def get_context(self, chat_id: str, time_point: datetime, window_sec: int) -> List[Message]:
         """
         Get messages around a time point within a time window.
@@ -193,17 +236,8 @@ class SqliteMessageStore:
         """
         session = self.db.get_session()
         try:
-            time_start = time_point - timedelta(seconds=window_sec)
-            time_end = time_point + timedelta(seconds=window_sec)
-            
-            query = session.query(MessageModel).filter(
-                MessageModel.chat_id == chat_id,
-                MessageModel.ts >= time_start,
-                MessageModel.ts <= time_end
-            ).order_by(MessageModel.ts)
-            
-            models = query.all()
-            return [self._model_to_domain(model, session) for model in models]
+            time_start, time_end = self._calculate_time_window(time_point, window_sec)
+            return self._get_messages_in_window(session, chat_id, time_start, time_end)
         finally:
             session.close()
 
