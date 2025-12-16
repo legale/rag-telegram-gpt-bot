@@ -332,19 +332,47 @@ class HybridRetrievalService:
         """
         # Get embeddings for candidates
         candidate_embeddings = {}
+        missing_embedding_ids = []
+        
         for chunk in candidate_chunks:
             if chunk.embedding:
                 candidate_embeddings[chunk.id] = chunk.embedding
+            else:
+                missing_embedding_ids.append(chunk.id)
+        
+        # Fetch missing embeddings from VectorIndex
+        if missing_embedding_ids:
+            if self.log_level <= LOG_DEBUG:
+                syslog2(LOG_DEBUG, "hybrid_retrieval: fetching missing embeddings", count=len(missing_embedding_ids))
+            
+            try:
+                # Try to get embeddings from vector index
+                if hasattr(self.vector_index, 'get_embeddings_by_ids'):
+                    fetched_embeddings = self.vector_index.get_embeddings_by_ids(missing_embedding_ids)
+                    for chunk_id, embedding in fetched_embeddings.items():
+                        if embedding:
+                            candidate_embeddings[chunk_id] = embedding
+            except Exception as e:
+                syslog2(LOG_WARNING, "hybrid_retrieval: failed to fetch missing embeddings", error=str(e))
 
         # Compute similarities
         scored_candidates = []
         for chunk in candidate_chunks:
-            if chunk.id not in candidate_embeddings:
-                continue
+            # Default similarity to 0.0 if embedding is missing
+            similarity = 0.0
             
-            # Cosine similarity
-            embedding = candidate_embeddings[chunk.id]
-            similarity = cosine_similarity(query_vector, embedding)
+            if chunk.id in candidate_embeddings:
+                # Cosine similarity
+                embedding = candidate_embeddings[chunk.id]
+                similarity = cosine_similarity(query_vector, embedding)
+                
+                # log dimension mismatch if helpful
+                if similarity == 0.0 and len(embedding) != len(query_vector):
+                     if self.log_level <= LOG_DEBUG:
+                        syslog2(LOG_DEBUG, "hybrid_retrieval: dimension mismatch in rerank", 
+                               chunk_id=chunk.id,
+                               chunk_dim=len(embedding),
+                               query_dim=len(query_vector))
             
             # Combine FTS5 score and vector similarity
             # Weight: 0.3 FTS5 + 0.7 vector (can be tuned)
