@@ -300,7 +300,7 @@
 
 - [x] file=src/app/types.py создать: dataclass AppRequest-AppResponse, CommandRequest-QueryRequest, чтобы transport не знал про core детали
 
-- [ ] file=src/core/command_service.py func=dispatch создать: единый сервис команд, принимает CommandRequest, возвращает CommandResult, регистрации команд только здесь
+- [x] file=src/core/command_service.py func=dispatch создать: единый сервис команд, принимает CommandRequest, возвращает CommandResult, регистрации команд только здесь
 
 - [ ] file=src/core/chat_service.py func=chat создать: единый сервис чата (retrieval+prompt+llm), без доступа к transport и файловой системе
 

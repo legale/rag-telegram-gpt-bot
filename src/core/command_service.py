@@ -2,8 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Optional, Dict
-from src.core.dispatcher import CommandDispatcher, CommandHandler, AsyncCommandHandler, CommandContext, CommandResult
+from typing import Any, Dict, Optional, TYPE_CHECKING
+
+from src.core.dispatcher import (
+    AsyncCommandHandler,
+    CommandContext,
+    CommandDispatcher,
+    CommandHandler,
+    CommandResult,
+)
+
+if TYPE_CHECKING:
+    from src.app.types import CommandRequest
 
 
 class CommandService:
@@ -41,17 +51,48 @@ class CommandService:
         self.dispatcher.register_async(command_name, handler)
         self._registry[command_name] = "async"
     
-    def dispatch(self, context: CommandContext) -> CommandResult:
+    def dispatch(self, request: CommandContext | "CommandRequest") -> CommandResult:
         """
         Dispatch a command to its handler.
         
         Args:
-            context: Command context with command name and arguments
+            request: CommandContext or CommandRequest
             
         Returns:
             CommandResult from handler, or error result if command not found
         """
+        context = self._to_command_context(request)
         return self.dispatcher.dispatch(context)
+
+    def _to_command_context(self, request: Any) -> CommandContext:
+        if isinstance(request, CommandContext):
+            return request
+
+        try:
+            from src.app.types import CommandRequest as AppCommandRequest
+        except Exception:
+            AppCommandRequest = None
+
+        if AppCommandRequest is not None and isinstance(request, AppCommandRequest):
+            command_name = (request.name or "").strip()
+            if not command_name and request.raw:
+                command_name = request.raw.strip().split(maxsplit=1)[0]
+
+            metadata: dict = {}
+            if request.meta:
+                metadata.update(request.meta)
+            if request.raw:
+                metadata.setdefault("raw", request.raw)
+
+            return CommandContext(
+                user_id=request.user_id,
+                chat_id=request.chat_id,
+                command_name=command_name,
+                args=list(request.args or []),
+                metadata=metadata,
+            )
+
+        raise TypeError("dispatch expects CommandContext or CommandRequest")
     
     async def dispatch_async(self, context: CommandContext) -> CommandResult:
         """
@@ -73,4 +114,3 @@ class CommandService:
             Dictionary mapping command names to handler types
         """
         return self._registry.copy()
-
