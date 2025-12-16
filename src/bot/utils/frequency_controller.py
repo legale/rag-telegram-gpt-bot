@@ -10,6 +10,7 @@ Manages response frequency logic including:
 import logging
 from typing import Dict
 from src.lib.syslog2 import *
+from src.core.rate_limit import allow as core_allow
 
 
 class FrequencyController:
@@ -20,49 +21,14 @@ class FrequencyController:
         self.chat_counters: Dict[int, int] = {}
     
     def _check_frequency_limit(self, chat_id: int, frequency: int) -> tuple[bool, str]:
-        """
-        Check if response should be sent based on frequency limit.
-        
-        Args:
-            chat_id: Telegram chat ID
-            frequency: Response frequency setting (0 = only mentions, 1 = all, N = every Nth)
-            
-        Returns:
-            Tuple of (should_respond, reason)
-        """
-        # Frequency < 1: only respond to mentions
-        if frequency < 1:
-            syslog2(LOG_DEBUG, "skipping freq zero", chat_id=chat_id)
-            return False, "freq_zero_no_mention"
-        
-        # Frequency == 1: respond to all messages
-        if frequency == 1:
-            syslog2(LOG_DEBUG, "responding freq one", chat_id=chat_id)
-            return True, "freq_one"
-        
-        # Frequency > 1: respond every Nth message
-        current = self._update_counter(chat_id)
-        
-        if current % frequency == 0:
-            syslog2(LOG_DEBUG, "responding freq match", chat_id=chat_id, current=current, freq=frequency)
-            return True, f"freq_match_{current}"
-        else:
-            syslog2(LOG_DEBUG, "skipping freq mismatch", chat_id=chat_id, current=current, freq=frequency)
-            return False, f"freq_skip_{current}"
-    
-    def _update_counter(self, chat_id: int) -> int:
-        """
-        Update message counter for a chat and return new value.
-        
-        Args:
-            chat_id: Telegram chat ID
-            
-        Returns:
-            Updated counter value
-        """
-        current = self.chat_counters.get(chat_id, 0) + 1
-        self.chat_counters[chat_id] = current
-        return current
+        return core_allow(
+            chat_id=chat_id,
+            frequency=frequency,
+            has_mention=False,
+            is_command=False,
+            is_private=False,
+            chat_counters=self.chat_counters,
+        )
     
     def should_respond(self, chat_id: int, frequency: int, 
                       has_mention: bool, is_command: bool, 
@@ -88,17 +54,25 @@ class FrequencyController:
         Returns:
             Tuple of (should_respond, reason)
         """
-        # Commands and private chats are handled separately
-        if is_command or is_private:
-            return True, "command_or_private"
-        
-        # Bot mentioned: always respond
-        if has_mention:
+        should, reason = core_allow(
+            chat_id=chat_id,
+            frequency=frequency,
+            has_mention=has_mention,
+            is_command=is_command,
+            is_private=is_private,
+            chat_counters=self.chat_counters,
+        )
+        if should and reason == "mentioned":
             syslog2(LOG_DEBUG, "responding mentioned", chat_id=chat_id)
-            return True, "mentioned"
-        
-        # Check frequency limit
-        return self._check_frequency_limit(chat_id, frequency)
+        if should and reason == "freq_one":
+            syslog2(LOG_DEBUG, "responding freq one", chat_id=chat_id)
+        if reason.startswith("freq_match_"):
+            syslog2(LOG_DEBUG, "responding freq match", chat_id=chat_id, reason=reason, freq=frequency)
+        if reason.startswith("freq_skip_"):
+            syslog2(LOG_DEBUG, "skipping freq mismatch", chat_id=chat_id, reason=reason, freq=frequency)
+        if reason == "freq_zero_no_mention":
+            syslog2(LOG_DEBUG, "skipping freq zero", chat_id=chat_id)
+        return should, reason
     
     def reset_counter(self, chat_id: int):
         """

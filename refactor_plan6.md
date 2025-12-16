@@ -306,7 +306,7 @@
 
 - [x] file=src/core/access_control.py func=check_access создать: логика allowed_chats-is_admin сюда, transport только вызывает и мапит отказ в текст
 
-- [ ] file=src/core/rate_limit.py func=allow создать: логика frequency controller сюда, transport только вызывает
+- [x] file=src/core/rate_limit.py func=allow создать: логика frequency controller сюда, transport только вызывает
 
 - [ ] file=src/core/commands.py удалить: перенести все user команды в src/core/commands/user.py, оставить только thin registration layer или удалить целиком
 
