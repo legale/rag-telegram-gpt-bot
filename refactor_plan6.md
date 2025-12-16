@@ -242,7 +242,7 @@
 
 - [x] file=src/app/main_cli.py func=handle_command упростить: вынести парсинг command name и args в _parse_command(), создание context в _create_command_context()
 
-- [ ] file=src/bot/cli.py func=handle_cli_command упростить: использовать CommandDispatcher вместо дублирования логики обработки команд
+- [x] file=src/bot/cli.py func=handle_cli_command упростить: использовать CommandDispatcher вместо дублирования логики обработки команд
 
 - [ ] file=src/bot/cli.py func=main упростить: вынести инициализацию bot в _init_bot(), обработку команд в _handle_user_input(), обработку ошибок в _handle_error()
 
