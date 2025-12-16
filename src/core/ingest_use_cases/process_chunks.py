@@ -52,6 +52,33 @@ class ProcessChunks:
         """
         syslog2(LOG_NOTICE, "starting process chunks", chat_id=chat_id, limit=limit, offset=offset)
 
+        # Load messages from store
+        messages = self._load_messages(chat_id, limit, offset)
+
+        # Create chunks from messages
+        domain_chunks, final_chat_id = self._create_chunks(messages, chat_id)
+
+        # Save chunks to store
+        saved_count = self._save_chunks(domain_chunks)
+
+        syslog2(LOG_NOTICE, "process chunks complete", chunks_saved=saved_count)
+        return saved_count
+    
+    def _load_messages(self, chat_id: Optional[str], limit: int, offset: int) -> List[Message]:
+        """
+        Load messages from store.
+        
+        Args:
+            chat_id: Optional chat ID to filter messages
+            limit: Maximum number of messages to load (0 = all)
+            offset: Offset for pagination
+            
+        Returns:
+            List of Message domain objects
+            
+        Raises:
+            ValueError: If no messages found
+        """
         # Get messages from store
         if chat_id:
             # Get messages for specific chat
@@ -77,7 +104,19 @@ class ProcessChunks:
             raise ValueError("no messages found in store")
 
         syslog2(LOG_NOTICE, "found messages in store", count=len(messages))
-
+        return messages
+    
+    def _create_chunks(self, messages: List[Message], chat_id: Optional[str]) -> tuple[List[Chunk], str]:
+        """
+        Create chunks from messages.
+        
+        Args:
+            messages: List of Message domain objects
+            chat_id: Optional chat ID
+            
+        Returns:
+            Tuple of (list of Chunk domain objects, final_chat_id)
+        """
         # Convert domain Message to ChatMessage for chunker
         chat_messages: List[ChatMessage] = []
         chat_id_from_messages = None
@@ -134,7 +173,21 @@ class ProcessChunks:
 
         print()  # Newline after progress
         syslog2(LOG_NOTICE, "chunks prepared for storage", count=len(domain_chunks))
-
+        return domain_chunks, final_chat_id
+    
+    def _save_chunks(self, domain_chunks: List[Chunk]) -> int:
+        """
+        Save chunks to store.
+        
+        Args:
+            domain_chunks: List of Chunk domain objects to save
+            
+        Returns:
+            Number of chunks saved
+            
+        Raises:
+            Exception: If saving fails
+        """
         # Save chunks using ChunkStore
         syslog2(LOG_NOTICE, "saving chunks to store")
         try:
@@ -143,7 +196,6 @@ class ProcessChunks:
         except Exception as e:
             syslog2(LOG_ERR, "error saving chunks", error=str(e))
             raise
-
-        syslog2(LOG_NOTICE, "process chunks complete", chunks_saved=saved_count)
+        
         return saved_count
 

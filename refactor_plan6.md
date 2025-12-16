@@ -250,7 +250,7 @@
 
 - [ ] file=src/core/ingest_use_cases/ingest_messages.py func=execute упростить: вынести парсинг файла в _parse_file(), сохранение messages в _save_messages()
 
-- [ ] file=src/core/ingest_use_cases/process_chunks.py func=execute упростить: вынести получение messages в _load_messages(), создание chunks в _create_chunks(), сохранение chunks в _save_chunks()
+- [x] file=src/core/ingest_use_cases/process_chunks.py func=execute упростить: вынести получение messages в _load_messages(), создание chunks в _create_chunks(), сохранение chunks в _save_chunks()
 
 - [ ] file=src/core/ingest_use_cases/generate_embeddings.py func=execute упростить: вынести получение chunks без embeddings в _get_chunks_without_embeddings(), генерацию embeddings в _generate_embeddings(), сохранение embeddings в _save_embeddings()
 
