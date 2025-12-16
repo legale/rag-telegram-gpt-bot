@@ -92,7 +92,18 @@ def gen_help(prog: str, opt_table: dict, cmd_table: dict | None = None) -> str:
     lines.append(f"usage: {prog} [options] <command> [args]")
     lines.append("")
     lines.append("options:")
+    lines.extend(_gen_options_help(opt_table))
 
+    if cmd_table:
+        lines.append("")
+        lines.append("commands:")
+        lines.extend(_gen_commands_help(cmd_table))
+
+    return "\n".join(lines)
+
+
+def _gen_options_help(opt_table: dict) -> list[str]:
+    lines: list[str] = []
     names = sorted(opt_table.keys())
     for name in names:
         spec = opt_table[name]
@@ -109,22 +120,22 @@ def gen_help(prog: str, opt_table: dict, cmd_table: dict | None = None) -> str:
                 opt_str += " "
             opt_str += desc
         lines.append(opt_str)
+    return lines
 
-    if cmd_table:
-        lines.append("")
-        lines.append("commands:")
-        for name in sorted(cmd_table.keys()):
-            desc = cmd_table[name].get("desc", "")
-            s = f"  {name}"
-            if desc:
-                if len(s) < 26:
-                    s += " " * (26 - len(s))
-                else:
-                    s += " "
-                s += desc
-            lines.append(s)
 
-    return "\n".join(lines)
+def _gen_commands_help(cmd_table: dict) -> list[str]:
+    lines: list[str] = []
+    for name in sorted(cmd_table.keys()):
+        desc = cmd_table[name].get("desc", "")
+        s = f"  {name}"
+        if desc:
+            if len(s) < 26:
+                s += " " * (26 - len(s))
+            else:
+                s += " "
+            s += desc
+        lines.append(s)
+    return lines
 
 
 def _parse_command(args: list[str]) -> str:

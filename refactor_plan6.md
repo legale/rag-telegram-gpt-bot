@@ -290,7 +290,7 @@
 
 - [x] file=src/lib/argparse2.py func=cmd_parse упростить: вынести парсинг опций в _parse_options(), парсинг команды в _parse_command(), парсинг аргументов в _parse_args()
 
-- [ ] file=src/lib/argparse2.py func=gen_help упростить: вынести генерацию help для опций в _gen_options_help(), генерацию help для команд в _gen_commands_help()
+- [x] file=src/lib/argparse2.py func=gen_help упростить: вынести генерацию help для опций в _gen_options_help(), генерацию help для команд в _gen_commands_help()
 
 - [ ] file=src/bot/tgbot.py func=_process_webhook_update упростить: оставить только parse_update()-_to_app_request()-call app.handle_request()-send_response(), весь access control-rate limit-command routing вынести из transport
 
