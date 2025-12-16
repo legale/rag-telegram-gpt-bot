@@ -288,7 +288,7 @@
 
 - [x] file=src/lib/argparse2.py func=parse упростить: вынести парсинг опций в _parse_options(), парсинг команд в _parse_commands(), валидацию в _validate_parsed()
 
-- [ ] file=src/lib/argparse2.py func=cmd_parse упростить: вынести парсинг опций в _parse_options(), парсинг команды в _parse_command(), парсинг аргументов в _parse_args()
+- [x] file=src/lib/argparse2.py func=cmd_parse упростить: вынести парсинг опций в _parse_options(), парсинг команды в _parse_command(), парсинг аргументов в _parse_args()
 
 - [ ] file=src/lib/argparse2.py func=gen_help упростить: вынести генерацию help для опций в _gen_options_help(), генерацию help для команд в _gen_commands_help()
 

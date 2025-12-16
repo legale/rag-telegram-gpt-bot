@@ -127,6 +127,18 @@ def gen_help(prog: str, opt_table: dict, cmd_table: dict | None = None) -> str:
     return "\n".join(lines)
 
 
+def _parse_command(args: list[str]) -> str:
+    if not args:
+        return "help"
+    return args[0]
+
+
+def _parse_args(args: list[str]) -> list[str]:
+    if len(args) <= 1:
+        return []
+    return args[1:]
+
+
 def cmd_parse(text_or_argv, opt_table: dict, argv_off: int = 0) -> tuple[dict, str, list[str]]:
     if isinstance(text_or_argv, str):
         argv = split_args(text_or_argv)
@@ -141,10 +153,9 @@ def cmd_parse(text_or_argv, opt_table: dict, argv_off: int = 0) -> tuple[dict, s
     opts, args = parse(argv, opt_table)
     opts = DotDict(opts)
 
-    if not args:
-        return opts, "help", []
-
-    return opts, args[0], args[1:]
+    cmd = _parse_command(args)
+    cmd_args = _parse_args(args)
+    return opts, cmd, cmd_args
 
 
 class DotDict(dict):
