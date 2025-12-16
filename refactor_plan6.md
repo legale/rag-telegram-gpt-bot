@@ -228,7 +228,7 @@
 
 - [x] file=src/bot/tgbot.py func=_register_command_group упростить: использовать словарь для маппинга method_name -> subcommand вместо явных вызовов register()
 
-- [w] file=src/bot/admin_commands.py func=BaseAdminCommand.get_profile_paths упростить: вынести валидацию profile_name в _validate_profile_name(), получение paths в _get_paths_for_profile()
+- [x] file=src/bot/admin_commands.py func=BaseAdminCommand.get_profile_paths упростить: вынести валидацию profile_name в _validate_profile_name(), получение paths в _get_paths_for_profile()
 
 - [ ] file=src/bot/admin_commands.py func=BaseAdminCommand.handle_error упростить: вынести логирование ошибки в _log_error(), форматирование сообщения в _format_error_message()
 
