@@ -115,7 +115,7 @@ response = self.llm_client.complete(messages, max_tokens=300)  # Even shorter
 To see token usage in real-time, run the bot with verbose logging:
 
 ```bash
-poetry run python src/bot/tgbot.py run -vvv
+poetry run python src/bot/tgbot.py run -V 7
 ```
 
 ## Recommended Settings by Model
@@ -133,7 +133,7 @@ The changes already made should fix your current error. Just restart the bot:
 ```bash
 # Stop the current bot (Ctrl+C)
 # Restart it
-poetry run python src/bot/tgbot.py run -vv
+poetry run python src/bot/tgbot.py run -V 7
 ```
 
 The bot will now:
