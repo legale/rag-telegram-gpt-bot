@@ -13,6 +13,7 @@ from src.core.interfaces import (
 from src.core.query_rewriter import QueryRewriter
 from src.core.distance_utils import similarity_to_distance, cosine_similarity
 from src.core.chunk_utils import build_chunk_dict_from_domain_chunk
+from src.core.context_packer import pack as pack_context
 from src.lib.syslog2 import *
 
 
@@ -172,7 +173,7 @@ class HybridRetrievalService:
             syslog2(LOG_DEBUG, "hybrid_retrieval: after rerank", count=len(top_candidates))
 
         # Step 4: Pack context (dedup by msg_id, neighbors, token budget)
-        packed_results = self._pack_context(
+        packed_results = pack_context(
             top_candidates,
             output_mode=output_mode,
             message_window_sec=message_window_sec
