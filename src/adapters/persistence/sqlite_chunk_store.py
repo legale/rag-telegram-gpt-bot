@@ -123,13 +123,12 @@ class SqliteChunkStore:
             return False
         else:
             # Create new chunk
+            # Note: embedding_json and embedding_dim are not set here - they belong to VectorIndex
+            # and should be managed directly through Database/ChunkModel, not through ChunkStore
             chunk_model = ChunkModel(
                 id=chunk.id,
                 text=chunk.text,
                 metadata_json=chunk_data["metadata_json"],
-                # embedding_json and embedding_dim are not set - they belong to VectorIndex
-                embedding_json=None,
-                embedding_dim=None,
                 msg_id_start=chunk_data["msg_id_start"],
                 msg_id_end=chunk_data["msg_id_end"],
                 ts_from=chunk_data["ts_from"],
