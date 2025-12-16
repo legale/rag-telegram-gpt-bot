@@ -238,7 +238,7 @@
 
 - [x] file=src/core/admin_commands.py func=AdminCommandHandler.handle упростить: вынести парсинг команды в _parse_admin_command(), выполнение команды в _execute_admin_command()
 
-- [ ] file=src/app/main_cli.py func=create_dispatcher упростить: вынести регистрацию sync handlers в _register_sync_handlers(), регистрацию async handlers в _register_async_handlers()
+- [w] file=src/app/main_cli.py func=create_dispatcher упростить: вынести регистрацию sync handlers в _register_sync_handlers(), регистрацию async handlers в _register_async_handlers()
 
 - [x] file=src/app/main_cli.py func=handle_command упростить: вынести парсинг command name и args в _parse_command(), создание context в _create_command_context()
 
