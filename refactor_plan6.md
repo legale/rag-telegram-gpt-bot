@@ -266,9 +266,9 @@
 
 - [x] file=src/adapters/persistence/sqlite_message_store.py func=get_context упростить: вынести вычисление time window в _calculate_time_window(), получение messages в window в _get_messages_in_window()
 
-- [ ] file=src/adapters/persistence/sqlite_fts_index.py func=normalize_text упростить: вынести lowercase в _to_lowercase(), замену ё->е в _replace_yo(), удаление пунктуации в _remove_punctuation()
+- [x] file=src/adapters/persistence/sqlite_fts_index.py func=normalize_text упростить: вынести lowercase в _to_lowercase(), замену ё->е в _replace_yo(), удаление пунктуации в _remove_punctuation()
 
-- [w] file=src/adapters/vector/chroma_vector_index.py func=upsert упростить: вынести извлечение данных из VectorDoc в _extract_vector_doc_data(), подготовку documents в _prepare_documents()
+- [x] file=src/adapters/vector/chroma_vector_index.py func=upsert упростить: вынести извлечение данных из VectorDoc в _extract_vector_doc_data(), подготовку documents в _prepare_documents()
 
 - [ ] file=src/adapters/vector/chroma_vector_index.py func=get_embeddings_by_ids упростить: вынести получение embeddings из collection в _fetch_embeddings(), конвертацию результатов в _convert_to_dict()
 

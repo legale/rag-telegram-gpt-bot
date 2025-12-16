@@ -31,17 +31,10 @@ class ChromaVectorIndex:
             return
 
         # Extract data from VectorDoc objects
-        ids = [item.id for item in items]
-        embeddings = [item.vector for item in items]
-        metadatas = [item.meta for item in items]
+        ids, embeddings, metadatas = self._extract_vector_doc_data(items)
         
-        # ChromaDB expects documents (text), but we may not have them
-        # Use empty strings or extract from metadata if available
-        documents = []
-        for item in items:
-            # Try to get text from metadata, otherwise use empty string
-            doc_text = item.meta.get("text", "") if isinstance(item.meta, dict) else ""
-            documents.append(doc_text)
+        # Prepare documents
+        documents = self._prepare_documents(items)
 
         # Use VectorStore's add_documents_with_embeddings method
         self.vector_store.add_documents_with_embeddings(
@@ -51,6 +44,41 @@ class ChromaVectorIndex:
             metadatas=metadatas,
             show_progress=False  # Disable progress for programmatic use
         )
+    
+    def _extract_vector_doc_data(self, items: List[VectorDoc]) -> tuple[List[str], List[List[float]], List[Dict]]:
+        """
+        Extract data from VectorDoc objects.
+        
+        Args:
+            items: List of VectorDoc objects
+            
+        Returns:
+            Tuple of (ids, embeddings, metadatas)
+        """
+        ids = [item.id for item in items]
+        embeddings = [item.vector for item in items]
+        metadatas = [item.meta for item in items]
+        return ids, embeddings, metadatas
+    
+    def _prepare_documents(self, items: List[VectorDoc]) -> List[str]:
+        """
+        Prepare documents (text) from VectorDoc objects.
+        
+        ChromaDB expects documents (text), but we may not have them.
+        Extract from metadata if available, otherwise use empty string.
+        
+        Args:
+            items: List of VectorDoc objects
+            
+        Returns:
+            List of document text strings
+        """
+        documents = []
+        for item in items:
+            # Try to get text from metadata, otherwise use empty string
+            doc_text = item.meta.get("text", "") if isinstance(item.meta, dict) else ""
+            documents.append(doc_text)
+        return documents
 
     def query(self, vector: List[float], top_k: int, filter: Optional[Dict] = None) -> List[ScoredDoc]:
         """
