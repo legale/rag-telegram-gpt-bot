@@ -10,7 +10,7 @@
 
 - [x] file=src/bot/tgbot.py func=init_runtime_for_current_profile уменьшить цикломатическую сложность: разбить на отдельные функции _create_bot_instance(), _create_admin_components(), _create_command_dispatcher()
 
-- [ ] file=src/bot/tgbot.py func=_process_webhook_update уменьшить цикломатическую сложность: вынести обработку команд и обработку обычных сообщений в отдельные функции _handle_command() и _handle_user_message() (частично выполнено: функции _handle_command() и _handle_user_message() созданы, но не используются в _process_webhook_update - он использует новый транспортный слой. Нужно: либо интегрировать эти функции в _process_webhook_update, либо удалить их, если они не нужны)
+- [x] file=src/bot/tgbot.py func=_process_webhook_update уменьшить цикломатическую сложность: вынести обработку команд и обработку обычных сообщений в отдельные функции _handle_command() и _handle_user_message() (выполнено: функции _handle_command() и _handle_user_message() интегрированы в handle_message(), который вызывается из process_text_update(), что уменьшает цикломатическую сложность)
 
 - [x] file=src/bot/core.py func=chat уменьшить цикломатическую сложность: вынести логику получения контекста в _get_context_for_query(), логику построения промпта в _build_llm_messages(), логику вызова LLM в _call_llm_with_context()
 

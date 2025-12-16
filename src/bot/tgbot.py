@@ -2094,54 +2094,20 @@ async def handle_message(update: Update):
     """
     Process incoming text messages.
     
-    Simplified version using MessageHandler and utility classes.
+    Simplified version using _handle_command() and _handle_user_message() to reduce cyclomatic complexity.
     """
     message = update.message
     text = message.text
-    chat_id = message.chat_id
-    user_id = message.from_user.id
-
-    syslog2(LOG_NOTICE, "message received", chat_id=chat_id, user_id=user_id, text_snippet=text[:50])
-
+    
+    if not text:
+        return
+    
+    # Route to appropriate handler based on message type
     is_command = text.startswith("/")
-    is_private = (message.chat.type == "private")
-
-    # Step 1: Handle public commands (bypass access control)
-    if await _handle_public_commands_step(message, text, chat_id):
-        return
-
-    # Step 2: Check access
-    if not await _check_access_step(user_id, chat_id, is_private, is_command, text if is_command else None):
-        return
-
-    # Step 3: Determine if bot should respond
-    respond, reason = await _determine_response_step(message, is_command, is_private, chat_id)
-
-    # Step 4: Check if bot_instance is available
-    ctx = get_runtime_context()
-    if not ctx.bot_instance:
-        syslog2(LOG_ERR, "bot instance missing", action="drop_message")
-        return
-    
-    # Step 5: Parse and handle search mentions
-    bot_username = (ctx.telegram_app.bot.username or "").lower()
-    bot_id = ctx.telegram_app.bot.id
-    if await _handle_search_mention_step(message, bot_username, bot_id, chat_id):
-        return
-    
-    # Remove mention token from text if present (for non-commands)
-    if not is_command and text:
-        extracted_text = _extract_mention_text(text, bot_username)
-        if extracted_text is not None:
-            text = extracted_text
-    
-    # Step 6: Route message to appropriate handler
-    response = await _route_message_step(text, update, is_command, respond, chat_id)
-    if response is None:
-        return  # Message was ignored
-
-    # Step 7: Send response if available
-    await _send_response_if_available(response, chat_id, is_command, respond)
+    if is_command:
+        await _handle_command(update)
+    else:
+        await _handle_user_message(update)
 
 
 def register_webhook(url: str, token: str):
