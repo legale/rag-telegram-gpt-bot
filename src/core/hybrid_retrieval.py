@@ -175,8 +175,11 @@ class HybridRetrievalService:
         # Step 4: Pack context (dedup by msg_id, neighbors, token budget)
         packed_results = pack_context(
             top_candidates,
+            message_store=self.message_store,
             output_mode=output_mode,
-            message_window_sec=message_window_sec
+            message_window_sec=message_window_sec,
+            max_tokens=4000,
+            log_level=self.log_level,
         )
 
         if self.log_level <= LOG_DEBUG:

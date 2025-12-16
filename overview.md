@@ -700,4 +700,273 @@ profiles/<profile_name>/
 **Generated**: 2024-12-19
 **Repository**: legale-bot
 **Analysis**: Static code analysis, no code modifications
+# 1. Purpose
 
+`legale-bot` — локально-разворачиваемый RAG-бот “профсоюзный юрист” для Telegram и CLI. Он:
+- выгружает историю чатов из Telegram (Telethon) или принимает JSON-дампы,
+- парсит и чанкует сообщения,
+- строит эмбеддинги (OpenAI-совместимый API через OpenRouter/OpenAI или локальные `sentence-transformers`),
+- хранит данные в SQLite (включая FTS5 полнотекстовый индекс) и в ChromaDB (векторный индекс),
+- отвечает на вопросы через LLM, подмешивая релевантный контекст из базы (hybrid retrieval: FTS5 → rerank по векторам → “упаковка” контекста).
+
+Ключевая идея: “всё локально”, профили изолируют состояние (`profiles/<profile>/...`), а запуск/операции централизованы через единый CLI `legale.py`.
+
+# 2. How to run
+
+## Быстрый старт (dev)
+1) Установить зависимости:
+- `poetry install`
+
+2) Настроить окружение:
+- `cp .env.example .env` и заполнить как минимум `OPENROUTER_API_KEY` (или `OPENAI_API_KEY`), `TELEGRAM_BOT_TOKEN`, `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`.
+
+3) Создать профиль и загрузить данные:
+- `poetry run python legale.py profile create mybot --set-active`
+- `poetry run python legale.py telegram dump "My Chat" --limit 10000`
+- `poetry run python legale.py ingest telegram_dump_<chatid>.json`
+
+4) Протестировать в интерактивном CLI-чате:
+- `poetry run python legale.py chat -V 7 --chunks 7 --retrieval-type hybrid`
+
+## Запуск Telegram webhook-сервера (foreground)
+- `poetry run python legale.py bot run --host 127.0.0.1 --port 8000 -V 6`
+- зарегистрировать webhook: `poetry run python legale.py bot register --url https://yourdomain.com/webhook`
+
+## Запуск в фоне (daemon)
+- `poetry run python legale.py bot daemon --host 127.0.0.1 --port 8000`
+
+Примечания:
+- CLI `legale.py` сам “переисполняется” через `poetry`, если вы не в virtualenv.
+- Профиль выбирается через `.env` (`ACTIVE_PROFILE`) или флаг `--profile` во многих командах.
+
+# 3. Repo layout
+
+- `legale.py` — единый CLI-оркестратор: профили, выгрузка Telegram, ingestion, запуск bot/webhook, интерактивный chat.
+- `src/app/` — “application layer”: типы `AppRequest/AppResponse`, `App` как единая точка входа, bootstrap (DI/композиция), config store.
+- `src/bot/` — transport/UX-слой: webhook-сервер (FastAPI), CLI-чат, админ-функции и роутинг админ-команд.
+- `src/core/` — доменная логика и use-cases: retrieval/search, LLM/embeddings, команды, rate limit и утилиты.
+- `src/ingestion/` — ingestion pipeline: парсинг дампов, чанкинг, телеграм-выгрузка.
+- `src/storage/` — инфраструктура хранения: SQLite schema/FTS5, Chroma vector store wrapper, миграции.
+- `src/adapters/` — адаптеры под интерфейсы core (SQLite stores, Chroma vector index, LLM/Embedding адаптеры).
+- `profiles/` — runtime-данные профилей (обычно gitignored): `legale_bot.db`, `chroma_db/`, `config.json`, `admin.json`.
+- `systemd/`, `init.d/`, `nginx/` — примеры деплоя.
+- `tests/` — тесты (много unit/integration вокруг core/adapters).
+
+# 4. Entry points
+
+## Основной CLI/процесс
+- `legale.py:1001` → `main()` — единая точка входа, команды: `profile|telegram|ingest|chat|bot|config|test-embedding`.
+
+## Telegram webhook сервер
+- `src/bot/tgbot.py:2230` → `run_server(host, port, ...)` — запуск FastAPI+uvicorn.
+- `src/bot/tgbot.py:2281` → `run_daemon(host, port, ...)` — фоновой запуск через `python-daemon`.
+- HTTP endpoints:
+  - `POST /webhook` — прием Telegram updates,
+  - `GET /health` — healthcheck.
+
+## Интерактивный чат (CLI)
+- `src/bot/cli.py:??` → `main()` — интерактивный REPL; обычно запускается через `legale.py chat` (он выставляет `DATABASE_URL`, `VECTOR_DB_PATH`, `PROFILE_DIR`).
+
+## Ingestion (скриптовый режим)
+- `src/ingestion/pipeline.py:1207` → `__main__` — `python -m src.ingestion.pipeline ingest ...` (в проекте чаще используется через `legale.py ingest` / `legale.py telegram ingest all`).
+- `src/ingestion/telegram.py:195` → `__main__` — утилита Telethon (используется через `legale.py telegram ...`).
+- `src/storage/migrations/drop_legacy_tables.py:41` → `__main__` — точечная миграция/очистка legacy-таблиц.
+
+# 5. Components by file
+
+Формат: `path: назначение; ключевые сущности; зависимости; входы/выходы`.
+
+## Root
+- `legale.py`: unified CLI; `ProfileManager`, `cmd_profile/cmd_telegram/cmd_ingest/cmd_chat/cmd_bot/cmd_config`; deps: `dotenv`, `src.bot.tgbot`, `src.ingestion.*`; I/O: `.env`, `profiles/<p>/...`, stdout/syslog, сеть (Telegram API webhook register/delete).
+- `README.md`: пользовательские сценарии запуска/деплоя.
+- `.env.example`: список env vars (API keys, Telegram, токены).
+- `models.txt`: список LLM моделей (используется для `/model`/выбора модели).
+
+## src/app
+- `src/app/app.py`: `App.handle_request(AppRequest)->AppResponse` (command → bot.chat); deps: `CommandService`, `LegaleBot`; I/O: только через `LegaleBot` (DB/Chroma/LLM).
+- `src/app/bootstrap.py`: composition root; `create_hybrid_retrieval()`, `create_hybrid_search()`, `create_app()`; deps: adapters + storage; I/O: создаёт объекты с `db_url`, `vector_db_path`.
+- `src/app/main_cli.py`: регистрация команд и диспетчеризация; `register_sync_handlers()`, `register_async_handlers()`, `handle_command()`; deps: `src/core/commands/*`.
+- `src/app/config_store.py`: профильный `config.json` и `admin.json`-store (новый API); I/O: `profiles/<p>/config.json`, `profiles/<p>/admin.json` (chmod 600).
+- `src/app/types.py`: transport-agnostic DTO: `AppRequest`, `AppResponse`, `CommandRequest`, `QueryRequest`.
+
+## src/bot
+- `src/bot/tgbot.py`: webhook transport; `create_app()`, `register_webhook()`, `delete_webhook()`, `run_server()`, `run_daemon()`; deps: FastAPI/uvicorn, `python-telegram-bot`; I/O: HTTP `/webhook`, Telegram sendMessage, PID file (daemon), syslog.
+- `src/bot/cli.py`: интерактивный чат; `main()`; deps: `LegaleBot`, `src/app/main_cli` dispatcher; I/O: stdin/stdout, env (`DATABASE_URL`, `VECTOR_DB_PATH`, `.env`).
+- `src/bot/core.py`: оркестратор RAG; `class LegaleBot`, `chat()`, `get_rag_debug_info()`; deps: `HybridRetrievalService`, `LLMClient`; state: in-memory история и кеш контекста; I/O: SQLite+Chroma через storage/adapters, сеть через LLM/embeddings.
+- `src/bot/command_parser.py`: парсинг аргументов `/find ...`, выбор retrieval-типа.
+- `src/bot/admin.py`: совместимость; `AdminManager` обертка над `src/app/config_store.AdminStore` и `src/core/access_control.AdminAccessControl`; I/O: `profiles/<p>/admin.json`, `profiles/<p>/config.json`.
+- `src/bot/admin_router.py`: маршрутизация “/admin ...” команд (подсистема админки).
+- `src/bot/admin_commands.py`: набор admin-команд (профиль, ingest, статистика, настройки, модели, system prompt).
+- `src/bot/admin_tasks.py`: фоновые задачи/оркестрация админ-операций (ingest и т.п.).
+- `src/bot/utils/*`: сервисы вокруг транспорта (ACL, rate limiting по частоте ответа, форматирование ответа/разбиение под лимиты Telegram, health checks, обработка ошибок, генерация ссылок).
+
+## src/core
+- `src/core/domain.py`: ключевые сущности: `Message`, `Chunk`, `SearchResult`, `IngestionJob`, `TopicUpdate`.
+- `src/core/interfaces.py`: boundary-интерфейсы: `MessageStore`, `ChunkStore`, `VectorIndex`, `FTSIndex`, `Embedder`, `LLM`, `ConfigProvider`.
+- `src/core/hybrid_retrieval.py`: “сердце retrieval”; `HybridRetrievalService.search()/retrieve()/search_chunks_basic()`; deps: FTSIndex, VectorIndex, Embedder, stores; I/O: читает из SQLite/Chroma через adapters, может дергать LLM для query rewrite.
+- `src/core/search.py`: `HybridSearch` (более “чистый” use-case, частично legacy).
+- `src/core/llm.py`: `LLMClient` (OpenAI-совместимый client через OpenRouter/OpenAI); I/O: сеть, токенизация `tiktoken`.
+- `src/core/embedding.py`: `EmbeddingClient` (API embeddings) + `LocalEmbeddingClient` (`sentence-transformers`/fallback); I/O: сеть (API) или локальная модель.
+- `src/core/prompt.py`: шаблоны/сборка системного промпта.
+- `src/core/message_search.py`: поиск/форматирование “evidence” (timeline) поверх retrieval; I/O: SQLite для доп. деталей, Telegram-format utils.
+- `src/core/commands/*`: обработчики `/start /help /reset /tokens /model /find`.
+- `src/core/access_control.py`: логика админ-доступа/пароля.
+- `src/core/rate_limit.py`: базовые ограничения частоты/лимитов.
+- `src/core/query_rewriter.py`: перефразирование запроса перед vector search (через LLMAdapter).
+
+## src/ingestion
+- `src/ingestion/telegram.py`: `TelegramFetcher` (Telethon); I/O: сеть (Telegram API), session-файл, JSON дампы `telegram_dump_<chatid>.json`.
+- `src/ingestion/parser.py`: `ChatParser.parse_file()`; I/O: читает JSON дампы (массив объектов сообщений).
+- `src/ingestion/chunker.py`: `MessageChunker` (token-based chunking); I/O: чистые строки → chunks.
+- `src/ingestion/pipeline.py`: `IngestionPipeline.run_all()` (stage0..stage3); I/O: JSON → SQLite (`messages/chunks/embedding_json`) → Chroma (`chroma_db/`).
+
+## src/storage
+- `src/storage/db.py`: SQLAlchemy models `MessageModel`, `MessageMetaModel`, `ChunkModel`; auto-schema + FTS5 tables `messages_fts`, `chunks_fts` и триггеры; I/O: `sqlite:///.../legale_bot.db`.
+- `src/storage/vector_store.py`: wrapper над `chromadb.PersistentClient`; I/O: `profiles/<p>/chroma_db/` (внутри `chroma.sqlite3` и файлы индекса).
+- `src/storage/migrations/drop_legacy_tables.py`: одноразовая утилита миграции/cleanup.
+
+## src/adapters
+- `src/adapters/persistence/sqlite_message_store.py`: реализация `MessageStore` поверх `Database`; I/O: таблицы `messages`, `message_meta`.
+- `src/adapters/persistence/sqlite_chunk_store.py`: `ChunkStore` поверх `chunks` (чтение/запись).
+- `src/adapters/persistence/sqlite_fts_index.py`: `FTSIndex` поверх `messages_fts/chunks_fts`; I/O: raw SQL/FTS5.
+- `src/adapters/vector/chroma_vector_index.py`: `VectorIndex` поверх `VectorStore.collection`; I/O: upsert/query/delete в Chroma.
+- `src/adapters/embedding/embedder_adapter.py`: `Embedder`-адаптер к embedding clients.
+- `src/adapters/llm/llm_adapter.py`: `LLM`-адаптер к `LLMClient` (для query rewriting и др.).
+
+## Deployment/support
+- `nginx/telegram-bot.conf`: прокси `POST /webhook` и `GET /health` на `127.0.0.1:8000`.
+- `systemd/legale-bot.service`: пример systemd unit.
+- `init.d/legale-bot`: пример sysvinit скрипта.
+- `scripts/*`: служебные скрипты (права/пользователь).
+
+# 6. Runtime flows
+
+## A) User query flow (Telegram webhook)
+Псевдо-sequence:
+1) `uvicorn` принимает `POST /webhook` → `src/bot/tgbot.py:_create_webhook_handler()`.
+2) `_parse_webhook_update()` валидирует JSON → `Update.de_json(...)` (`python-telegram-bot`).
+3) `_process_webhook_update()` маппит `Update` → `AppRequest` (`_to_app_request()`).
+4) Singleton `_TelegramTransportApp` держит long-lived `App`/`LegaleBot` (создаются в lifespan при старте сервера).
+5) `App.handle_request()`:
+   - если команда (`/help`, `/find`, …) → `handle_command()` → `CommandDispatcher.dispatch()`;
+   - иначе → `LegaleBot.chat(text, n_results=chunks)`.
+6) `LegaleBot.chat()`:
+   - `HybridRetrievalService.retrieve()` (или другой режим retrieval) → кандидаты из `SQLite FTS5` → rerank векторами из Chroma → pack контекста,
+   - сборка сообщений для LLM (system prompt + context + history),
+   - `LLMClient.complete()` (OpenRouter/OpenAI),
+   - обновление in-memory истории диалога.
+7) Ответ отправляется назад в Telegram через `telegram_app.bot.send_message(...)` (учёт лимитов длины/разбиения в `src/bot/utils`).
+
+Долгоживущие объекты:
+- `RuntimeContext` (singleton), `telegram.ext.Application`, `App`, `LegaleBot`, `Database engine`, `Chroma PersistentClient`.
+На запрос:
+- `AppRequest/AppResponse`, `CommandContext`, временные списки кандидатов/чанков, LLM messages.
+
+## B) User query flow (CLI chat)
+1) `legale.py chat` выставляет `DATABASE_URL`, `VECTOR_DB_PATH`, `PROFILE_DIR` → вызывает `src/bot/cli.py:main()`.
+2) `cli.py` создаёт `LegaleBot(...)` и `dispatcher = create_dispatcher(...)`.
+3) REPL: ввод строки:
+   - команда → `handle_command()` → handlers,
+   - текст → `LegaleBot.chat()` как выше.
+
+## C) Ingestion flow (telegram dump → RAG-ready)
+1) `legale.py telegram dump ...`:
+   - `src/ingestion/telegram.py:TelegramFetcher` (Telethon) → пишет `telegram_dump_<chatid>.json` (list of `{id,date,sender,content}`).
+2) `legale.py ingest <file>` или `legale.py telegram ingest all <chat>`:
+   - `src/ingestion/pipeline.py:IngestionPipeline.run_all()`:
+     - stage0: `ChatParser.parse_file()` → `Database.add_messages_batch()` в `messages` (+ optional meta),
+     - stage1: `MessageChunker` → чанки → `chunks` (с привязкой к chat_id/msg_id/ts),
+     - stage2: embeddings батчами → запись `embedding_json`/`embedding_dim` в `chunks`,
+     - stage3: sync → `VectorStore.add_documents_with_embeddings()` (ChromaDB).
+
+Boundary/адаптеры:
+- `core/interfaces.py` отделяет use-case от storage; `src/adapters/*` — конкретные реализации (SQLite/Chroma/OpenAI).
+
+# 7. Data model and persistence
+
+## Профили и файлы
+- `.env`: глобальная конфигурация + `ACTIVE_PROFILE` (через `ProfileManager`).
+- `profiles/<profile>/config.json`: настройки профиля (модель LLM, параметры chunking, embedding generator/model, ACL, лимиты).
+- `profiles/<profile>/admin.json`: данные администратора (user_id/username/имя), права доступа; права `0600`.
+- `profiles/<profile>/legale_bot.db`: SQLite состояние профиля.
+- `profiles/<profile>/chroma_db/`: persistent Chroma (векторный индекс).
+- `telegram_session.session` (в корне): Telethon session (общая для профилей по текущей реализации).
+- `telegram_dump_<chatid>.json`: JSON-дампы Telegram чата.
+
+## SQLite (src/storage/db.py)
+Таблицы (основные):
+- `messages(msg_id PK, chat_id, ts, from_id, text)` — сырые сообщения; `msg_id` в ingestion формируется как `<chat_id>_<telegram_msg_id>`.
+- `message_meta(msg_id PK/FK -> messages, meta_json, created_at)` — дополнительные метаданные (JSON).
+- `chunks(id PK, text, created_at, metadata_json, chat_id, msg_id_start/msg_id_end, msg_id_start_raw/msg_id_end_raw, ts_from/ts_to, embedding_dim, embedding_json)` — чанки, связь с сообщениями, embeddings (в SQLite как JSON).
+
+FTS5 (virtual tables + triggers, создаются автоматически):
+- `messages_fts`, `chunks_fts` + триггеры insert/update/delete для синхронизации.
+
+## ChromaDB (src/storage/vector_store.py)
+- коллекция `embed-chunks` (по умолчанию) в `profiles/<p>/chroma_db/`,
+- хранит документы и embeddings; query идёт через `query_embeddings` (эмбеддинги вычисляются тем же embedding client).
+
+## In-memory state
+- `LegaleBot.chat_history`/`conversation_state`/`active_context_*` — контекст текущей сессии (не persisted).
+- `RuntimeContext` в webhook-сервере держит bot instance и связанные сервисы.
+
+# 8. External dependencies and integrations
+
+Основные библиотеки (см. `pyproject.toml`):
+- Telegram ingestion: `telethon` (API ID/HASH + session file).
+- Telegram bot transport: `python-telegram-bot` (парсинг `Update`, отправка сообщений), FastAPI+Uvicorn (`/webhook`).
+- LLM: `openai` SDK с `base_url` на OpenRouter (`OPENROUTER_BASE_URL`), `tiktoken` для подсчёта токенов.
+- Embeddings: `openai` embeddings API или локально `sentence-transformers` (и связанные `torch` зависимости через Poetry source).
+- Vector DB: `chromadb` (PersistentClient).
+- Relational storage: `sqlalchemy` (SQLite) + FTS5 через raw SQL.
+- Сервисное: `python-dotenv`, `requests` (webhook register/delete), `python-daemon` (daemon mode).
+
+Точки интеграции в коде:
+- Telegram webhook register/delete: `src/bot/tgbot.py:register_webhook()/delete_webhook()` (HTTP calls через `requests`).
+- Telegram updates: `src/bot/tgbot.py:/webhook` (FastAPI) → `telegram.ext.Application.bot.send_message(...)`.
+- Telethon: `src/ingestion/telegram.py:TelegramClient(...)`.
+- LLM completions: `src/core/llm.py:LLMClient.complete()/stream_complete()`.
+- Embeddings API: `src/core/embedding.py:EmbeddingClient.get_embeddings()`; локальные embeddings: `LocalEmbeddingClient`.
+- Chroma: `src/storage/vector_store.py` и `src/adapters/vector/chroma_vector_index.py`.
+
+# 9. Extension points
+
+Где и как расширять:
+- Добавить CLI-команду верхнего уровня: `legale.py:main()` + новая `cmd_<name>()` и регистрация в `global_cmd_table`.
+- Добавить пользовательскую команду Telegram/CLI (`/foo`):
+  - handler в `src/core/commands/` (sync) или в `src/core/admin_commands.py`/`src/bot/admin_router.py` (async/admin),
+  - регистрация в `src/app/main_cli.py:register_sync_handlers()` или `register_async_handlers()`.
+- Добавить новый transport (например, HTTP API кроме Telegram):
+  - реализовать маппинг входа в `AppRequest` и вывода `AppResponse`,
+  - вызывать `App.handle_request()` (см. паттерн в `src/bot/tgbot.py`).
+- Поменять retrieval:
+  - основной сервис: `src/core/hybrid_retrieval.py:HybridRetrievalService`,
+  - wiring: `src/app/bootstrap.py:create_hybrid_retrieval()`,
+  - режимы переключаются через `retrieval_type` (`hybrid|fts_only|vector_only`) и `/find`.
+- Поменять векторный индекс:
+  - реализовать `VectorIndex` (`src/core/interfaces.py`) и подключить в `bootstrap.py`.
+- Поменять хранилище:
+  - реализовать `MessageStore/ChunkStore/FTSIndex` и переподключить в `bootstrap.py`.
+- Поменять модель/эмбеддинги по профилю:
+  - `profiles/<p>/config.json` (`embedding_generator`, `embedding_model`, `current_model`),
+  - `models.txt` для списка моделей и `/model`.
+
+# 10.TODO
+
+Риски/хрупкие места и что стоит улучшить (10–20 пунктов):
+1) `src/ingestion/telegram.py` в `__main__` использует `argparse`, но импорт не виден в начале файла — риск падения при прямом запуске.
+2) `systemd/legale-bot.service` ожидает PID в `profiles/default/bot.pid`, а `run_daemon()` пишет `/var/run/legale-bot.pid` — рассинхрон, возможны проблемы stop/status.
+3) `run_daemon()` использует `/var/run/...` — требует прав/доступа; в контейнерах/под systemd может не работать без настройки.
+4) `register_webhook()/delete_webhook()` используют `requests.post(...)` без `timeout=` и без retry/backoff — риск зависаний при проблемах сети.
+5) Telethon session-файл общий для всех профилей (`telegram_session.session` в корне) — риск “пересечения” аккаунтов/сессий между профилями.
+6) Данные хранятся одновременно в SQLite и Chroma; при частичном падении ingestion возможна рассинхронизация стадий (stage2 vs stage3).
+7) Авто-миграции SQLite через `ALTER TABLE` и “best-effort” — нет строгих миграций/версирования схемы; риск неконсистентности на разных инсталляциях.
+8) FTS5 может быть недоступен в сборке SQLite; код частично “продолжает работу”, но retrieval деградирует/ломается.
+9) Query rewriting через LLM (если включён) добавляет задержку/стоимость и может ухудшать запросы; нужен флаг/метрики качества.
+10) Большие дампы ingestion: парсинг JSON целиком и операции без стриминга — риск по памяти/времени.
+11) Логи могут содержать фрагменты сообщений/промптов (PII) в зависимости от log level — нужен аудит логирования.
+12) Управление секретами: `.env` и `config.json` локально; нужен гайд по ротации и защите (включая права/backup).
+13) Непрозрачная стратегия дедупликации сообщений/чанков: msg_id композитный, но повторы и “re-ingest” требуют четкого UX.
+14) В `src/bot/core.py` много состояния сессии в памяти; при перезапуске сервера теряется контекст диалога — ожидаемо, но важно понимать.
+15) Ограничения Telegram (rate limits, длина сообщений, формат markdown) — часть обработчиков в utils, но стоит иметь e2e тесты на форматирование/разбиение.
+16) Конфигурация прод деплоя разбросана (init.d/systemd/nginx) — стоит унифицировать один “правильный” путь и актуализировать инструкции.
