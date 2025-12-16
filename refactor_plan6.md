@@ -304,7 +304,7 @@
 
 - [x] file=src/core/chat_service.py func=chat создать: единый сервис чата (retrieval+prompt+llm), без доступа к transport и файловой системе
 
-- [ ] file=src/core/access_control.py func=check_access создать: логика allowed_chats-is_admin сюда, transport только вызывает и мапит отказ в текст
+- [x] file=src/core/access_control.py func=check_access создать: логика allowed_chats-is_admin сюда, transport только вызывает и мапит отказ в текст
 
 - [ ] file=src/core/rate_limit.py func=allow создать: логика frequency controller сюда, transport только вызывает
 

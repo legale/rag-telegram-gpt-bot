@@ -11,6 +11,7 @@ Provides centralized access control logic including:
 import logging
 from typing import Optional
 from src.lib.syslog2 import *
+from src.core.access_control import check_access as core_check_access
 
 
 class AccessControlService:
@@ -60,60 +61,37 @@ class AccessControlService:
         Returns:
             Tuple of (is_allowed, denial_reason)
         """
-        # Public commands that bypass access control (available to everyone)
-        if is_command and command_text and (command_text.startswith("/admin_set") or command_text.startswith("/set_admin")):
-            command_name = "/admin_set" if command_text.startswith("/admin_set") else "/set_admin"
-            syslog2(LOG_DEBUG, "access granted public command", user_id=user_id, command=command_name)
-            return True, None
-        
-        # Admins are always allowed
-        if self._check_admin_access(user_id):
-            syslog2(LOG_DEBUG, "access granted admin", user_id=user_id)
-            return True, None
-        
-        if is_private:
-            # Private messages: only admins allowed
-            syslog2(LOG_DEBUG, "access denied private", user_id=user_id)
-            return False, "private_non_admin"
+        config = getattr(self.admin_manager, "config", None)
+        raw_allowed_chats = getattr(config, "allowed_chats", [])
+
+        allowed_chats: list[int]
+        if isinstance(raw_allowed_chats, list):
+            allowed_chats = raw_allowed_chats
+        elif isinstance(raw_allowed_chats, (tuple, set)):
+            allowed_chats = list(raw_allowed_chats)
         else:
-            # Group/supergroup/channel
-            # Commands are always allowed
-            if is_command:
-                syslog2(LOG_DEBUG, "access granted command", chat_id=chat_id)
-                return True, None
-            
-            # Regular messages: check whitelist
-            return self._check_allowed_chats(chat_id)
-    
-    def _check_admin_access(self, user_id: int) -> bool:
-        """
-        Check if user has admin access.
-        
-        Args:
-            user_id: Telegram user ID
-            
-        Returns:
-            True if user is admin, False otherwise
-        """
-        return self.is_admin(user_id)
-    
-    def _check_allowed_chats(self, chat_id: int) -> tuple[bool, Optional[str]]:
-        """
-        Check if chat is in the allowed chats whitelist.
-        
-        Args:
-            chat_id: Telegram chat ID
-            
-        Returns:
-            Tuple of (is_allowed, denial_reason)
-        """
-        config = self.admin_manager.config
-        if chat_id in config.allowed_chats:
-            syslog2(LOG_DEBUG, "access granted whitelist", chat_id=chat_id)
+            try:
+                allowed_chats = list(raw_allowed_chats)
+            except TypeError:
+                allowed_chats = []
+
+        allowed, reason = core_check_access(
+            user_id=user_id,
+            chat_id=chat_id,
+            is_private=is_private,
+            is_command=is_command,
+            allowed_chats=allowed_chats,
+            is_admin=self.is_admin,
+            command_text=command_text,
+        )
+
+        if allowed:
+            if reason is None:
+                syslog2(LOG_DEBUG, "access granted", user_id=user_id, chat_id=chat_id, is_private=is_private, is_command=is_command)
             return True, None
-        else:
-            syslog2(LOG_DEBUG, "access denied not whitelisted", chat_id=chat_id)
-            return False, "chat_not_whitelisted"
+
+        syslog2(LOG_DEBUG, "access denied", user_id=user_id, chat_id=chat_id, reason=reason)
+        return False, reason
     
     def check_admin_access(self, user_id: int) -> tuple[bool, Optional[str]]:
         """

@@ -3,8 +3,7 @@ Access control logic for Legale Bot.
 Handles admin authentication and access checks.
 """
 
-from typing import Optional, Protocol
-from pathlib import Path
+from typing import Callable, Optional, Protocol
 
 
 class ConfigProvider(Protocol):
@@ -66,3 +65,34 @@ class AdminAccessControl:
         """
         return self.admin_store.get_admin()
 
+
+def check_access(
+    *,
+    user_id: int,
+    chat_id: int,
+    is_private: bool,
+    is_command: bool,
+    allowed_chats: list[int],
+    is_admin: Callable[[int], bool],
+    command_text: Optional[str] = None,
+) -> tuple[bool, Optional[str]]:
+    """
+    Pure access control policy (no transport concerns).
+
+    Returns (allowed, reason_code).
+    """
+    if is_command and command_text and (command_text.startswith("/admin_set") or command_text.startswith("/set_admin")):
+        return True, None
+
+    if is_admin(user_id):
+        return True, None
+
+    if is_private:
+        return False, "private_non_admin"
+
+    if is_command:
+        return True, None
+
+    if chat_id in allowed_chats:
+        return True, None
+    return False, "chat_not_whitelisted"

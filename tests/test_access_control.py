@@ -198,6 +198,42 @@ class TestIsAllowed:
         assert allowed is False
         assert reason == "chat_not_whitelisted"
 
+    def test_group_message_whitelisted_tuple_allowed(self):
+        """allowed_chats may be non-list (e.g., tuple) and should still work."""
+        admin_manager = Mock()
+        admin_manager.is_admin.return_value = False
+        admin_manager.config = Mock()
+        admin_manager.config.allowed_chats = (-100123456,)
+
+        service = AccessControlService(admin_manager)
+        allowed, reason = service.is_allowed(
+            user_id=67890,
+            chat_id=-100123456,
+            is_private=False,
+            is_command=False,
+        )
+
+        assert allowed is True
+        assert reason is None
+
+    def test_group_message_whitelist_non_iterable_denied(self):
+        """Non-iterable allowed_chats should be treated as empty whitelist."""
+        admin_manager = Mock()
+        admin_manager.is_admin.return_value = False
+        admin_manager.config = Mock()
+        admin_manager.config.allowed_chats = 123  # non-iterable
+
+        service = AccessControlService(admin_manager)
+        allowed, reason = service.is_allowed(
+            user_id=67890,
+            chat_id=-100123456,
+            is_private=False,
+            is_command=False,
+        )
+
+        assert allowed is False
+        assert reason == "chat_not_whitelisted"
+
 
 class TestCheckAdminAccess:
     """Tests for check_admin_access() method."""
