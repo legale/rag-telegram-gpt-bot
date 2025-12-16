@@ -272,7 +272,7 @@
 
 - [w] file=src/adapters/vector/chroma_vector_index.py func=get_embeddings_by_ids упростить: вынести получение embeddings из collection в _fetch_embeddings(), конвертацию результатов в _convert_to_dict()
 
-- [ ] file=src/adapters/llm/llm_adapter.py func=complete упростить: вынести построение messages в _build_messages(), извлечение kwargs в _extract_kwargs(), вызов LLM в _call_llm()
+- [w] file=src/adapters/llm/llm_adapter.py func=complete упростить: вынести построение messages в _build_messages(), извлечение kwargs в _extract_kwargs(), вызов LLM в _call_llm()
 
 - [ ] file=src/adapters/embedding/embedder_adapter.py упростить: методы embed_documents и embed_query просто делегируют к client, можно оставить как есть или добавить валидацию входных данных
 
