@@ -667,19 +667,29 @@ class LegaleBot:
         try:
             return self.llm_client.complete(messages)
         except TimeoutError as e:
+            # Handle timeout errors separately
             syslog2(LOG_ERR, "llm call timeout", error=str(e))
             raise
         except APITimeoutError as e:
+            # Handle API timeout errors separately
             syslog2(LOG_ERR, "llm api timeout", error=str(e))
             raise
         except RateLimitError as e:
+            # Handle rate limit errors separately
             syslog2(LOG_ERR, "llm rate limit error", error=str(e))
             raise
-        except (APIError, APIConnectionError) as e:
+        except APIError as e:
+            # Handle API errors separately
             syslog2(LOG_ERR, "llm api error", error=str(e))
+            raise
+        except APIConnectionError as e:
+            # Handle connection errors separately
+            syslog2(LOG_ERR, "llm connection error", error=str(e))
             raise
         except Exception as e:
             # Check for token limit or payment issues (existing logic)
+            # This catches any other exceptions, including those that might be
+            # wrapped or have token limit errors in their message
             error_msg = str(e)
             if self._is_token_limit_error(error_msg):
                 return self._retry_after_reset(context_chunks, user_input, system_prompt_template)
