@@ -298,7 +298,7 @@
 
 - [x] file=src/app/app.py func=handle_request создать: единая точка обработки входа (telegram или cli), вход AppRequest (user_id-chat_id-text-transport-meta), выход AppResponse (text-actions)
 
-- [ ] file=src/app/types.py создать: dataclass AppRequest-AppResponse, CommandRequest-QueryRequest, чтобы transport не знал про core детали
+- [x] file=src/app/types.py создать: dataclass AppRequest-AppResponse, CommandRequest-QueryRequest, чтобы transport не знал про core детали
 
 - [ ] file=src/core/command_service.py func=dispatch создать: единый сервис команд, принимает CommandRequest, возвращает CommandResult, регистрации команд только здесь
 

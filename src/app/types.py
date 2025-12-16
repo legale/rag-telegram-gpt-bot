@@ -1,7 +1,7 @@
 """Application request/response types for transport layer."""
 
-from dataclasses import dataclass
-from typing import Optional, Dict, Any, List
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
@@ -20,3 +20,22 @@ class AppResponse:
     text: str = ""
     actions: Optional[List[Dict[str, Any]]] = None  # For future use (e.g., send file, edit message)
 
+
+@dataclass
+class CommandRequest:
+    """Parsed command request independent from transport/core implementation details."""
+    user_id: Optional[str] = None
+    chat_id: Optional[str] = None
+    name: str = ""
+    args: List[str] = field(default_factory=list)
+    raw: str = ""
+    meta: Optional[Dict[str, Any]] = None
+
+
+@dataclass
+class QueryRequest:
+    """Non-command query request independent from transport/core implementation details."""
+    user_id: Optional[str] = None
+    chat_id: Optional[str] = None
+    text: str = ""
+    meta: Optional[Dict[str, Any]] = None
