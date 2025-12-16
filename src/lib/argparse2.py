@@ -24,6 +24,43 @@ def _find_unique(prefix: str, names: list[str]) -> str:
     return hits[0]
 
 
+def _parse_options(argv: list[str], opt_table: dict) -> tuple[dict, list[str]]:
+    i = 0
+    opts: dict = {}
+    rest: list[str] = []
+
+    while i < len(argv):
+        tok = argv[i]
+
+        if tok in opt_table:
+            spec = opt_table[tok]
+            if spec.get("arg"):
+                if i + 1 >= len(argv):
+                    raise ValueError(f"missing arg for {tok}")
+                opts[tok] = argv[i + 1]
+                i += 2
+            else:
+                opts[tok] = True
+                i += 1
+            continue
+
+        rest.append(tok)
+        i += 1
+
+    return opts, rest
+
+
+def _parse_commands(argv: list[str]) -> list[str]:
+    return argv
+
+
+def _validate_parsed(opts: dict, args: list[str]) -> None:
+    if not isinstance(opts, dict):
+        raise TypeError("opts must be a dict")
+    if not isinstance(args, list):
+        raise TypeError("args must be a list")
+
+
 def parse(argv: Any, opt_table: dict) -> tuple[dict, list[str]]:
     """
     Parse argv according to opt_table.
@@ -44,28 +81,9 @@ def parse(argv: Any, opt_table: dict) -> tuple[dict, list[str]]:
     else:
         argv = list(argv)
 
-    i = 0
-    opts = {}
-    args = []
-
-    while i < len(argv):
-        tok = argv[i]
-
-        if tok in opt_table:
-            spec = opt_table[tok]
-            if spec.get("arg"):
-                if i + 1 >= len(argv):
-                    raise ValueError(f"missing arg for {tok}")
-                opts[tok] = argv[i + 1]
-                i += 2
-            else:
-                opts[tok] = True
-                i += 1
-            continue
-
-        args.append(tok)
-        i += 1
-
+    opts, rest = _parse_options(argv, opt_table)
+    args = _parse_commands(rest)
+    _validate_parsed(opts, args)
     return opts, args
 
 
