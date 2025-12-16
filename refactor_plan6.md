@@ -224,7 +224,7 @@
 
 - [x] file=src/ingestion/pipeline.py func=_get_llm_client упростить: вынести получение model из config в _get_model_from_config(), создание LLMClient в _create_llm_client()
 
-- [w] file=src/ingestion/pipeline.py func=run_all упростить: использовать список stage функций и вызывать их в цикле вместо явных вызовов
+- [x] file=src/ingestion/pipeline.py func=run_all упростить: использовать список stage функций и вызывать их в цикле вместо явных вызовов
 
 - [x] file=src/bot/tgbot.py func=_register_command_group упростить: использовать словарь для маппинга method_name -> subcommand вместо явных вызовов register()
 
