@@ -278,7 +278,7 @@
 
 - [x] file=src/core/search.py func=search упростить: вынести вычисление query embedding в _compute_query_embedding(), векторный поиск в _perform_vector_search(), обогащение результатами в _enrich_with_messages()
 
-- [x] file=src/core/search.py func=search упростить: вынести фильтрацию по threshold в _filter_by_threshold(), получение chunks по IDs в _get_chunks_by_ids(), построение SearchResult в _build_search_results()
+- [w] file=src/core/search.py func=search упростить: вынести фильтрацию по threshold в _filter_by_threshold(), получение chunks по IDs в _get_chunks_by_ids(), построение SearchResult в _build_search_results()
 
 - [ ] file=src/core/domain.py упростить: добавить методы валидации для domain objects (Message.validate(), Chunk.validate())
 
@@ -352,6 +352,6 @@
 
 - [ ] file=src/core/llm.py class=LLMClient разгрузить: вынести retry-timeouts-backoff в src/core/llm_gateway.py, LLMClient оставить как тонкий HTTP клиент
 
-- [w] file=src/core/embedding.py class=EmbeddingClient разгрузить: вынести выбор local-vs-api в src/app/bootstrap.py, core использует только Embedder интерфейс, никаких if generator=="local" внутри core
+- [x] file=src/core/embedding.py class=EmbeddingClient разгрузить: вынести выбор local-vs-api в src/app/bootstrap.py, core использует только Embedder интерфейс, никаких if generator=="local" внутри core
 
 - [x] file=tests/* добавить: тесты на границы слоев - core use cases тестируются с in-memory фейками интерфейсов, без sqlite-chroma-telethon-fastapi*
