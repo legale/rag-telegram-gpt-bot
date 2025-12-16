@@ -1,7 +1,7 @@
 from typing import List, Dict, Optional, Union, Tuple
 from pathlib import Path
 from src.storage.db import Database
-from src.storage.vector_store import VectorStore
+from src.storage.vector import VectorStore
 from src.core.embedding import EmbeddingClient, LocalEmbeddingClient, create_embedding_client
 from src.core.hybrid_retrieval import HybridRetrievalService
 from src.core.prompt import PromptEngine
@@ -220,21 +220,41 @@ class LegaleBot:
     def chat_history(self):
         """Backward compatibility: access conversation_state.chat_history."""
         return self.conversation_state.chat_history
-    
+
+    @chat_history.setter
+    def chat_history(self, value):
+        """Backward compatibility: allow tests/legacy code to replace chat_history."""
+        self.conversation_state.chat_history = value
+
     @property
     def active_context_chunks(self):
         """Backward compatibility: access conversation_state.active_context_chunks."""
         return self.conversation_state.active_context_chunks
-    
+
+    @active_context_chunks.setter
+    def active_context_chunks(self, value):
+        """Backward compatibility: allow tests/legacy code to replace active_context_chunks."""
+        self.conversation_state.active_context_chunks = value
+
     @property
     def active_context_query(self):
         """Backward compatibility: access conversation_state.active_context_query."""
         return self.conversation_state.active_context_query
-    
+
+    @active_context_query.setter
+    def active_context_query(self, value):
+        """Backward compatibility: allow tests/legacy code to replace active_context_query."""
+        self.conversation_state.active_context_query = value
+
     @property
     def active_context_score(self):
         """Backward compatibility: access conversation_state.active_context_score."""
         return self.conversation_state.active_context_score
+
+    @active_context_score.setter
+    def active_context_score(self, value):
+        """Backward compatibility: allow tests/legacy code to replace active_context_score."""
+        self.conversation_state.active_context_score = value
     
     def _load_available_models(self) -> List[str]:
         """

@@ -4,7 +4,7 @@ Tests for SqliteChunkStore.
 
 import pytest
 from datetime import datetime
-from src.adapters.persistence.sqlite_chunk_store import SqliteChunkStore
+from src.storage.sqlite import SqliteChunkStore
 from src.core.domain import Chunk, TopicUpdate
 from src.storage.db import Database
 

@@ -11,7 +11,17 @@ from fastapi import Request, Response
 from types import SimpleNamespace
 
 from src.bot.tgbot import (
-    MessageHandler,
+    handle_start_command,
+    handle_help_command,
+    handle_reset_command,
+    handle_tokens_command,
+    handle_model_command,
+    handle_admin_set_command,
+    handle_admin_get_command,
+    handle_admin_command,
+    handle_find_command,
+    handle_user_query,
+    route_command,
     _register_command_group,
     _get_profile_paths,
     _create_admin_manager,
@@ -30,9 +40,6 @@ from src.bot.tgbot import (
     _setup_webhook_endpoint,
     create_app,
     is_bot_mentioned,
-    _ensure_required_components,
-    _ensure_handler_available,
-    _handle_public_commands,
     _check_access,
     _extract_mention_text,
     _parse_search_command,
@@ -49,15 +56,15 @@ from src.bot.tgbot import (
     _handle_public_commands_step,
     _check_access_step,
     get_runtime_context,
-    RuntimeContext,
     _determine_response_step,
     _handle_search_mention_step,
     _route_message_step,
-    handle_message
+    handle_message,
+    _handle_public_commands
 )
 
 
-class TestMessageHandler:
+class TestMessageHandling:
     @pytest.fixture
     def mock_bot(self):
         """Mock LegaleBot instance."""
@@ -87,7 +94,7 @@ class TestMessageHandler:
         manager = Mock()
         manager.config = Mock()
         manager.config.current_model = "gpt-4"
-        manager.config.system_prompt = "System prompt"
+        manager.config.get_system_prompt.return_value = "System prompt"
         manager.verify_password.return_value = False
         manager.is_admin.return_value = False
         manager.get_admin.return_value = None
@@ -101,85 +108,88 @@ class TestMessageHandler:
         router.route = AsyncMock(return_value="Admin response")
         return router
 
-    @pytest.fixture
-    def handler(self, mock_bot, mock_admin_manager, mock_admin_router):
-        """Create MessageHandler instance."""
-        return MessageHandler(mock_bot, mock_admin_manager, mock_admin_router)
+    @pytest.fixture(autouse=True)
+    def setup_globals(self, mock_bot, mock_admin_manager, mock_admin_router):
+        """Setup global variables for tests."""
+        with patch("src.bot.tgbot._bot_instance", mock_bot), \
+             patch("src.bot.tgbot._admin_manager", mock_admin_manager), \
+             patch("src.bot.tgbot._admin_router", mock_admin_router):
+            yield
 
     @pytest.mark.asyncio
-    async def test_handle_start_command(self, handler):
+    async def test_handle_start_command(self):
         """Test handling /start command."""
-        result = await handler.handle_start_command()
+        result = await handle_start_command()
         assert "Привет" in result
         assert "/help" in result
 
     @pytest.mark.asyncio
-    async def test_handle_help_command(self, handler):
+    async def test_handle_help_command(self):
         """Test handling /help command."""
-        result = await handler.handle_help_command()
+        result = await handle_help_command()
         assert "команды" in result or "команд" in result
         assert "/start" in result
 
     @pytest.mark.asyncio
-    async def test_handle_reset_command(self, handler, mock_bot):
+    async def test_handle_reset_command(self, mock_bot):
         """Test handling /reset command."""
-        result = await handler.handle_reset_command()
+        result = await handle_reset_command()
         assert result == "Context reset"
         mock_bot.reset_context.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_handle_reset_command_error(self, handler, mock_bot):
+    async def test_handle_reset_command_error(self, mock_bot):
         """Test handling /reset command with error."""
         mock_bot.reset_context.side_effect = Exception("Error")
-        result = await handler.handle_reset_command()
+        result = await handle_reset_command()
         assert "Ошибка" in result
 
     @pytest.mark.asyncio
-    async def test_handle_tokens_command(self, handler, mock_bot):
+    async def test_handle_tokens_command(self, mock_bot):
         """Test handling /tokens command."""
-        result = await handler.handle_tokens_command()
+        result = await handle_tokens_command()
         assert "токенов" in result or "Текущее" in result
         mock_bot.get_token_usage.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_handle_tokens_command_error(self, handler, mock_bot):
+    async def test_handle_tokens_command_error(self, mock_bot):
         """Test handling /tokens command with error."""
         mock_bot.get_token_usage.side_effect = Exception("Error")
-        result = await handler.handle_tokens_command()
+        result = await handle_tokens_command()
         assert "Ошибка" in result
 
     @pytest.mark.asyncio
-    async def test_handle_model_command(self, handler, mock_bot, mock_admin_manager):
+    async def test_handle_model_command(self, mock_bot, mock_admin_manager):
         """Test handling /model command."""
-        result = await handler.handle_model_command()
+        result = await handle_model_command()
         assert "Model" in result or "модель" in result
         mock_bot.get_model.assert_called_once()
         assert mock_admin_manager.config.current_model == "gpt-4"
 
     @pytest.mark.asyncio
-    async def test_handle_model_command_error(self, handler, mock_bot):
+    async def test_handle_model_command_error(self, mock_bot):
         """Test handling /model command with error."""
         mock_bot.get_model.side_effect = Exception("Error")
-        result = await handler.handle_model_command()
+        result = await handle_model_command()
         assert "Ошибка" in result
 
     @pytest.mark.asyncio
-    async def test_handle_admin_set_command_no_manager(self, handler):
+    async def test_handle_admin_set_command_no_manager(self):
         """Test handling /admin_set without admin manager."""
-        handler.admin_manager = None
-        message = Mock()
-        result = await handler.handle_admin_set_command("/admin_set password", message)
-        assert "недоступна" in result
+        with patch("src.bot.tgbot._admin_manager", None):
+            message = Mock()
+            result = await handle_admin_set_command("/admin_set password", message)
+            assert "недоступна" in result
 
     @pytest.mark.asyncio
-    async def test_handle_admin_set_command_invalid_format(self, handler):
+    async def test_handle_admin_set_command_invalid_format(self):
         """Test handling /admin_set with invalid format."""
         message = Mock()
-        result = await handler.handle_admin_set_command("/admin_set", message)
+        result = await handle_admin_set_command("/admin_set", message)
         assert "формат" in result or "Использование" in result
 
     @pytest.mark.asyncio
-    async def test_handle_admin_set_command_success(self, handler, mock_admin_manager):
+    async def test_handle_admin_set_command_success(self, mock_admin_manager):
         """Test handling /admin_set with correct password."""
         mock_admin_manager.verify_password.return_value = True
         message = Mock()
@@ -189,37 +199,37 @@ class TestMessageHandler:
         message.from_user.first_name = "Test"
         message.from_user.last_name = "User"
         
-        result = await handler.handle_admin_set_command("/admin_set password", message)
+        result = await handle_admin_set_command("/admin_set password", message)
         assert "администратором" in result or "успешно" in result
         mock_admin_manager.set_admin.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_handle_admin_set_command_wrong_password(self, handler, mock_admin_manager):
+    async def test_handle_admin_set_command_wrong_password(self, mock_admin_manager):
         """Test handling /admin_set with wrong password."""
         mock_admin_manager.verify_password.return_value = False
         message = Mock()
         message.from_user = Mock()
         message.from_user.id = 123
         
-        result = await handler.handle_admin_set_command("/admin_set wrong", message)
+        result = await handle_admin_set_command("/admin_set wrong", message)
         assert "Неверный пароль" in result or "пароль" in result
 
     @pytest.mark.asyncio
-    async def test_handle_admin_get_command_no_manager(self, handler):
+    async def test_handle_admin_get_command_no_manager(self):
         """Test handling /admin_get without admin manager."""
-        handler.admin_manager = None
-        result = await handler.handle_admin_get_command(123)
-        assert "недоступна" in result
+        with patch("src.bot.tgbot._admin_manager", None):
+            result = await handle_admin_get_command(123)
+            assert "недоступна" in result
 
     @pytest.mark.asyncio
-    async def test_handle_admin_get_command_not_admin(self, handler, mock_admin_manager):
+    async def test_handle_admin_get_command_not_admin(self, mock_admin_manager):
         """Test handling /admin_get when user is not admin."""
         mock_admin_manager.is_admin.return_value = False
-        result = await handler.handle_admin_get_command(123)
+        result = await handle_admin_get_command(123)
         assert "администратор" in result or "доступна" in result
 
     @pytest.mark.asyncio
-    async def test_handle_admin_get_command_success(self, handler, mock_admin_manager):
+    async def test_handle_admin_get_command_success(self, mock_admin_manager):
         """Test handling /admin_get when user is admin."""
         mock_admin_manager.is_admin.return_value = True
         mock_admin_manager.get_admin.return_value = {
@@ -227,90 +237,78 @@ class TestMessageHandler:
             "user_id": 123,
             "username": "testuser"
         }
-        result = await handler.handle_admin_get_command(123)
+        result = await handle_admin_get_command(123)
         assert "Администратор" in result or "администратор" in result
 
     @pytest.mark.asyncio
-    async def test_handle_admin_command(self, handler, mock_admin_router):
+    async def test_handle_admin_command(self, mock_admin_router):
         """Test handling /admin command."""
         update = Mock()
-        result = await handler.handle_admin_command(update)
+        result = await handle_admin_command(update)
         assert result == "Admin response"
         mock_admin_router.route.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_handle_admin_command_no_router(self, handler):
+    async def test_handle_admin_command_no_router(self):
         """Test handling /admin command without router."""
-        handler.admin_router = None
-        update = Mock()
-        result = await handler.handle_admin_command(update)
-        assert "недоступна" in result or "конфигурацию" in result
+        with patch("src.bot.tgbot._admin_router", None):
+            update = Mock()
+            result = await handle_admin_command(update)
+            assert "недоступна" in result or "конфигурацию" in result
 
     @pytest.mark.asyncio
-    async def test_handle_find_command(self, handler):
+    async def test_handle_find_command(self):
         """Test handling /find command."""
-        handler._parse_find_command_args = Mock(return_value=(0.5, "query"))
-        handler._send_find_results = AsyncMock(return_value="")
-        
-        update = Mock()
-        result = await handler.handle_find_command("/find query", update)
-        
-        handler._parse_find_command_args.assert_called_once()
-        handler._send_find_results.assert_called_once()
+        with patch("src.bot.tgbot._parse_find_command_args_helper", return_value=(0.5, "query")), \
+             patch("src.bot.tgbot._send_find_results", new_callable=AsyncMock) as mock_send_results:
+            
+            mock_send_results.return_value = ""
+            update = Mock()
+            result = await handle_find_command("/find query", update)
+            
+            mock_send_results.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_handle_find_command_parse_error(self, handler):
+    async def test_handle_find_command_parse_error(self):
         """Test handling /find command with parse error."""
-        handler._parse_find_command_args = Mock(return_value=(None, "Error message"))
-        
-        update = Mock()
-        result = await handler.handle_find_command("/find", update)
-        
-        assert result == "Error message"
+        with patch("src.bot.tgbot._parse_find_command_args_helper", return_value=(None, "Error message")):
+            update = Mock()
+            result = await handle_find_command("/find", update)
+            assert result == "Error message"
 
     @pytest.mark.asyncio
-    async def test_handle_user_query(self, handler, mock_bot):
+    async def test_handle_user_query(self, mock_bot):
         """Test handling user query."""
-        result = await handler.handle_user_query("test query", respond=True)
+        result = await handle_user_query("test query", respond=True)
         assert result == "Response"
         mock_bot.chat.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_handle_user_query_error(self, handler, mock_bot):
+    async def test_handle_user_query_error(self, mock_bot):
         """Test handling user query with error."""
         mock_bot.chat.side_effect = Exception("Error")
-        result = await handler.handle_user_query("test query", respond=True)
+        result = await handle_user_query("test query", respond=True)
         assert "ошибка" in result or "Ошибка" in result
 
     @pytest.mark.asyncio
-    async def test_route_command(self, handler):
+    async def test_route_command(self):
         """Test routing command."""
-        handler._get_command_and_args = Mock(return_value=("/start", ""))
-        handler.handle_start_command = AsyncMock(return_value="Start response")
-        
-        update = Mock()
-        result = await handler.route_command("/start", update)
-        
-        # Should use CommandDispatcher if available
-        assert result is None or isinstance(result, str)
-
-    def test_get_command_and_args(self, handler):
-        """Test extracting command and args."""
-        command, args = handler._get_command_and_args("/start")
-        assert command == "/start"
-        assert args == ""
-
-    def test_get_command_and_args_with_args(self, handler):
-        """Test extracting command with args."""
-        command, args = handler._get_command_and_args("/find query text")
-        assert command == "/find"
-        assert args == "query text"
-
-    def test_get_command_and_args_no_command(self, handler):
-        """Test extracting from non-command text."""
-        command, args = handler._get_command_and_args("regular text")
-        assert command is None
-        assert args == "regular text"
+        with patch("src.bot.tgbot._get_command_and_args", return_value=("/start", "")), \
+             patch("src.bot.tgbot._command_service", new_callable=Mock) as mock_service:
+            
+            # Since route_command uses handle_command_async from main_cli, we need to mock interactions
+            # Easier to check if it tries to use command_service
+            
+            mock_service.dispatcher = Mock()
+            
+            # Mock handle_command_async to return something we expect
+            with patch("src.app.main_cli.handle_command_async", new_callable=AsyncMock) as mock_handle:
+                mock_handle.return_value = ("Start response", {})
+                
+                update = Mock()
+                result = await route_command("/start", update)
+                
+                assert result == "Start response"
 
 
 class TestUtilityFunctions:
@@ -590,63 +588,6 @@ class TestUtilityFunctions:
             assert reason == "Not allowed"
 
     @pytest.mark.asyncio
-    async def test_ensure_required_components(self):
-        """Test ensuring required components."""
-        admin_manager = Mock()
-        bot_instance = Mock()
-        admin_router = Mock()
-        mock_ctx = Mock()
-        mock_ctx.admin_manager = admin_manager
-        mock_ctx.bot_instance = bot_instance
-        mock_ctx.admin_router = admin_router
-        
-        with patch("src.bot.tgbot.get_runtime_context", return_value=mock_ctx):
-            handler = _ensure_required_components()
-            
-            assert handler is not None
-            assert isinstance(handler, MessageHandler)
-
-    @pytest.mark.asyncio
-    async def test_ensure_required_components_missing(self):
-        """Test ensuring components when missing."""
-        mock_ctx = Mock()
-        mock_ctx.admin_manager = None
-        
-        with patch("src.bot.tgbot.get_runtime_context", return_value=mock_ctx):
-            handler = _ensure_required_components()
-            assert handler is None
-
-    @pytest.mark.asyncio
-    async def test_ensure_handler_available(self):
-        """Test ensuring handler is available."""
-        handler = Mock()
-        handler_func = AsyncMock(return_value="Response")
-        mock_app = Mock()
-        mock_app.bot.send_message = AsyncMock()
-        mock_ctx = Mock()
-        mock_ctx.telegram_app = mock_app
-        
-        with patch("src.bot.tgbot._ensure_required_components", return_value=handler), \
-             patch("src.bot.tgbot.get_runtime_context", return_value=mock_ctx):
-            
-            result = await _ensure_handler_available(handler_func, 123)
-            
-            assert result is True
-            handler_func.assert_called_once()
-            mock_app.bot.send_message.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_ensure_handler_available_no_handler(self):
-        """Test ensuring handler when handler is unavailable."""
-        handler_func = AsyncMock()
-        
-        with patch("src.bot.tgbot._ensure_required_components", return_value=None):
-            result = await _ensure_handler_available(handler_func, 123)
-            
-            assert result is True  # Signal handled by dropping
-            handler_func.assert_not_called()
-
-    @pytest.mark.asyncio
     async def test_handle_public_commands_id(self):
         """Test handling /id command."""
         message = Mock()
@@ -667,26 +608,32 @@ class TestUtilityFunctions:
         """Test handling /help command."""
         message = Mock()
         
-        with patch("src.bot.tgbot._ensure_handler_available", new_callable=AsyncMock) as mock_ensure:
-            mock_ensure.return_value = True
+        with patch("src.bot.tgbot.handle_help_command", new_callable=AsyncMock) as mock_help, \
+             patch("src.bot.tgbot._send_handler_response", new_callable=AsyncMock) as mock_send:
+            
+            mock_help.return_value = "Help text"
             
             result = await _handle_public_commands(message, "/help", 456)
             
             assert result is True
-            mock_ensure.assert_called_once()
+            mock_help.assert_called_once()
+            mock_send.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_handle_public_commands_admin_set(self):
         """Test handling /admin_set command."""
         message = Mock()
         
-        with patch("src.bot.tgbot._ensure_handler_available", new_callable=AsyncMock) as mock_ensure:
-            mock_ensure.return_value = True
+        with patch("src.bot.tgbot.handle_admin_set_command", new_callable=AsyncMock) as mock_set, \
+             patch("src.bot.tgbot._send_handler_response", new_callable=AsyncMock) as mock_send:
+            
+            mock_set.return_value = "Success"
             
             result = await _handle_public_commands(message, "/admin_set password", 456)
             
             assert result is True
-            mock_ensure.assert_called_once()
+            mock_set.assert_called_once()
+            mock_send.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_handle_public_commands_not_public(self):
@@ -753,48 +700,50 @@ class TestUtilityFunctions:
     @pytest.mark.asyncio
     async def test_process_command_message(self):
         """Test processing command message."""
-        handler = Mock()
-        handler.route_command = AsyncMock(return_value=None)
-        handler.handle_user_query = AsyncMock(return_value="Response")
-        
-        update = Mock()
-        
-        result = await _process_command_message("/unknown", update, handler, True)
-        
-        assert result == "Response"
-        handler.handle_user_query.assert_called_once()
+        with patch("src.bot.tgbot.route_command", new_callable=AsyncMock) as mock_route, \
+             patch("src.bot.tgbot.handle_user_query", new_callable=AsyncMock) as mock_query:
+            
+            mock_route.return_value = None
+            mock_query.return_value = "Response"
+            
+            update = Mock()
+            
+            result = await _process_command_message("/unknown", update, True)
+            
+            assert result == "Response"
+            mock_query.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_process_regular_message(self):
         """Test processing regular message."""
-        handler = Mock()
-        handler.handle_user_query = AsyncMock(return_value="Response")
-        
-        config = Mock()
-        config.response_frequency = 1
-        
-        with patch("src.bot.tgbot._should_ignore_message", new_callable=AsyncMock) as mock_ignore:
-            mock_ignore.return_value = False
+        with patch("src.bot.tgbot.handle_user_query", new_callable=AsyncMock) as mock_query:
+            mock_query.return_value = "Response"
             
-            result = await _process_regular_message("text", handler, True, config, 123)
+            config = Mock()
+            config.response_frequency = 1
             
-            assert result == "Response"
-            handler.handle_user_query.assert_called_once()
+            with patch("src.bot.tgbot._should_ignore_message", new_callable=AsyncMock) as mock_ignore:
+                mock_ignore.return_value = False
+                
+                result = await _process_regular_message("text", True, config, 123)
+                
+                assert result == "Response"
+                mock_query.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_process_regular_message_ignored(self):
         """Test processing regular message that should be ignored."""
-        handler = Mock()
-        config = Mock()
-        config.response_frequency = 0
-        
-        with patch("src.bot.tgbot._should_ignore_message", new_callable=AsyncMock) as mock_ignore:
-            mock_ignore.return_value = True
+        with patch("src.bot.tgbot.handle_user_query", new_callable=AsyncMock) as mock_query:
+            config = Mock()
+            config.response_frequency = 0
             
-            result = await _process_regular_message("text", handler, False, config, 123)
-            
-            assert result is None
-            handler.handle_user_query.assert_not_called()
+            with patch("src.bot.tgbot._should_ignore_message", new_callable=AsyncMock) as mock_ignore:
+                mock_ignore.return_value = True
+                
+                result = await _process_regular_message("text", False, config, 123)
+                
+                assert result is None
+                mock_query.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_handle_search_mention(self):

@@ -5,7 +5,7 @@ import sqlite3
 from unittest.mock import Mock, patch
 from sqlalchemy import text
 
-from src.adapters.persistence.sqlite_fts_index import SqliteFTSIndex
+from src.storage.sqlite import SqliteFTSIndex
 from src.storage.db import Database
 from src.core.interfaces import SearchFilters
 

@@ -2,17 +2,18 @@
 Pytest configuration and fixtures.
 """
 import pytest
-import tempfile
-import os
 from pathlib import Path
 
 
 @pytest.fixture(scope="session")
 def tmp_path_factory():
-    """Override tmp_path_factory to use /tmp directory."""
-    # Create a base temp directory in /tmp for this test session
-    base_tmp = Path("/tmp") / "legale_bot_tests"
-    base_tmp.mkdir(exist_ok=True)
+    """
+    Override tmp_path_factory to use a workspace-local directory.
+
+    This repo runs in sandboxed environments where writing to /tmp may be restricted.
+    """
+    base_tmp = Path(__file__).resolve().parent.parent / ".pytest_tmp"
+    base_tmp.mkdir(parents=True, exist_ok=True)
     
     # Cleanup function
     def cleanup():
@@ -26,12 +27,12 @@ def tmp_path_factory():
 
 @pytest.fixture
 def tmp_path(tmp_path_factory):
-    """Override tmp_path fixture to use /tmp directory."""
+    """Override tmp_path fixture to use workspace-local temp directory."""
     import tempfile
     import shutil
     
-    # Create a unique temporary directory in /tmp
-    temp_dir = tempfile.mkdtemp(prefix="pytest_", dir="/tmp")
+    # Create a unique temporary directory under the base temp directory
+    temp_dir = tempfile.mkdtemp(prefix="pytest_", dir=str(tmp_path_factory))
     path = Path(temp_dir)
     
     yield path
@@ -39,4 +40,3 @@ def tmp_path(tmp_path_factory):
     # Cleanup
     if path.exists():
         shutil.rmtree(path, ignore_errors=True)
-

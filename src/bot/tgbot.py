@@ -49,33 +49,35 @@ load_dotenv()
 logger = logging.getLogger("legale_tgbot")
 
 
-class RuntimeContext:
-    """Runtime context for storing bot state and dependencies."""
-    
-    def __init__(self):
-        self.bot_instance: Optional[LegaleBot] = None
-        self.telegram_app: Optional[Application] = None
-        self.admin_manager: Optional[AdminManager] = None
-        self.admin_router: Optional[AdminCommandRouter] = None
-        self.profile_manager = None  # Will be initialized in lifespan
-        self.task_manager: Optional[TaskManager] = None
-        self.ingest_commands: Optional[IngestCommands] = None
-        self.command_service = None  # CommandService instance
-        self.access_control: Optional[AccessControlService] = None
-        self.frequency_controller: FrequencyController = FrequencyController()
-        self.debug_rag_mode: bool = False
+# Global state variables
+_bot_instance: Optional[LegaleBot] = None
+_telegram_app: Optional[Application] = None
+_admin_manager: Optional[AdminManager] = None
+_admin_router: Optional[AdminCommandRouter] = None
+_profile_manager = None
+_task_manager: Optional[TaskManager] = None
+_ingest_commands: Optional[IngestCommands] = None
+_command_service = None
+_access_control: Optional[AccessControlService] = None
+_frequency_controller: FrequencyController = FrequencyController()
+_debug_rag_mode: bool = False
 
 
-# Global runtime context (replaces individual global variables)
-_runtime_context: Optional[RuntimeContext] = None
-
-
-def get_runtime_context() -> RuntimeContext:
-    """Get the global runtime context."""
-    global _runtime_context
-    if _runtime_context is None:
-        _runtime_context = RuntimeContext()
-    return _runtime_context
+def get_runtime_context():
+    """Get the global runtime context (shim)."""
+    ctx = SimpleNamespace()
+    ctx.bot_instance = _bot_instance
+    ctx.telegram_app = _telegram_app
+    ctx.admin_manager = _admin_manager
+    ctx.admin_router = _admin_router
+    ctx.profile_manager = _profile_manager
+    ctx.task_manager = _task_manager
+    ctx.ingest_commands = _ingest_commands
+    ctx.command_service = _command_service
+    ctx.access_control = _access_control
+    ctx.frequency_controller = _frequency_controller
+    ctx.debug_rag_mode = _debug_rag_mode
+    return ctx
 
 
 # Backward compatibility: expose global variables as properties
@@ -120,401 +122,362 @@ def _set_debug_rag_mode(value: bool) -> None:
     get_runtime_context().debug_rag_mode = value
 
 
-class MessageHandler:
-    """Handles message routing and command processing."""
-    
-    def __init__(self, bot_instance, admin_manager, admin_router, ctx: Optional[RuntimeContext] = None):
-        self.bot = bot_instance
-        self.admin_manager = admin_manager
-        self.admin_router = admin_router
-        if ctx is None:
-            ctx = RuntimeContext()
-            ctx.bot_instance = bot_instance
-            ctx.admin_manager = admin_manager
-            ctx.admin_router = admin_router
-        self.ctx = ctx
-    
-    async def handle_start_command(self) -> str:
-        """Handle /start command."""
-        return (
-            "Привет!\n\n"
-            "Используйте /help для справки."
-        )
-    
-    async def handle_help_command(self) -> str:
-        """Handle /help command."""
-        return (
-            "Я анализирую историю чата и отвечаю на вопросы.\n\n"
-            "Доступные команды:\n"
-            "• /start — приветствие\n"
-            "• /help — эта справка\n"
-            "• /reset — сбросить контекст разговора\n"
-            "• /tokens — показать использование токенов\n"
-            "• /model — переключить модель LLM\n"
-            "• /find <запрос> — поиск сообщений по запросу\n"
-            "• /admin_set <пароль> — назначить себя администратором\n"
-            "• /admin_get — показать информацию об администраторе (только для админа)\n"
-            "• /admin — панель администратора (только для админа)\n"
-            "• /id — показать ID текущего чата\n\n"
-            "Просто напишите свой вопрос!"
-        )
-    
-    async def handle_reset_command(self) -> str:
-        """Handle /reset command."""
-        try:
-            return self.bot.reset_context()
-        except Exception as e:
-            return ErrorHandler.handle_error_static(e, "сбросе контекста", user_message="Ошибка при сбросе контекста.")
-    
-    async def handle_tokens_command(self) -> str:
-        """Handle /tokens command."""
-        try:
-            usage = self.bot.get_token_usage()
-            response = (
-                f"Использование токенов:\n\n"
-                f"Текущее: {usage['current_tokens']:,}\n"
-                f"Максимум: {usage['max_tokens']:,}\n"
-                f"Использовано: {usage['percentage']}%\n\n"
-            )
-            if usage["percentage"] > 80:
-                response += "Приближаетесь к лимиту! Используйте /reset для сброса."
-            elif usage["percentage"] > 50:
-                response += "Контекст заполнен наполовину."
-            else:
-                response += "Достаточно места для разговора."
-            return response
-        except Exception as e:
-            return ErrorHandler.handle_error_static(e, "получении информации о токенах", user_message="Ошибка при получении информации о токенах.")
-    
-    async def handle_model_command(self) -> str:
-        """Handle /model command."""
-        try:
-            msg = self.bot.get_model()
-            # Save new model to config
-            if self.admin_manager:
-                self.admin_manager.config.current_model = self.bot.current_model_name
-            return msg
-        except Exception as e:
-            return ErrorHandler.handle_error_static(e, "переключении модели", user_message="Ошибка при переключении модели.")
-    
-    async def handle_admin_set_command(self, text: str, message) -> str:
-        """Handle /admin_set command."""
-        if not self.admin_manager:
-            return "Система администрирования недоступна. Установите ADMIN_PASSWORD в .env файле."
-        
-        parts = text.split(maxsplit=1)
-        if len(parts) < 2:
-            return (
-                "Неверный формат команды.\n\n"
-                "Использование: /admin_set <пароль>\n\n"
-                "Пример: /admin_set my_secret_password"
-            )
-        
-        password = parts[1].strip()
-        
-        if self.admin_manager.verify_password(password):
-            user = message.from_user
-            user_id = user.id
-            username = user.username or "unknown"
-            first_name = user.first_name or "Unknown"
-            last_name = user.last_name
-            
-            try:
-                self.admin_manager.set_admin(user_id, username, first_name, last_name)
-                full_name = f"{first_name} {last_name}".strip() if last_name else first_name
-                syslog2(LOG_NOTICE, "admin set", full_name=full_name, user_id=user_id)
-                return (
-                    f"Вы успешно назначены администратором!\n\n"
-                    f"Имя: {full_name}\n"
-                    f"🆔 ID: {user_id}\n"
-                    f"Username: @{username}"
-                )
-            except Exception as e:
-                return ErrorHandler.handle_error_static(e, "назначении администратора", user_message="Ошибка при назначении администратора.")
-        else:
-            syslog2(LOG_WARNING, "failed admin set attempt", user_id=message.from_user.id)
-            return "Неверный пароль."
-    
-    async def handle_admin_get_command(self, user_id: int) -> str:
-        """Handle /admin_get command."""
-        if not self.admin_manager:
-            return "Система администрирования недоступна."
-        
-        if not self.admin_manager.is_admin(user_id):
-            syslog2(LOG_WARNING, "unauthorized admin get attempt", user_id=user_id)
-            return "Эта команда доступна только администратору."
-        
-        admin_info = self.admin_manager.get_admin()
-        if admin_info:
-            return (
-                f"Администратор бота:\n\n"
-                f"Имя: {admin_info['full_name']}\n"
-                f"ID: {admin_info['user_id']}\n"
-                f"Username: @{admin_info['username']}"
-            )
-        else:
-            return "Администратор не назначен."
-    
-    async def handle_admin_command(self, update: Update) -> str:
-        """Handle /admin command."""
-        if not self.admin_router:
-            return "Админ-панель недоступна. Проверьте конфигурацию бота."
-        
-        try:
-            return await self.admin_router.route(update, None, self.admin_manager)
-        except Exception as e:
-            return ErrorHandler.handle_error_static(e, "выполнении админ-команды", user_message=f"Ошибка при выполнении админ-команды: {e}")
-    
-    def _parse_find_command_args(self, text: str) -> Tuple[Optional[float], Optional[str]]:
-        """
-        Parse find command arguments (threshold and query).
-        
-        Args:
-            text: Command text (e.g., "/find 2.0 vpn туннель" or "/find vpn туннель")
-            
-        Returns:
-            Tuple of (threshold, query) or (None, error_message)
-            threshold uses config default if not specified
-        """
-        return parse_find_args_common(text, admin_manager=self.admin_manager)
-    
-    async def _send_find_results(self, update: Update, search_query: str, threshold: float) -> Optional[str]:
-        """
-        Execute simple search in embeddings and send results filtered by cosine distance threshold.
-        
-        Args:
-            update: Telegram update object
-            search_query: Search query string
-            threshold: Cosine distance threshold (filter results with distance <= threshold)
-            
-        Returns:
-            Error message if failed, None or empty string if successful
-        """
-        try:
-            # get db from bot instance
-            db = self.bot.db
-            
-            # Get debug_rag from runtime context
-            debug_rag_mode = _get_debug_rag_mode()
-            
-            # Get profile paths for creating HybridSearch
-            paths = _get_profile_paths(self.ctx)
-            profile_dir = str(paths['profile_dir'])
-            
-            # Create HybridSearch use case via bootstrap
-            from src.app.bootstrap import create_hybrid_search
-            hybrid_search = create_hybrid_search(
-                db_url=paths["db_url"],
-                vector_db_path=str(paths["vector_db_path"]),
-                embedding_client=self.bot.embedding_client,
-                profile_dir=profile_dir
-            )
-            
-            # Convert threshold from distance to similarity score (threshold is distance, score = 1 - distance)
-            similarity_threshold = 1.0 - threshold if threshold <= 1.0 else 0.0
-            
-            # Perform search using HybridSearch
-            search_results = hybrid_search.search(
-                query=search_query,
-                top_k=100,
-                threshold=similarity_threshold,
-                enrich_with_messages=False  # We'll get messages from DB separately
-            )
-            
-            if not search_results:
-                return f'по запросу "{search_query}" ничего не найдено (distance <= {threshold})'
-            
-            # Convert SearchResult objects to dict format
-            from src.core.message_search import convert_search_results_to_dict, _prepare_message_parts_from_results
-            filtered_results = convert_search_results_to_dict(search_results)
-            
-            # Prepare message parts from filtered results
-            message_parts_list = _prepare_message_parts_from_results(db, filtered_results, debug_rag_mode)
-            
-            if not message_parts_list:
-                return f'по запросу "{search_query}" ничего не найдено'
-            
-            # send each message part as separate message
-            chat_id = update.message.chat_id
-            total_parts = await _send_message_parts_unified(
-                chat_id=chat_id,
-                message_parts_list=message_parts_list,
-                log_context={
-                    "query": search_query,
-                    "threshold": threshold,
-                    "chunks_found": len(filtered_results),
-                }
-            )
-            
-            syslog2(
-                LOG_ALERT,
-                "find command response sent",
-                chat_id=chat_id,
-                query=search_query,
-                threshold=threshold,
-                chunks_found=len(filtered_results),
-                messages=len(message_parts_list),
-                parts=total_parts,
-            )
-            # return empty string to signal "handled, but ничего не слать отдельно"
-            return ""
-        except Exception as e:
-            return ErrorHandler.handle_error_static(e, "выполнении поиска", user_message=f"Ошибка при выполнении поиска: {e}")
-    
-    async def handle_find_command(self, text: str, update: Update) -> Optional[str]:
-        """Handle /find command."""
-        syslog2(LOG_ALERT, "handle_find_command", text=text)
-        
-        # Parse arguments
-        threshold, result = self._parse_find_command_args(text)
-        if threshold is None:
-            return result  # result is error message
-        
-        # Send results
-        return await self._send_find_results(update, result, threshold)
+async def handle_start_command() -> str:
+    """Handle /start command."""
+    return (
+        "Привет!\n\n"
+        "Используйте /help для справки."
+    )
 
+
+async def handle_help_command() -> str:
+    """Handle /help command."""
+    return (
+        "Я анализирую историю чата и отвечаю на вопросы.\n\n"
+        "Доступные команды:\n"
+        "• /start — приветствие\n"
+        "• /help — эта справка\n"
+        "• /reset — сбросить контекст разговора\n"
+        "• /tokens — показать использование токенов\n"
+        "• /model — переключить модель LLM\n"
+        "• /find <запрос> — поиск сообщений по запросу\n"
+        "• /admin_set <пароль> — назначить себя администратором\n"
+        "• /admin_get — показать информацию об администраторе (только для админа)\n"
+        "• /admin — панель администратора (только для админа)\n"
+        "• /id — показать ID текущего чата\n\n"
+        "Просто напишите свой вопрос!"
+    )
+
+
+async def handle_reset_command() -> str:
+    """Handle /reset command."""
+    try:
+        return _bot_instance.reset_context()
+    except Exception as e:
+        return ErrorHandler.handle_error_static(e, "сбросе контекста", user_message="Ошибка при сбросе контекста.")
+
+
+async def handle_tokens_command() -> str:
+    """Handle /tokens command."""
+    try:
+        usage = _bot_instance.get_token_usage()
+        response = (
+            f"Использование токенов:\n\n"
+            f"Текущее: {usage['current_tokens']:,}\n"
+            f"Максимум: {usage['max_tokens']:,}\n"
+            f"Использовано: {usage['percentage']}%\n\n"
+        )
+        if usage["percentage"] > 80:
+            response += "Приближаетесь к лимиту! Используйте /reset для сброса."
+        elif usage["percentage"] > 50:
+            response += "Контекст заполнен наполовину."
+        else:
+            response += "Достаточно места для разговора."
+        return response
+    except Exception as e:
+        return ErrorHandler.handle_error_static(e, "получении информации о токенах", user_message="Ошибка при получении информации о токенах.")
+
+
+async def handle_model_command() -> str:
+    """Handle /model command."""
+    try:
+        msg = _bot_instance.get_model()
+        # Save new model to config
+        if _admin_manager:
+            _admin_manager.config.current_model = _bot_instance.current_model_name
+        return msg
+    except Exception as e:
+        return ErrorHandler.handle_error_static(e, "переключении модели", user_message="Ошибка при переключении модели.")
+
+
+async def handle_admin_set_command(text: str, message) -> str:
+    """Handle /admin_set command."""
+    if not _admin_manager:
+        return "Система администрирования недоступна. Установите ADMIN_PASSWORD в .env файле."
     
-    def _prepare_system_prompt(self) -> str:
-        """
-        Get system prompt from config.
-        
-        Returns:
-            System prompt template string
-        """
-        return self.admin_manager.config.get_system_prompt()
+    parts = text.split(maxsplit=1)
+    if len(parts) < 2:
+        return (
+            "Неверный формат команды.\n\n"
+            "Использование: /admin_set <пароль>\n\n"
+            "Пример: /admin_set my_secret_password"
+        )
     
-    def _print_rag_debug_info(self, text: str, n_results: int = 3) -> None:
-        """
-        Print RAG debug information (chunks, prompts, token count).
-        
-        Args:
-            text: User query text
-            n_results: Number of chunks to show
-        """
-        debug_rag_mode = _get_debug_rag_mode()
-        if not debug_rag_mode:
-            return
-        
-        debug_info = self.bot.get_rag_debug_info(text, n_results=n_results)
-        print("\n" + "=" * 70)
-        print("RAG DEBUG INFO")
-        print("=" * 70)
-        print(f"\nRetrieved Chunks: {len(debug_info['chunks'])}")
-        for i, chunk in enumerate(debug_info['chunks'], 1):
-            print(f"\n--- Chunk {i} (score: {chunk.get('score', 'N/A'):.3f}, source: {chunk.get('source', 'unknown')}) ---")
-            meta = chunk.get('metadata', {})
-            if meta.get('topic_l2_title'):
-                print(f"Category: {meta['topic_l2_title']}")
-            if meta.get('topic_l1_title'):
-                print(f"Topic: {meta['topic_l1_title']}")
-            print(f"Text preview: {chunk['text'][:200]}...")
-            if len(chunk['text']) > 200:
-                print(f"  (full length: {len(chunk['text'])} chars)")
-        print("\n" + "-" * 70)
-        print(f"System Prompt ({len(debug_info['prompt'])} chars):")
-        print("-" * 70)
-        print(debug_info['prompt'])
-        print("-" * 70)
-        print(f"\nUser Prompt ({len(text)} chars):")
-        print("-" * 70)
-        print(text)
-        print("-" * 70)
-        print(f"\nToken count: {debug_info.get('token_count', 'N/A')}")
-        print("=" * 70 + "\n")
+    password = parts[1].strip()
     
-    async def handle_user_query(self, text: str, respond: bool) -> str:
-        """Handle regular user query to bot."""
-        syslog2(LOG_ALERT, "handle_user_query", text=text)
+    if _admin_manager.verify_password(password):
+        user = message.from_user
+        user_id = user.id
+        username = user.username or "unknown"
+        first_name = user.first_name or "Unknown"
+        last_name = user.last_name
+        
         try:
-            # Prepare system prompt
-            system_prompt_template = self._prepare_system_prompt()
-            
-            # Debug RAG mode - show retrieved chunks and prompts
-            debug_rag_mode = _get_debug_rag_mode()
-            if debug_rag_mode and respond:
-                self._print_rag_debug_info(text, n_results=3)
-            
-            return self.bot.chat(text, respond=respond, system_prompt_template=system_prompt_template)
+            _admin_manager.set_admin(user_id, username, first_name, last_name)
+            full_name = f"{first_name} {last_name}".strip() if last_name else first_name
+            syslog2(LOG_NOTICE, "admin set", full_name=full_name, user_id=user_id)
+            return (
+                f"Вы успешно назначены администратором!\n\n"
+                f"Имя: {full_name}\n"
+                f"🆔 ID: {user_id}\n"
+                f"Username: @{username}"
+            )
         except Exception as e:
-            return ErrorHandler.handle_error_static(e, "обработке вашего запроса", user_message=f"Произошла ошибка при обработке вашего запроса. error={e}")
+            return ErrorHandler.handle_error_static(e, "назначении администратора", user_message="Ошибка при назначении администратора.")
+    else:
+        syslog2(LOG_WARNING, "failed admin set attempt", user_id=message.from_user.id)
+        return "Неверный пароль."
+
+
+async def handle_admin_get_command(user_id: int) -> str:
+    """Handle /admin_get command."""
+    if not _admin_manager:
+        return "Система администрирования недоступна."
     
-    def _get_command_and_args(self, text: str) -> Tuple[Optional[str], str]:
-        """
-        Extract command and arguments from text.
-        
-        Args:
-            text: Command text
-            
-        Returns:
-            Tuple of (command, remaining_text)
-        """
-        from src.app.main_cli import parse_command
-        return parse_command(text)
+    if not _admin_manager.is_admin(user_id):
+        syslog2(LOG_WARNING, "unauthorized admin get attempt", user_id=user_id)
+        return "Эта команда доступна только администратору."
     
-    async def route_command(self, text: str, update: Update) -> Optional[str]:
-        """Route command to appropriate handler using CommandDispatcher."""
-        syslog2(LOG_ALERT, "route_command", text=text)
+    admin_info = _admin_manager.get_admin()
+    if admin_info:
+        return (
+            f"Администратор бота:\n\n"
+            f"Имя: {admin_info['full_name']}\n"
+            f"ID: {admin_info['user_id']}\n"
+            f"Username: @{admin_info['username']}"
+        )
+    else:
+        return "Администратор не назначен."
+
+
+async def handle_admin_command(update: Update) -> str:
+    """Handle /admin command."""
+    if not _admin_router:
+        return "Админ-панель недоступна. Проверьте конфигурацию бота."
+    
+    try:
+        return await _admin_router.route(update, None, _admin_manager)
+    except Exception as e:
+        return ErrorHandler.handle_error_static(e, "выполнении админ-команды", user_message=f"Ошибка при выполнении админ-команды: {e}")
+
+
+def _parse_find_command_args_helper(text: str) -> Tuple[Optional[float], Optional[str]]:
+    """Parse find command arguments."""
+    return parse_find_args_common(text, admin_manager=_admin_manager)
+
+
+async def _send_find_results(update: Update, search_query: str, threshold: float) -> Optional[str]:
+    """Execute search and send results."""
+    try:
+        # get db from bot instance
+        db = _bot_instance.db
         
-        # Use CommandService if available
-        command_service = _get_command_service()
-        if command_service:
-            from src.app.main_cli import handle_command_async
-            message = update.message
-            user_id = str(message.from_user.id) if message.from_user else None
-            chat_id = str(message.chat_id) if message.chat_id else None
-            
-            # Create metadata for context
-            metadata = {
-                "update": update,
-                "message": message,
-                "admin_manager": self.admin_manager,
-                "admin_router": self.admin_router
+        # Get debug_rag from global
+        debug_rag_mode = _debug_rag_mode
+        
+        # Get profile paths
+        paths = _get_profile_paths()
+        profile_dir = str(paths['profile_dir'])
+        
+        # Create HybridSearch use case via bootstrap
+        from src.app.bootstrap import create_hybrid_search
+        hybrid_search = create_hybrid_search(
+            db_url=paths["db_url"],
+            vector_db_path=str(paths["vector_db_path"]),
+            embedding_client=_bot_instance.embedding_client,
+            profile_dir=profile_dir
+        )
+        
+        # Convert threshold from distance to similarity score
+        similarity_threshold = 1.0 - threshold if threshold <= 1.0 else 0.0
+        
+        # Perform search
+        search_results = hybrid_search.search(
+            query=search_query,
+            top_k=100,
+            threshold=similarity_threshold,
+            enrich_with_messages=False
+        )
+        
+        if not search_results:
+            return f'по запросу "{search_query}" ничего не найдено (distance <= {threshold})'
+        
+        # Convert SearchResult objects to dict format
+        from src.core.message_search import convert_search_results_to_dict, _prepare_message_parts_from_results
+        filtered_results = convert_search_results_to_dict(search_results)
+        
+        # Prepare message parts
+        message_parts_list = _prepare_message_parts_from_results(db, filtered_results, debug_rag_mode)
+        
+        if not message_parts_list:
+            return f'по запросу "{search_query}" ничего не найдено'
+        
+        # send each message part as separate message
+        chat_id = update.message.chat_id
+        total_parts = await _send_message_parts_unified(
+            chat_id=chat_id,
+            message_parts_list=message_parts_list,
+            log_context={
+                "query": search_query,
+                "threshold": threshold,
+                "chunks_found": len(filtered_results),
             }
-            
-            # Handle command using unified async handler
-            result_message, result_data = await handle_command_async(
-                command=text,
-                dispatcher=command_service.dispatcher,
-                user_id=user_id,
-                chat_id=chat_id,
-                metadata=metadata
-            )
-            
-            if result_message is not None:
-                # Check if result needs special formatting (find command)
-                if result_data and result_data.get("needs_formatting"):
-                    # Send formatted search results
-                    message_parts_list = result_data.get("message_parts_list", [])
-                    query = result_data.get("query", "")
-                    rag_method = result_data.get("rag_method", "hybrid")
-                    chat_id = update.message.chat_id
-                    
-                    total_parts = await _send_message_parts_unified(
-                        chat_id=chat_id,
-                        message_parts_list=message_parts_list,
-                        empty_message=f'по запросу "{query}" ничего не найдено (метод: {rag_method})',
-                        log_context={
-                            "query": query,
-                            "rag_method": rag_method,
-                            "results_count": len(message_parts_list),
-                        }
-                    )
-                    
-                    syslog2(
-                        LOG_ALERT,
-                        "find command response sent",
-                        chat_id=chat_id,
-                        query=query,
-                        rag_method=rag_method,
-                        results_count=len(message_parts_list),
-                        parts=total_parts,
-                    )
-                    return ""  # Empty string to signal "handled, but ничего не слать отдельно"
-                
-                return result_message
+        )
         
-        return None  # Not a recognized command
+        syslog2(
+            LOG_ALERT,
+            "find command response sent",
+            chat_id=chat_id,
+            query=search_query,
+            threshold=threshold,
+            chunks_found=len(filtered_results),
+            messages=len(message_parts_list),
+            parts=total_parts,
+        )
+        # return empty string to signal "handled"
+        return ""
+    except Exception as e:
+        return ErrorHandler.handle_error_static(e, "выполнении поиска", user_message=f"Ошибка при выполнении поиска: {e}")
 
+
+async def handle_find_command(text: str, update: Update) -> Optional[str]:
+    """Handle /find command."""
+    syslog2(LOG_ALERT, "handle_find_command", text=text)
+    
+    # Parse arguments
+    threshold, result = _parse_find_command_args_helper(text)
+    if threshold is None:
+        return result  # result is error message
+    
+    # Send results
+    return await _send_find_results(update, result, threshold)
+
+
+def _prepare_system_prompt() -> str:
+    """Get system prompt from config."""
+    return _admin_manager.config.get_system_prompt()
+
+
+def _print_rag_debug_info(text: str, n_results: int = 3) -> None:
+    """Print RAG debug information."""
+    debug_rag_mode = _debug_rag_mode
+    if not debug_rag_mode:
+        return
+    
+    debug_info = _bot_instance.get_rag_debug_info(text, n_results=n_results)
+    print("\n" + "=" * 70)
+    print("RAG DEBUG INFO")
+    print("=" * 70)
+    print(f"\nRetrieved Chunks: {len(debug_info['chunks'])}")
+    for i, chunk in enumerate(debug_info['chunks'], 1):
+        print(f"\n--- Chunk {i} (score: {chunk.get('score', 'N/A'):.3f}, source: {chunk.get('source', 'unknown')}) ---")
+        meta = chunk.get('metadata', {})
+        if meta.get('topic_l2_title'):
+            print(f"Category: {meta['topic_l2_title']}")
+        if meta.get('topic_l1_title'):
+            print(f"Topic: {meta['topic_l1_title']}")
+        print(f"Text preview: {chunk['text'][:200]}...")
+        if len(chunk['text']) > 200:
+            print(f"  (full length: {len(chunk['text'])} chars)")
+    print("\n" + "-" * 70)
+    print(f"System Prompt ({len(debug_info['prompt'])} chars):")
+    print("-" * 70)
+    print(debug_info['prompt'])
+    print("-" * 70)
+    print(f"\nUser Prompt ({len(text)} chars):")
+    print("-" * 70)
+    print(text)
+    print("-" * 70)
+    print(f"\nToken count: {debug_info.get('token_count', 'N/A')}")
+    print("=" * 70 + "\n")
+
+
+async def handle_user_query(text: str, respond: bool) -> str:
+    """Handle regular user query to bot."""
+    syslog2(LOG_ALERT, "handle_user_query", text=text)
+    try:
+        # Prepare system prompt
+        system_prompt_template = _prepare_system_prompt()
+        
+        # Debug RAG mode
+        debug_rag_mode = _debug_rag_mode
+        if debug_rag_mode and respond:
+            _print_rag_debug_info(text, n_results=3)
+        
+        return _bot_instance.chat(text, respond=respond, system_prompt_template=system_prompt_template)
+    except Exception as e:
+        return ErrorHandler.handle_error_static(e, "обработке вашего запроса", user_message=f"Произошла ошибка при обработке вашего запроса. error={e}")
+
+
+def _get_command_and_args(text: str) -> Tuple[Optional[str], str]:
+    """Extract command and arguments from text."""
+    from src.app.main_cli import parse_command
+    return parse_command(text)
+
+
+async def route_command(text: str, update: Update) -> Optional[str]:
+    """Route command to appropriate handler using CommandDispatcher."""
+    syslog2(LOG_ALERT, "route_command", text=text)
+    
+    # Use CommandService if available
+    command_service = _command_service
+    if command_service:
+        from src.app.main_cli import handle_command_async
+        message = update.message
+        user_id = str(message.from_user.id) if message.from_user else None
+        chat_id = str(message.chat_id) if message.chat_id else None
+        
+        # Create metadata for context
+        metadata = {
+            "update": update,
+            "message": message,
+            "admin_manager": _admin_manager,
+            "admin_router": _admin_router
+        }
+        
+        # Handle command using unified async handler
+        result_message, result_data = await handle_command_async(
+            command=text,
+            dispatcher=command_service.dispatcher,
+            user_id=user_id,
+            chat_id=chat_id,
+            metadata=metadata
+        )
+        
+        if result_message is not None:
+            # Check if result needs special formatting (find command)
+            if result_data and result_data.get("needs_formatting"):
+                # Send formatted search results
+                message_parts_list = result_data.get("message_parts_list", [])
+                query = result_data.get("query", "")
+                rag_method = result_data.get("rag_method", "hybrid")
+                chat_id = update.message.chat_id
+                
+                total_parts = await _send_message_parts_unified(
+                    chat_id=chat_id,
+                    message_parts_list=message_parts_list,
+                    empty_message=f'по запросу "{query}" ничего не найдено (метод: {rag_method})',
+                    log_context={
+                        "query": query,
+                        "rag_method": rag_method,
+                        "results_count": len(message_parts_list),
+                    }
+                )
+                
+                syslog2(
+                    LOG_ALERT,
+                    "find command response sent",
+                    chat_id=chat_id,
+                    query=query,
+                    rag_method=rag_method,
+                    results_count=len(message_parts_list),
+                    parts=total_parts,
+                )
+                return ""  # Empty string to signal "handled"
+            
+            return result_message
+    
+    return None  # Not a recognized command
 
 def _register_command_group(
     router: AdminCommandRouter,
@@ -541,12 +504,12 @@ def _register_command_group(
             router.register(group_name, method)
 
 
-def _get_profile_paths(ctx: Optional[RuntimeContext] = None) -> Dict:
+def _get_profile_paths(ctx: Optional[SimpleNamespace] = None) -> Dict:
     """
     Get profile paths for current active profile.
     
     Args:
-        ctx: RuntimeContext instance
+        ctx: SimpleNamespace instance
         
     Returns:
         Dictionary with profile paths
@@ -641,7 +604,7 @@ def _create_legale_bot(
     debug_rag: bool,
     profile_dir: str,
     retrieval_type: str = "hybrid",
-    ctx: Optional[RuntimeContext] = None,
+    ctx: Optional[SimpleNamespace] = None,
 ) -> LegaleBot:
     """
     Create and initialize LegaleBot instance.
@@ -652,7 +615,7 @@ def _create_legale_bot(
         log_level: Logging level
         debug_rag: Debug RAG flag
         profile_dir: Profile directory path
-        ctx: RuntimeContext instance
+        ctx: SimpleNamespace instance
         retrieval_type: Retrieval type ("hybrid", "fts_only", "vector_only")
         
     Returns:
@@ -681,7 +644,7 @@ def _create_legale_bot(
     return bot_instance_local
 
 
-def _register_profile_commands(admin_router_local: AdminCommandRouter, ctx: RuntimeContext) -> None:
+def _register_profile_commands(admin_router_local: AdminCommandRouter, ctx: SimpleNamespace) -> None:
     """Register profile commands."""
     profile_commands = ProfileCommands(ctx.profile_manager)
     _register_command_group(
@@ -699,7 +662,7 @@ def _register_profile_commands(admin_router_local: AdminCommandRouter, ctx: Runt
     )
 
 
-def _register_ingest_commands(admin_router_local: AdminCommandRouter, task_manager_local: TaskManager, ctx: RuntimeContext) -> IngestCommands:
+def _register_ingest_commands(admin_router_local: AdminCommandRouter, task_manager_local: TaskManager, ctx: SimpleNamespace) -> IngestCommands:
     """Register ingest commands."""
     ingest_commands_local = IngestCommands(ctx.profile_manager, task_manager_local)
     _register_command_group(
@@ -715,7 +678,7 @@ def _register_ingest_commands(admin_router_local: AdminCommandRouter, task_manag
     return ingest_commands_local
 
 
-def _register_stats_commands(admin_router_local: AdminCommandRouter, ctx: RuntimeContext) -> None:
+def _register_stats_commands(admin_router_local: AdminCommandRouter, ctx: SimpleNamespace) -> None:
     """Register stats commands."""
     stats_commands = StatsCommands(ctx.profile_manager)
     admin_router_local.register("stats", stats_commands.show_stats)
@@ -723,14 +686,14 @@ def _register_stats_commands(admin_router_local: AdminCommandRouter, ctx: Runtim
     admin_router_local.register("logs", stats_commands.show_logs)
 
 
-def _register_admin_commands(admin_router_local: AdminCommandRouter, bot_instance_local: LegaleBot, ctx: RuntimeContext) -> Tuple[TaskManager, IngestCommands]:
+def _register_admin_commands(admin_router_local: AdminCommandRouter, bot_instance_local: LegaleBot, ctx: SimpleNamespace) -> Tuple[TaskManager, IngestCommands]:
     """
     Register all admin commands in the router.
     
     Args:
         admin_router_local: AdminCommandRouter instance
         bot_instance_local: LegaleBot instance
-        ctx: RuntimeContext instance
+        ctx: SimpleNamespace instance
         
     Returns:
         Tuple of (task_manager, ingest_commands)
@@ -789,14 +752,14 @@ def _register_admin_commands(admin_router_local: AdminCommandRouter, bot_instanc
     return task_manager_local, ingest_commands_local
 
 
-def _create_bot_instance(paths: Dict, admin_manager_local: AdminManager, ctx: RuntimeContext, args: Optional[SimpleNamespace] = None) -> Tuple[LegaleBot, bool]:
+def _create_bot_instance(paths: Dict, admin_manager_local: AdminManager, ctx: SimpleNamespace, args: Optional[SimpleNamespace] = None) -> Tuple[LegaleBot, bool]:
     """
     Create LegaleBot instance.
     
     Args:
         paths: Profile paths dictionary
         admin_manager_local: AdminManager instance
-        ctx: RuntimeContext instance
+        ctx: SimpleNamespace instance
         args: Optional namespace with configuration overrides
         
     Returns:
@@ -812,14 +775,14 @@ def _create_bot_instance(paths: Dict, admin_manager_local: AdminManager, ctx: Ru
     return bot_instance_local, debug_rag
 
 
-def _create_admin_components(paths: Dict, bot_instance_local: LegaleBot, ctx: RuntimeContext) -> Tuple[AdminCommandRouter, TaskManager, IngestCommands]:
+def _create_admin_components(paths: Dict, bot_instance_local: LegaleBot, ctx: SimpleNamespace) -> Tuple[AdminCommandRouter, TaskManager, IngestCommands]:
     """
     Create admin router, task manager and ingest commands.
     
     Args:
         paths: Profile paths dictionary
         bot_instance_local: LegaleBot instance
-        ctx: RuntimeContext instance
+        ctx: SimpleNamespace instance
         
     Returns:
         Tuple of (admin_router, task_manager, ingest_commands)
@@ -859,10 +822,9 @@ def _create_command_service(
     syslog2(LOG_NOTICE, "command service initialized with admin handlers")
     return command_service
 
-
 # инициализация рантайма под текущий профиль
 async def init_runtime_for_current_profile(
-    ctx: Optional[RuntimeContext] = None,
+    ctx: Optional[SimpleNamespace] = None,
     args: Optional[SimpleNamespace] = None,
 ):
     """
@@ -1006,6 +968,8 @@ def setup_logging(log_level: Optional[str] = None, use_syslog: bool = False):
     handler = _create_log_handler(use_syslog)
     _setup_formatter(handler, use_syslog)
     _configure_loggers(handler, level)
+
+
 
 
 async def _init_profile_manager() -> None:
@@ -1172,13 +1136,13 @@ def _parse_update_from_json(data: dict, bot) -> Optional[Update]:
         return None
 
 
-async def _parse_webhook_update(request: Request, ctx: Optional[RuntimeContext] = None) -> Optional[Update]:
+async def _parse_webhook_update(request: Request, ctx: Optional[SimpleNamespace] = None) -> Optional[Update]:
     """
     Parse Telegram update from HTTP request.
     
     Args:
         request: FastAPI request object
-        ctx: Optional RuntimeContext (for tests/injection)
+        ctx: Optional SimpleNamespace (for tests/injection)
         
     Returns:
         Update object or None if parsing failed
@@ -1222,14 +1186,12 @@ async def _handle_command(update: Update) -> None:
     respond, reason = await _determine_response_step(message, True, is_private, chat_id)
     
     # Step 4: Check if bot_instance is available
-    ctx = get_runtime_context()
-    if not ctx.bot_instance:
+    if not _bot_instance:
         syslog2(LOG_ERR, "bot instance missing", action="drop_message")
         return
     
     # Step 5: Route command to appropriate handler
-    handler = MessageHandler(ctx.bot_instance, ctx.admin_manager, ctx.admin_router, ctx)
-    response = await _process_command_message(text, update, handler, respond)
+    response = await _process_command_message(text, update, respond)
     if response is None:
         return  # Command was not recognized or ignored
     
@@ -1260,14 +1222,13 @@ async def _handle_user_message(update: Update) -> None:
     respond, reason = await _determine_response_step(message, False, is_private, chat_id)
     
     # Step 3: Check if bot_instance is available
-    ctx = get_runtime_context()
-    if not ctx.bot_instance:
+    if not _bot_instance:
         syslog2(LOG_ERR, "bot instance missing", action="drop_message")
         return
     
     # Step 4: Parse and handle search mentions
-    bot_username = (ctx.telegram_app.bot.username or "").lower()
-    bot_id = ctx.telegram_app.bot.id
+    bot_username = (_telegram_app.bot.username or "").lower()
+    bot_id = _telegram_app.bot.id
     if await _handle_search_mention_step(message, bot_username, bot_id, chat_id):
         return
     
@@ -1278,8 +1239,7 @@ async def _handle_user_message(update: Update) -> None:
             text = extracted_text
     
     # Step 6: Route message to appropriate handler
-    handler = MessageHandler(ctx.bot_instance, ctx.admin_manager, ctx.admin_router, ctx)
-    response = await _process_regular_message(text, handler, respond, ctx.admin_manager.config, chat_id)
+    response = await _process_regular_message(text, respond, _admin_manager.config, chat_id)
     if response is None:
         return  # Message was ignored
     
@@ -1287,7 +1247,7 @@ async def _handle_user_message(update: Update) -> None:
     await _send_response_if_available(response, chat_id, False, respond)
 
 
-async def _process_webhook_update(update: Update, ctx: Optional[RuntimeContext] = None) -> Optional[str]:
+async def _process_webhook_update(update: Update, ctx: Optional[SimpleNamespace] = None) -> Optional[str]:
     """
     Process Telegram update.
     
@@ -1496,12 +1456,12 @@ def is_bot_mentioned(message, bot_username: str, bot_id: int) -> bool:
     return False
 
 
-def _check_admin_manager(ctx: RuntimeContext) -> bool:
+def _check_admin_manager(ctx: SimpleNamespace) -> bool:
     """
     Check if admin_manager is available.
     
     Args:
-        ctx: RuntimeContext instance
+        ctx: SimpleNamespace instance
         
     Returns:
         True if admin_manager is available, False otherwise
@@ -1512,12 +1472,12 @@ def _check_admin_manager(ctx: RuntimeContext) -> bool:
     return True
 
 
-def _check_bot_instance(ctx: RuntimeContext) -> bool:
+def _check_bot_instance(ctx: SimpleNamespace) -> bool:
     """
     Check if bot_instance is available.
     
     Args:
-        ctx: RuntimeContext instance
+        ctx: SimpleNamespace instance
         
     Returns:
         True if bot_instance is available, False otherwise
@@ -1528,38 +1488,6 @@ def _check_bot_instance(ctx: RuntimeContext) -> bool:
     return True
 
 
-def _ensure_required_components() -> Optional[MessageHandler]:
-    """
-    Ensure admin_manager and bot_instance are available and create MessageHandler.
-    
-    Returns:
-        MessageHandler instance if components are available, None otherwise
-    """
-    ctx = get_runtime_context()
-    if not _check_admin_manager(ctx):
-        return None
-    
-    if not _check_bot_instance(ctx):
-        return None
-    
-    return MessageHandler(ctx.bot_instance, ctx.admin_manager, ctx.admin_router)
-
-
-async def _execute_handler(handler_func, handler: MessageHandler, *args, **kwargs) -> Optional[str]:
-    """
-    Execute handler function and return response.
-    
-    Args:
-        handler_func: Async function that takes MessageHandler and returns response string
-        handler: MessageHandler instance
-        *args, **kwargs: Additional arguments to pass to handler_func
-        
-    Returns:
-        Response string from handler, or None if no response
-    """
-    return await handler_func(handler, *args, **kwargs)
-
-
 async def _send_handler_response(response: str, chat_id: int) -> None:
     """
     Send handler response to chat.
@@ -1568,30 +1496,11 @@ async def _send_handler_response(response: str, chat_id: int) -> None:
         response: Response text to send
         chat_id: Chat ID for sending response
     """
-    ctx = get_runtime_context()
+    ctx = await get_runtime_context()
     await ctx.telegram_app.bot.send_message(chat_id=chat_id, text=response)
 
 
-async def _ensure_handler_available(handler_func, chat_id: int, *args, **kwargs) -> bool:
-    """
-    Ensure MessageHandler is available, execute handler function and send response.
-    
-    Args:
-        handler_func: Async function that takes MessageHandler and returns response string
-        chat_id: Chat ID for sending response
-        *args, **kwargs: Additional arguments to pass to handler_func
-        
-    Returns:
-        True if handler was executed and response sent, False if handler unavailable
-    """
-    handler = _ensure_required_components()
-    if not handler:
-        return True  # Signal that command was "handled" (by dropping it)
-    
-    response = await _execute_handler(handler_func, handler, *args, **kwargs)
-    if response:
-        await _send_handler_response(response, chat_id)
-    return True
+
 
 
 async def _handle_id_command(message, chat_id: int) -> bool:
@@ -1627,9 +1536,10 @@ async def _handle_help_command(text: str, chat_id: int) -> bool:
         True if command was handled, False otherwise
     """
     if text == "/help" or (text.startswith("/") and text.startswith("/help")):
-        async def help_handler(handler: MessageHandler) -> str:
-            return await handler.handle_help_command()
-        return await _ensure_handler_available(help_handler, chat_id)
+        response = await handle_help_command()
+        if response:
+            await _send_handler_response(response, chat_id)
+        return True
     return False
 
 
@@ -1649,9 +1559,10 @@ async def _handle_admin_set_command(text: str, message, chat_id: int) -> bool:
         # Normalize command to /admin_set for handler
         normalized_text = text.replace("/set_admin", "/admin_set", 1) if text.startswith("/set_admin") else text
         
-        async def admin_set_handler(handler: MessageHandler) -> str:
-            return await handler.handle_admin_set_command(normalized_text, message)
-        return await _ensure_handler_available(admin_set_handler, chat_id)
+        response = await handle_admin_set_command(normalized_text, message)
+        if response:
+            await _send_handler_response(response, chat_id)
+        return True
     return False
 
 
@@ -1938,34 +1849,32 @@ async def _handle_search_mention(message, bot_username: str, bot_id: int, chat_i
     return False
 
 
-async def _process_command_message(text: str, update: Update, handler: MessageHandler, respond: bool) -> Optional[str]:
+async def _process_command_message(text: str, update: Update, respond: bool) -> Optional[str]:
     """
     Process command message.
     
     Args:
         text: Message text
         update: Telegram update object
-        handler: MessageHandler instance
         respond: Whether bot should respond
         
     Returns:
         Response text or None
     """
-    response = await handler.route_command(text, update)
+    response = await route_command(text, update)
     if response is None:
         # Not a recognized command, treat as regular query
         syslog2(LOG_ALERT, "handle_user_query as not a recognized command", text=text, respond=respond)
-        response = await handler.handle_user_query(text, respond)
+        response = await handle_user_query(text, respond)
     return response
 
 
-async def _process_regular_message(text: str, handler: MessageHandler, respond: bool, config, chat_id: int) -> Optional[str]:
+async def _process_regular_message(text: str, respond: bool, config, chat_id: int) -> Optional[str]:
     """
     Process regular (non-command) message.
     
     Args:
         text: Message text
-        handler: MessageHandler instance
         respond: Whether bot should respond
         config: Admin config
         chat_id: Chat ID
@@ -1978,7 +1887,7 @@ async def _process_regular_message(text: str, handler: MessageHandler, respond: 
         return None
 
     syslog2(LOG_ALERT, "handle_user_query as regular query", text=text, respond=respond)
-    return await handler.handle_user_query(text, respond)
+    return await handle_user_query(text, respond)
 
 
 async def _determine_response_decision(message, is_command: bool, is_private: bool, chat_id: int) -> Tuple[bool, str]:
@@ -2081,13 +1990,12 @@ async def _route_message_step(text: str, update: Update, is_command: bool, respo
     Returns:
         Response text or None if message should be ignored
     """
-    ctx = get_runtime_context()
-    handler = MessageHandler(ctx.bot_instance, ctx.admin_manager, ctx.admin_router, ctx)
+    ctx = await get_runtime_context()
     
     if is_command:
-        return await _process_command_message(text, update, handler, respond)
+        return await _process_command_message(text, update, respond)
     else:
-        return await _process_regular_message(text, handler, respond, ctx.admin_manager.config, chat_id)
+        return await _process_regular_message(text, respond, ctx.admin_manager.config, chat_id)
 
 
 async def handle_message(update: Update):

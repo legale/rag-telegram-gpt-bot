@@ -8,7 +8,7 @@ from pathlib import Path
 from src.bot.core import LegaleBot
 from src.bot.admin import AdminManager
 from src.storage.db import Database
-from src.storage.vector_store import VectorStore
+from src.storage.vector import VectorStore
 from src.app.main_cli import handle_command
 from src.app.types import AppRequest, AppResponse
 from src.core.command_service import CommandService

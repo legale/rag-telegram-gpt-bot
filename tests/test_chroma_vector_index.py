@@ -3,9 +3,8 @@ Tests for ChromaVectorIndex.
 """
 
 import pytest
-from src.adapters.vector.chroma_vector_index import ChromaVectorIndex
+from src.storage.vector import VectorStore, ChromaVectorIndex
 from src.core.interfaces import VectorDoc, ScoredDoc
-from src.storage.vector_store import VectorStore
 from src.core.embedding import LocalEmbeddingClient
 
 

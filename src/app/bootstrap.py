@@ -6,13 +6,11 @@ from pathlib import Path
 from typing import Optional
 
 from src.storage.db import Database
-from src.storage.vector_store import VectorStore
 from src.core.embedding import EmbeddingClient, LocalEmbeddingClient, create_embedding_client
 
-from src.adapters.persistence import SqliteMessageStore, SqliteChunkStore, SqliteFTSIndex
-from src.adapters.vector import ChromaVectorIndex
-from src.adapters.embedding import EmbedderAdapter
-from src.adapters.llm.llm_adapter import LLMAdapter
+from src.storage.sqlite import SqliteMessageStore, SqliteChunkStore, SqliteFTSIndex
+from src.storage.vector import VectorStore, ChromaVectorIndex
+# Adapters removed: EmbedderAdapter, LLMAdapter - clients implement protocols directly
 from src.core.search import HybridSearch
 from src.core.hybrid_retrieval import HybridRetrievalService
 # RetrievalService removed - legacy RAG code
@@ -108,11 +106,11 @@ def create_hybrid_search(
     message_store = SqliteMessageStore(database)
     chunk_store = SqliteChunkStore(database)
     vector_index = ChromaVectorIndex(vector_store)
-    embedder = EmbedderAdapter(embedding_client)
+    # embedder = EmbedderAdapter(embedding_client) -> Removed
 
     # Create and return use case
     hybrid_search = HybridSearch(
-        embedder=embedder,
+        embedder=embedding_client, # Passed directly
         vector_index=vector_index,
         chunk_store=chunk_store,
         message_store=message_store,
@@ -166,13 +164,12 @@ def create_hybrid_retrieval(
     message_store = SqliteMessageStore(database)
     chunk_store = SqliteChunkStore(database)
     vector_index = ChromaVectorIndex(vector_store)
-    embedder = EmbedderAdapter(embedding_client)
+    # embedder = EmbedderAdapter(embedding_client) -> Removed, using client directly
     fts_index = SqliteFTSIndex(database)
     
     # Create LLM adapter if llm_client is provided (for query rephrasing)
-    llm = None
-    if llm_client:
-        llm = LLMAdapter(llm_client)
+    # llm = LLMAdapter(llm_client) if llm_client else None -> Removed, using client directly
+    llm = llm_client
 
     # Create and return HybridRetrievalService
     # Map retrieval_mode to fts_only if needed
@@ -186,7 +183,7 @@ def create_hybrid_retrieval(
     hybrid_retrieval = HybridRetrievalService(
         fts_index=fts_index,
         vector_index=vector_index,
-        embedder=embedder,
+        embedder=embedding_client, # Passed directly
         chunk_store=chunk_store,
         message_store=message_store,
         log_level=log_level,

@@ -14,7 +14,7 @@ if project_root not in sys.path:
 from src.ingestion.parser import ChatParser
 from src.ingestion.chunker import MessageChunker
 from src.storage.db import Database, ChunkModel
-from src.storage.vector_store import VectorStore
+from src.storage.vector import VectorStore
 from src.core.embedding import EmbeddingClient
 from src.app.bootstrap import create_embedding_client_from_config as create_embedding_client
 from pathlib import Path

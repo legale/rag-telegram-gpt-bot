@@ -291,6 +291,15 @@ class EmbeddingClient:
                 embs.append(obj["embedding"])
         return ids, embs
 
+    # --- Embedder Protocol Implementation ---
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        """Embed multiple documents (protocol compliance)."""
+        return self.get_embeddings(texts)
+
+    def embed_query(self, text: str) -> List[float]:
+        """Embed a single query (protocol compliance)."""
+        return self.get_embedding(text)
+
 
 class LocalEmbeddingClient:
     """Client for generating text embeddings locally using sentence-transformers."""
@@ -439,9 +448,17 @@ class LocalEmbeddingClient:
                 done = end
                 if show_progress:
                     pct = done * 100 // total
-                    syslog2(LOG_DEBUG, "embeddings progress", done=done, total=total, percent=pct)
 
         return all_embs
+
+    # --- Embedder Protocol Implementation ---
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        """Embed multiple documents (protocol compliance)."""
+        return self.get_embeddings(texts)
+
+    def embed_query(self, text: str) -> List[float]:
+        """Embed a single query (protocol compliance)."""
+        return self.get_embedding(text)
 
 
 class OpenRouterEmbeddingFunction(EmbeddingFunction):

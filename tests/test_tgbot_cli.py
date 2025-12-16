@@ -153,11 +153,12 @@ async def test_init_runtime_for_current_profile():
          patch("src.bot.tgbot.ControlCommands"), \
          patch("src.bot.tgbot.SettingsCommands"), \
          patch("src.bot.tgbot.HelpCommands"), \
-         patch("src.bot.tgbot._create_command_dispatcher"):
+         patch("src.bot.tgbot._create_command_service") as mock_create_command_service:
         
         # Mock AdminManager config
         mock_admin_instance = MockAdmin.return_value
         mock_admin_instance.config.current_model = "gpt-4"
+        mock_create_command_service.return_value = Mock()
         
         paths = await init_runtime_for_current_profile(mock_ctx)
         

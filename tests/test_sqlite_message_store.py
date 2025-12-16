@@ -4,7 +4,7 @@ Tests for SqliteMessageStore.
 
 import pytest
 from datetime import datetime
-from src.adapters.persistence.sqlite_message_store import SqliteMessageStore
+from src.storage.sqlite import SqliteMessageStore
 from src.core.domain import Message
 from src.storage.db import Database
 

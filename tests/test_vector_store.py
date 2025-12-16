@@ -1,6 +1,6 @@
 
 import pytest
-from src.storage.vector_store import VectorStore
+from src.storage.vector import VectorStore
 import shutil
 import os
 from unittest.mock import Mock, patch

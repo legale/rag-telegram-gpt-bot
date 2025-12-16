@@ -1,5 +1,5 @@
 from openai import OpenAI
-from typing import List, Dict, Optional, Generator
+from typing import List, Dict, Optional, Generator, Union
 import os
 import json
 import tiktoken
@@ -118,10 +118,39 @@ class LLMClient:
         # API errors that might be temporary
         if error_type in ("APIConnectionError", "APITimeoutError", "RateLimitError"):
             return True
-        
+
         return False
 
-    def complete(self, messages: List[Dict[str, str]], temperature: float = 0.7, max_tokens: int = 1500) -> str:
+    def complete(self, prompt_or_messages: Union[str, List[Dict[str, str]]], system: Optional[str] = None, **kwargs) -> str:
+        """
+        Complete text using LLM. Supports both prompt string (protocol compliant) and messages list (backward compat).
+        
+        Args:
+            prompt_or_messages: Prompt string OR List of message dictionaries
+            system: Optional system message (only used if prompt_or_messages is str)
+            **kwargs: Additional arguments (temperature, max_tokens, etc.)
+            
+        Returns:
+            Generated text response
+        """
+        if isinstance(prompt_or_messages, str):
+            # Protocol compliant mode
+            messages = []
+            if system:
+                messages.append({"role": "system", "content": system})
+            messages.append({"role": "user", "content": prompt_or_messages})
+        else:
+            # Backward compatible mode
+            messages = prompt_or_messages
+            
+        # Extract params from kwargs if present, otherwise use defaults
+        temperature = kwargs.get("temperature", 0.7)
+        max_tokens = kwargs.get("max_tokens", 1500)
+        
+        return self.complete_messages(messages, temperature=temperature, max_tokens=max_tokens)
+
+    
+    def complete_messages(self, messages: List[Dict[str, str]], temperature: float = 0.7, max_tokens: int = 1500) -> str:
         """
         Generates a completion for the given messages with retry logic.
         

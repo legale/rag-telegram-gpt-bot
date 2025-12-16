@@ -15,6 +15,10 @@ from src.core.distance_utils import similarity_to_distance, cosine_similarity
 from src.core.chunk_utils import build_chunk_dict_from_domain_chunk
 from src.core.context_packer import pack as pack_context
 from src.lib.syslog2 import *
+from typing import Optional
+from src.storage.db import Database, MessageModel
+from src.bot.utils import build_message_link
+from src.bot.utils.telegram_common import split_message_if_needed, MAX_TG_CONTENT_LEN
 
 
 class EmbeddingError(Exception):
