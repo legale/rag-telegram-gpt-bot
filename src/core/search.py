@@ -6,7 +6,7 @@ from typing import List, Optional
 from datetime import datetime, timedelta
 
 from src.core.domain import SearchResult, Chunk, Message
-from src.core.interfaces import Embedder, VectorIndex, ChunkStore, MessageStore
+from src.core.interfaces import Embedder, VectorIndex, ChunkStore, MessageStore, ScoredDoc
 
 
 class HybridSearch:
@@ -37,6 +37,79 @@ class HybridSearch:
         self.chunk_store = chunk_store
         self.message_store = message_store
 
+    def _compute_query_embedding(self, query: str) -> List[float]:
+        """
+        Compute embedding vector for the query.
+        
+        Args:
+            query: Search query text
+            
+        Returns:
+            Query embedding vector
+        """
+        return self.embedder.embed_query(query)
+    
+    def _perform_vector_search(
+        self,
+        query_vector: List[float],
+        top_k: int,
+        chat_id: Optional[str] = None
+    ) -> List[ScoredDoc]:
+        """
+        Perform vector similarity search.
+        
+        Args:
+            query_vector: Query embedding vector
+            top_k: Number of top results to return
+            chat_id: Optional chat ID filter
+            
+        Returns:
+            List of ScoredDoc objects with chunk IDs and similarity scores
+        """
+        vector_filter = None
+        if chat_id:
+            vector_filter = {"chat_id": chat_id}
+        
+        return self.vector_index.query(
+            vector=query_vector,
+            top_k=top_k,
+            filter=vector_filter
+        )
+    
+    def _enrich_with_messages(
+        self,
+        chunk: Chunk,
+        enrich_with_messages: bool,
+        message_window_sec: int
+    ) -> List[Message]:
+        """
+        Enrich chunk with original messages from the time period.
+        
+        Args:
+            chunk: Chunk to enrich
+            enrich_with_messages: Whether to enrich with messages
+            message_window_sec: Time window in seconds for message context retrieval
+            
+        Returns:
+            List of Message objects from the time window
+        """
+        original_messages: List[Message] = []
+        if enrich_with_messages and chunk.valid_period:
+            # Get messages around the chunk's time period
+            time_point = chunk.valid_period[0]
+            chat_id = chunk.metadata.get("chat_id") if chunk.metadata else None
+            
+            if chat_id:
+                # Retrieve messages in the time window
+                messages = self.message_store.get_context(
+                    chat_id=chat_id,
+                    time_point=time_point,
+                    window_sec=message_window_sec
+                )
+                original_messages = messages
+        
+        return original_messages
+
     def search(
         self,
         query: str,
@@ -63,19 +136,10 @@ class HybridSearch:
             return []
 
         # Step 1: Compute query embedding
-        query_vector = self.embedder.embed_query(query)
+        query_vector = self._compute_query_embedding(query)
 
         # Step 2: Vector search to get candidate chunk IDs with scores
-        # Build filter if chat_id is provided
-        vector_filter = None
-        if chat_id:
-            vector_filter = {"chat_id": chat_id}
-        
-        scored_docs = self.vector_index.query(
-            vector=query_vector,
-            top_k=top_k,
-            filter=vector_filter
-        )
+        scored_docs = self._perform_vector_search(query_vector, top_k, chat_id)
 
         if not scored_docs:
             return []
@@ -113,20 +177,11 @@ class HybridSearch:
                 topics.extend([str(tid) for tid in topic_ids if tid not in topics])
 
             # Enrich with original messages if requested
-            original_messages: List[Message] = []
-            if enrich_with_messages and chunk.valid_period:
-                # Get messages around the chunk's time period
-                time_point = chunk.valid_period[0]
-                chat_id = chunk.metadata.get("chat_id") if chunk.metadata else None
-                
-                if chat_id:
-                    # Retrieve messages in the time window
-                    messages = self.message_store.get_context(
-                        chat_id=chat_id,
-                        time_point=time_point,
-                        window_sec=message_window_sec
-                    )
-                    original_messages = messages
+            original_messages = self._enrich_with_messages(
+                chunk,
+                enrich_with_messages,
+                message_window_sec
+            )
 
             # Create SearchResult
             result = SearchResult(
