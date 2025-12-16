@@ -30,7 +30,7 @@
 
 - [x] file=src/bot/tgbot.py file=src/bot/admin_router.py убрать дублирование логики обработки ошибок: использовать единый метод handle_error() из BaseAdminCommand или создать ErrorHandler utility
 
-- [ ] file=src/bot/tgbot.py file=src/bot/cli.py убрать дублирование логики парсинга команд: использовать единый CommandDispatcher для всех точек входа (частично выполнено: используется dispatcher в main(), но есть неиспользуемая дублирующая функция handle_cli_command в cli.py)
+- [x] file=src/bot/tgbot.py file=src/bot/cli.py убрать дублирование логики парсинга команд: использовать единый CommandDispatcher для всех точек входа (частично выполнено: используется dispatcher в main(), но есть неиспользуемая дублирующая функция handle_cli_command в cli.py)
 
 - [x] file=src/core/llm.py func=complete добавить явные таймауты для HTTP-запросов: использовать timeout параметр в OpenAI client (timeout=30.0)
 
@@ -228,7 +228,7 @@
 
 - [x] file=src/bot/tgbot.py func=_register_command_group упростить: использовать словарь для маппинга method_name -> subcommand вместо явных вызовов register()
 
-- [x] file=src/bot/admin_commands.py func=BaseAdminCommand.get_profile_paths упростить: вынести валидацию profile_name в _validate_profile_name(), получение paths в _get_paths_for_profile()
+- [w] file=src/bot/admin_commands.py func=BaseAdminCommand.get_profile_paths упростить: вынести валидацию profile_name в _validate_profile_name(), получение paths в _get_paths_for_profile()
 
 - [ ] file=src/bot/admin_commands.py func=BaseAdminCommand.handle_error упростить: вынести логирование ошибки в _log_error(), форматирование сообщения в _format_error_message()
 
