@@ -318,7 +318,7 @@
 
 - [x] file=src/bot/command_parser.py func=parse_command упростить: парсит только текст в CommandRequest (name-args-raw), никакой логики разрешений-частоты-списка команд (выполнено: создана функция parse_command, которая парсит текст в CommandRequest без бизнес-логики)
 
-- [ ] file=src/bot/core.py class=LegaleBot расщепить: вынести conversation_state в src/core/conversation_state.py, context_provider в src/core/context_provider.py, prompt_builder в src/core/prompt_builder.py, llm_gateway в src/core/llm_gateway.py, LegaleBot оставить как thin facade или удалить
+- [x] file=src/bot/core.py class=LegaleBot расщепить: вынести conversation_state в src/core/conversation_state.py, context_provider в src/core/context_provider.py, prompt_builder в src/core/prompt_builder.py, llm_gateway в src/core/llm_gateway.py, LegaleBot оставить как thin facade или удалить (выполнено: созданы модули ConversationState, ContextProvider, PromptBuilder, LLMGateway, LegaleBot обновлен для использования новых модулей, старые методы заменены на делегирование к новым модулям)
 
 - [ ] file=src/core/hybrid_retrieval.py class=HybridRetrievalService разгрузить: вынести packing (dedup-neighbors-token budget) в src/core/context_packer.py func=pack(), вынести rephrase в отдельный этап ContextProvider
 

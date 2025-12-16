@@ -7,6 +7,10 @@ from src.core.hybrid_retrieval import HybridRetrievalService
 from src.core.prompt import PromptEngine
 from src.core.llm import LLMClient
 from src.app.bootstrap import create_hybrid_retrieval, create_embedding_client_from_config
+from src.core.conversation_state import ConversationState
+from src.core.context_provider import ContextProvider
+from src.core.prompt_builder import PromptBuilder
+from src.core.llm_gateway import LLMGateway
 import os
 from src.lib.syslog2 import *
 
@@ -182,16 +186,55 @@ class LegaleBot:
         
         self.prompt_engine = PromptEngine()
         
-        # Simple in-memory history for the current session
-        self.chat_history: List[Dict[str, str]] = []
+        # Initialize conversation state
+        self.conversation_state = ConversationState()
         
-        # RAG context cache for reuse across messages
-        self.active_context_chunks: Optional[List[Dict]] = None
-        self.active_context_query: Optional[str] = None
-        self.active_context_score: Optional[float] = None
+        # Initialize context provider
+        self.context_provider = ContextProvider(
+            retrieval_service=self.retrieval_service,
+            config=self.config,
+            conversation_state=self.conversation_state,
+            log_level=self.log_level
+        )
+        
+        # Initialize prompt builder
+        self.prompt_builder = PromptBuilder(
+            prompt_engine=self.prompt_engine,
+            conversation_state=self.conversation_state,
+            log_level=self.log_level
+        )
+        
+        # Initialize LLM gateway
+        self.llm_gateway = LLMGateway(
+            llm_client=self.llm_client,
+            prompt_builder=self.prompt_builder,
+            conversation_state=self.conversation_state,
+            log_level=self.log_level
+        )
         
         # Token limit configuration
         self.max_context_tokens = int(os.getenv("MAX_CONTEXT_TOKENS", "14000"))
+    
+    # Backward compatibility properties
+    @property
+    def chat_history(self):
+        """Backward compatibility: access conversation_state.chat_history."""
+        return self.conversation_state.chat_history
+    
+    @property
+    def active_context_chunks(self):
+        """Backward compatibility: access conversation_state.active_context_chunks."""
+        return self.conversation_state.active_context_chunks
+    
+    @property
+    def active_context_query(self):
+        """Backward compatibility: access conversation_state.active_context_query."""
+        return self.conversation_state.active_context_query
+    
+    @property
+    def active_context_score(self):
+        """Backward compatibility: access conversation_state.active_context_score."""
+        return self.conversation_state.active_context_score
     
     def _load_available_models(self) -> List[str]:
         """
@@ -412,8 +455,7 @@ class LegaleBot:
         Returns:
             Confirmation message.
         """
-        self.chat_history = []
-        self._clear_active_context(reason="manual_reset")
+        self.conversation_state.reset()
         return "Контекст сброшен!"
     
     def _build_history_for_prompt(self, max_messages: int = 5) -> List[Dict[str, str]]:
@@ -426,13 +468,7 @@ class LegaleBot:
         Returns:
             List of history entries with sender and content
         """
-        history_for_prompt = []
-        for msg in self.chat_history[-max_messages:]:
-            sender = "User" if msg["role"] == "user" else "Bot"
-            history_for_prompt.append(
-                {"sender": sender, "content": msg["content"]}
-            )
-        return history_for_prompt
+        return self.prompt_builder.build_history_for_prompt(max_messages)
     
     def _build_prompt_and_history(
         self, 
@@ -453,20 +489,12 @@ class LegaleBot:
         Returns:
             Tuple of (system_prompt, history_for_prompt)
         """
-        if history is None:
-            max_messages = 5  # Default value from config
-            history_for_prompt = self._build_history_for_prompt(max_messages=max_messages)
-        else:
-            history_for_prompt = history
-        
-        system_prompt = self.prompt_engine.construct_prompt(
+        return self.prompt_builder.build_prompt_and_history(
             context_chunks=context_chunks,
-            chat_history=history_for_prompt,
             user_task=user_task,
             custom_template=custom_template,
-            log_level=self.log_level
+            history=history
         )
-        return system_prompt, history_for_prompt
     
     def _build_messages_for_token_count(self, system_prompt: str, user_content: str = "") -> List[Dict[str, str]]:
         """
@@ -519,15 +547,12 @@ class LegaleBot:
 
         # Use real context chunks and user task if available, otherwise use empty values
         # This provides more accurate token usage estimation
-        context_chunks = self.active_context_chunks if self.active_context_chunks else []
-        user_task = self.active_context_query if self.active_context_query else ""
+        context_chunks = self.conversation_state.active_context_chunks if self.conversation_state.active_context_chunks else []
+        user_task = self.conversation_state.active_context_query if self.conversation_state.active_context_query else ""
         
         # If no active context, try to get last user message from chat history
         if not user_task:
-            for msg in reversed(self.chat_history):
-                if msg["role"] == "user":
-                    user_task = msg["content"]
-                    break
+            user_task = self.conversation_state.get_last_user_message() or ""
 
         # Build prompt using helper method (reuses existing logic)
         system_prompt, _ = self._build_prompt_and_history(
@@ -546,7 +571,7 @@ class LegaleBot:
         Returns:
             True if token limit is exceeded, False otherwise
         """
-        if not self.chat_history:
+        if not self.conversation_state.chat_history:
             return False
         
         token_usage = self.get_token_usage()
@@ -564,7 +589,7 @@ class LegaleBot:
             return ""
         
         token_usage = self.get_token_usage()
-        had_active_context = self.active_context_chunks is not None
+        had_active_context = self.conversation_state.active_context_chunks is not None
         self.reset_context()
         warning = "Контекст был автоматически сброшен из-за достижения лимита токенов.\n\n"
         if self.log_level <= LOG_INFO:
@@ -709,10 +734,10 @@ class LegaleBot:
             List of context chunk dictionaries
         """
         if self.debug_rag and self.log_level <= LOG_DEBUG:
-            syslog2(LOG_DEBUG, "rag_debug_state", has_active_context=self.active_context_chunks is not None, active_query=self.active_context_query[:80] if self.active_context_query else None)
+            syslog2(LOG_DEBUG, "rag_debug_state", has_active_context=self.conversation_state.active_context_chunks is not None, active_query=self.conversation_state.active_context_query[:80] if self.conversation_state.active_context_query else None)
         
-        syslog2(LOG_NOTICE, "retrieving context", retrieval_type=self.retrieval_type, cached=self.active_context_chunks is not None)
-        context_chunks = self._get_or_build_context(user_input, n_results)
+        syslog2(LOG_NOTICE, "retrieving context", retrieval_type=self.retrieval_type, cached=self.conversation_state.active_context_chunks is not None)
+        context_chunks = self.context_provider.get_or_build_context(user_input, n_results)
         
         return context_chunks
 
@@ -733,23 +758,11 @@ class LegaleBot:
         Returns:
             List of message dictionaries for LLM API
         """
-        # системный промпт: контекст + история + инструкции, но без дублирования user_input
-        system_prompt, _ = self._build_prompt_and_history(
+        return self.prompt_builder.build_messages_for_llm(
             context_chunks=context_chunks,
-            user_task=user_input,
-            custom_template=system_prompt_template
+            user_input=user_input,
+            system_prompt_template=system_prompt_template
         )
-
-        if self.log_level <= LOG_DEBUG:
-            syslog2(LOG_DEBUG, "system prompt constructed", length=len(system_prompt))
-
-        syslog2(LOG_NOTICE, "querying llm")
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_input},
-        ]
-        
-        return messages
 
     def _call_llm_with_context(
         self,
@@ -773,8 +786,7 @@ class LegaleBot:
         Raises:
             Exception: If LLM call fails
         """
-        response = self._call_llm_with_retry(messages, context_chunks, user_input, system_prompt_template)
-        return response
+        return self.llm_gateway.call_with_context(messages, context_chunks, user_input, system_prompt_template)
 
     def chat(self, user_input: str, n_results: int = 3, respond: bool = True, system_prompt_template: str = None) -> str:
         """
@@ -783,7 +795,7 @@ class LegaleBot:
         auto_reset_warning = self._ensure_context_limit()
 
         if not respond:
-            self.chat_history.append({"role": "user", "content": user_input})
+            self.conversation_state.add_user_message(user_input)
             return ""
 
         # Get context for query
@@ -802,8 +814,8 @@ class LegaleBot:
             syslog2(LOG_ERR, "llm call failed", error=str(e))
             return f"Произошла ошибка при обращении к нейросети: {e}"
 
-        self.chat_history.append({"role": "user", "content": user_input})
-        self.chat_history.append({"role": "assistant", "content": response})
+        self.conversation_state.add_user_message(user_input)
+        self.conversation_state.add_assistant_message(response)
 
         return auto_reset_warning + response
 
@@ -838,6 +850,6 @@ class LegaleBot:
             "prompt": system_prompt,
             "token_count": token_usage["current_tokens"],
             "chunks_count": len(context_chunks),
-            "had_active_context": self.active_context_chunks is not None,
-            "active_context_query": self.active_context_query
+            "had_active_context": self.conversation_state.active_context_chunks is not None,
+            "active_context_query": self.conversation_state.active_context_query
         }
