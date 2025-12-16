@@ -223,7 +223,7 @@ class AdminGetCommandHandler(AsyncCommandHandler):
             return error_result
 
         # Get admin info
-        admin_info = self.admin_manager.get_admin_info()
+        admin_info = self._get_admin_info_data()
         if not admin_info:
             return CommandResult(
                 success=True,
@@ -236,6 +236,15 @@ class AdminGetCommandHandler(AsyncCommandHandler):
             message=self._format_admin_info(admin_info),
             data=admin_info
         )
+    
+    def _get_admin_info_data(self) -> Optional[Dict]:
+        """
+        Get admin information data from admin manager.
+        
+        Returns:
+            Admin info dictionary or None if no admin is set
+        """
+        return self.admin_manager.get_admin_info()
 
 
 class AdminCommandHandler(AsyncCommandHandler):
