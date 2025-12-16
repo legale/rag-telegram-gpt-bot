@@ -158,6 +158,7 @@ class LegaleBot:
         )
         
         # Model getting support (needed before creating retrieval service)
+        self.model_max_tokens = {}
         self.available_models = self._load_available_models()
         if not model_name and self.available_models:
             model_name = self.available_models[0]
@@ -213,7 +214,8 @@ class LegaleBot:
         )
         
         # Token limit configuration
-        self.max_context_tokens = int(os.getenv("MAX_CONTEXT_TOKENS", "14000"))
+        # Use value from models.txt if available, otherwise fallback to 140000
+        self.max_context_tokens = self.model_max_tokens.get(model_name, 140000)
     
     # Backward compatibility properties
     @property
@@ -259,15 +261,32 @@ class LegaleBot:
     def _load_available_models(self) -> List[str]:
         """
         Load available models from models.txt file.
+        Also populates self.model_max_tokens.
         
         Returns:
             List of model names.
         """
+        self.model_max_tokens = {}
         models_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "models.txt")
         try:
+            models = []
             with open(models_file, 'r') as f:
-                models = [line.strip() for line in f if line.strip()]
-            return models if models else []
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    parts = line.split()
+                    model_name = parts[0]
+                    models.append(model_name)
+                    
+                    if len(parts) > 1:
+                        try:
+                            self.model_max_tokens[model_name] = int(parts[1])
+                        except ValueError:
+                             self.model_max_tokens[model_name] = 140000
+                    else:
+                        self.model_max_tokens[model_name] = 140000
+            return models
         except FileNotFoundError:
             if self.log_level <= LOG_INFO:
                 syslog2(LOG_WARNING, "models file missing", path=models_file)
@@ -290,8 +309,11 @@ class LegaleBot:
         # Recreate LLM client with new model
         self.llm_client = LLMClient(model=new_model, log_level=self.log_level)
         
+        # Update token limit
+        self.max_context_tokens = self.model_max_tokens.get(new_model, 140000)
+        
         if self.log_level <= LOG_INFO:
-            syslog2(LOG_NOTICE, "model geted", new_model=new_model)
+            syslog2(LOG_NOTICE, "model geted", new_model=new_model, max_tokens=self.max_context_tokens)
         
         return f"Модель переключена на: {new_model}\n({self.current_model_index + 1}/{len(self.available_models)})"
 
@@ -313,8 +335,11 @@ class LegaleBot:
         # Recreate LLM client with new model
         self.llm_client = LLMClient(model=model_name, log_level=self.log_level)
         
+        # Update token limit
+        self.max_context_tokens = self.model_max_tokens.get(model_name, 140000)
+        
         if self.log_level <= LOG_INFO:
-            syslog2(LOG_NOTICE, "model set", new_model=model_name)
+            syslog2(LOG_NOTICE, "model set", new_model=model_name, max_tokens=self.max_context_tokens)
             
         return f"Модель успешно установлена: {model_name}"
     

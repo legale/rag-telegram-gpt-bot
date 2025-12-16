@@ -144,7 +144,7 @@ def main():
         with open("models.txt", "r") as f:
             line = f.readline().strip()
             if line:
-                model_name = line
+                model_name = line.split()[0]
     except FileNotFoundError:
         syslog2(LOG_ERR, "models file missing")
         sys.exit(1)
