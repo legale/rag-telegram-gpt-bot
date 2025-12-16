@@ -232,7 +232,7 @@
 
 - [ ] file=src/bot/admin_commands.py func=BaseAdminCommand.handle_error упростить: вынести логирование ошибки в _log_error(), форматирование сообщения в _format_error_message()
 
-- [w] file=src/core/admin_commands.py func=AdminSetCommandHandler.handle упростить: вынести валидацию пароля в _validate_password(), установку admin в _set_admin_user()
+- [x] file=src/core/admin_commands.py func=AdminSetCommandHandler.handle упростить: вынести валидацию пароля в _validate_password(), установку admin в _set_admin_user()
 
 - [ ] file=src/core/admin_commands.py func=AdminGetCommandHandler.handle упростить: вынести получение admin info в _get_admin_info(), форматирование ответа в _format_admin_info()
 
@@ -240,7 +240,7 @@
 
 - [ ] file=src/app/main_cli.py func=create_dispatcher упростить: вынести регистрацию sync handlers в _register_sync_handlers(), регистрацию async handlers в _register_async_handlers()
 
-- [ ] file=src/app/main_cli.py func=handle_command упростить: вынести парсинг command name и args в _parse_command(), создание context в _create_command_context()
+- [x] file=src/app/main_cli.py func=handle_command упростить: вынести парсинг command name и args в _parse_command(), создание context в _create_command_context()
 
 - [ ] file=src/bot/cli.py func=handle_cli_command упростить: использовать CommandDispatcher вместо дублирования логики обработки команд
 

@@ -115,17 +115,12 @@ def handle_command(
         Response string if command was handled, None if not a command
     """
     # Parse command name and arguments
-    command_name, args_text = parse_command(command)
+    command_name, args = _parse_command(command)
     if not command_name:
         return None
 
     # Create context
-    context = CommandContext(
-        user_id=user_id,
-        chat_id=chat_id,
-        command_name=command_name,
-        args=args_text.split() if args_text else [],
-    )
+    context = _create_command_context(command_name, args, user_id, chat_id)
 
     # Dispatch command
     result = dispatcher.dispatch(context)
@@ -134,6 +129,50 @@ def handle_command(
     if result.success or result.error:
         return result.message
     return None
+
+
+def _parse_command(command: str) -> tuple[Optional[str], list[str]]:
+    """
+    Parse command string into command name and arguments list.
+    
+    Args:
+        command: Command string (e.g., "/find 2.0 vpn туннель" or "/help")
+        
+    Returns:
+        Tuple of (command_name, args_list) or (None, []) if not a command
+    """
+    command_name, args_text = parse_command(command)
+    if not command_name:
+        return None, []
+    
+    args = args_text.split() if args_text else []
+    return command_name, args
+
+
+def _create_command_context(
+    command_name: str,
+    args: list[str],
+    user_id: Optional[str] = None,
+    chat_id: Optional[str] = None
+) -> CommandContext:
+    """
+    Create CommandContext from parsed command data.
+    
+    Args:
+        command_name: Command name (e.g., "/find", "/help")
+        args: List of command arguments
+        user_id: Optional user ID
+        chat_id: Optional chat ID
+        
+    Returns:
+        CommandContext instance
+    """
+    return CommandContext(
+        user_id=user_id,
+        chat_id=chat_id,
+        command_name=command_name,
+        args=args,
+    )
 
 
 async def handle_command_async(

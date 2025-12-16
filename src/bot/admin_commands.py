@@ -37,6 +37,30 @@ class BaseAdminCommand:
         self.validator = CommandValidator()
         self.db_stats = DatabaseStatsService()
     
+    def _log_error(self, error: Exception, context: str, log_level: int = LOG_ERR) -> None:
+        """
+        Log error with context.
+        
+        Args:
+            error: Exception that occurred
+            context: Context description (e.g., operation name)
+            log_level: Logging level (default: LOG_ERR)
+        """
+        syslog2(log_level, "error occurred", context=context, error=str(error))
+    
+    def _format_error_message(self, error: Exception, context: str) -> str:
+        """
+        Format error message for user.
+        
+        Args:
+            error: Exception that occurred
+            context: Context description (e.g., operation name)
+            
+        Returns:
+            Formatted error message
+        """
+        return self.formatter.format_error_message(str(error), context)
+    
     async def handle_error(self, error: Exception, context: str) -> str:
         """
         Unified error handling for admin commands.
@@ -48,7 +72,8 @@ class BaseAdminCommand:
         Returns:
             Formatted error message
         """
-        return ErrorHandler.handle_error_static(error, context)
+        self._log_error(error, context)
+        return self._format_error_message(error, context)
     
     def _validate_profile_name(self, profile_name: Optional[str]) -> Optional[str]:
         """
