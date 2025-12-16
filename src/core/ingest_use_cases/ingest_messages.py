@@ -31,6 +31,52 @@ class IngestMessages:
         self.message_store = message_store
         self.parser = parser or ChatParser()
 
+    def _parse_file(self, file_path: str) -> tuple[List[ChatMessage], str]:
+        """
+        Parse file and extract chat messages and chat_id.
+        
+        Args:
+            file_path: Path to chat dump file
+            
+        Returns:
+            Tuple of (chat_messages, chat_id)
+        """
+        syslog2(LOG_NOTICE, "parsing file", file_path=file_path)
+        chat_messages = self.parser.parse_file(file_path)
+        syslog2(LOG_NOTICE, "file parsed", messages_count=len(chat_messages))
+
+        # Determine chat_id from filename or default
+        filename = os.path.basename(file_path)
+        chat_id_match = re.search(r"telegram_dump_(-?\d+)", filename)
+        chat_id = chat_id_match.group(1) if chat_id_match else "unknown_chat"
+        syslog2(LOG_NOTICE, "identified chat_id", chat_id=chat_id)
+        
+        return chat_messages, chat_id
+
+    def _save_messages(self, domain_messages: List[Message]) -> int:
+        """
+        Save messages to message store.
+        
+        Args:
+            domain_messages: List of domain Message objects to save
+            
+        Returns:
+            Number of messages saved
+        """
+        syslog2(LOG_NOTICE, "saving messages to store")
+        try:
+            saved_count = self.message_store.save_batch(domain_messages)
+            skipped_count = len(domain_messages) - saved_count
+            if skipped_count > 0:
+                syslog2(LOG_NOTICE, "messages saved", inserted=saved_count, skipped=skipped_count, total=len(domain_messages))
+            else:
+                syslog2(LOG_NOTICE, "messages saved", inserted=saved_count, total=len(domain_messages))
+        except Exception as e:
+            syslog2(LOG_ERR, "error saving messages", error=str(e))
+            raise
+        
+        return saved_count
+
     def execute(self, file_path: str) -> int:
         """
         Parse file and store messages.
@@ -47,15 +93,7 @@ class IngestMessages:
         syslog2(LOG_NOTICE, "starting parse and store messages", file_path=file_path)
 
         # Parse file
-        syslog2(LOG_NOTICE, "parsing file", file_path=file_path)
-        chat_messages = self.parser.parse_file(file_path)
-        syslog2(LOG_NOTICE, "file parsed", messages_count=len(chat_messages))
-
-        # Determine chat_id from filename or default
-        filename = os.path.basename(file_path)
-        chat_id_match = re.search(r"telegram_dump_(-?\d+)", filename)
-        chat_id = chat_id_match.group(1) if chat_id_match else "unknown_chat"
-        syslog2(LOG_NOTICE, "identified chat_id", chat_id=chat_id)
+        chat_messages, chat_id = self._parse_file(file_path)
 
         # Convert ChatMessage to domain Message objects
         syslog2(LOG_NOTICE, "preparing messages for storage")
@@ -78,17 +116,7 @@ class IngestMessages:
         syslog2(LOG_NOTICE, "messages prepared for storage", count=len(domain_messages))
 
         # Save messages using MessageStore
-        syslog2(LOG_NOTICE, "saving messages to store")
-        try:
-            saved_count = self.message_store.save_batch(domain_messages)
-            skipped_count = len(domain_messages) - saved_count
-            if skipped_count > 0:
-                syslog2(LOG_NOTICE, "messages saved", inserted=saved_count, skipped=skipped_count, total=len(domain_messages))
-            else:
-                syslog2(LOG_NOTICE, "messages saved", inserted=saved_count, total=len(domain_messages))
-        except Exception as e:
-            syslog2(LOG_ERR, "error saving messages", error=str(e))
-            raise
+        saved_count = self._save_messages(domain_messages)
 
         syslog2(LOG_NOTICE, "ingest messages complete", messages_saved=saved_count)
         return saved_count

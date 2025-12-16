@@ -248,7 +248,7 @@
 
 - [x] file=src/bot/command_parser.py func=parse_find_command_args упростить: вынести парсинг rag_method в _parse_rag_method(), парсинг query в _parse_query(), валидацию args в _validate_args()
 
-- [w] file=src/core/ingest_use_cases/ingest_messages.py func=execute упростить: вынести парсинг файла в _parse_file(), сохранение messages в _save_messages()
+- [x] file=src/core/ingest_use_cases/ingest_messages.py func=execute упростить: вынести парсинг файла в _parse_file(), сохранение messages в _save_messages()
 
 - [x] file=src/core/ingest_use_cases/process_chunks.py func=execute упростить: вынести получение messages в _load_messages(), создание chunks в _create_chunks(), сохранение chunks в _save_chunks()
 
@@ -256,7 +256,7 @@
 
 - [w] file=src/core/ingest_use_cases/sync_to_vector_store.py func=execute упростить: вынести подготовку данных в _prepare_vector_data(), синхронизацию в _sync_to_vector_store()
 
-- [ ] file=src/core/ingest_use_cases/pipeline_orchestrator.py func=run упростить: вынести выполнение stage в _execute_stage(), обработку ошибок stage в _handle_stage_error()
+- [w] file=src/core/ingest_use_cases/pipeline_orchestrator.py func=run упростить: вынести выполнение stage в _execute_stage(), обработку ошибок stage в _handle_stage_error()
 
 - [ ] file=src/adapters/persistence/sqlite_chunk_store.py func=get_by_ids упростить: вынести получение chunks из БД в _fetch_chunks_from_db(), конвертацию в domain objects в _convert_to_domain_chunks()
 

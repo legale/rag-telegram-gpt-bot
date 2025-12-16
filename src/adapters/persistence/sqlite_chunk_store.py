@@ -205,16 +205,43 @@ class SqliteChunkStore:
         if not ids:
             return []
 
+        # Fetch chunks from database
+        models = self._fetch_chunks_from_db(ids)
+        
+        # Convert to domain objects
+        return self._convert_to_domain_chunks(models)
+    
+    def _fetch_chunks_from_db(self, ids: List[str]) -> List[ChunkModel]:
+        """
+        Fetch chunk models from database by IDs.
+        
+        Args:
+            ids: List of chunk IDs
+            
+        Returns:
+            List of ChunkModel instances
+        """
         session = self.db.get_session()
         try:
             # Query chunks by IDs
             models = session.query(ChunkModel).filter(
                 ChunkModel.id.in_(ids)
             ).all()
-
-            return [self._model_to_domain(model) for model in models]
+            return models
         finally:
             session.close()
+    
+    def _convert_to_domain_chunks(self, models: List[ChunkModel]) -> List[Chunk]:
+        """
+        Convert ChunkModel instances to domain Chunk objects.
+        
+        Args:
+            models: List of ChunkModel instances
+            
+        Returns:
+            List of Chunk domain objects
+        """
+        return [self._model_to_domain(model) for model in models]
 
     def update_topics(self, updates: Dict[str, TopicUpdate]) -> None:
         """
