@@ -248,7 +248,7 @@
 
 - [x] file=src/bot/command_parser.py func=parse_find_command_args упростить: вынести парсинг rag_method в _parse_rag_method(), парсинг query в _parse_query(), валидацию args в _validate_args()
 
-- [ ] file=src/core/ingest_use_cases/ingest_messages.py func=execute упростить: вынести парсинг файла в _parse_file(), сохранение messages в _save_messages()
+- [w] file=src/core/ingest_use_cases/ingest_messages.py func=execute упростить: вынести парсинг файла в _parse_file(), сохранение messages в _save_messages()
 
 - [x] file=src/core/ingest_use_cases/process_chunks.py func=execute упростить: вынести получение messages в _load_messages(), создание chunks в _create_chunks(), сохранение chunks в _save_chunks()
 

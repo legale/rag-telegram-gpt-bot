@@ -44,6 +44,32 @@ class SyncToVectorStore:
         """
         syslog2(LOG_NOTICE, "starting sync to vector store")
 
+        # Prepare vector data
+        vector_docs = self._prepare_vector_data(chunk_ids)
+        
+        if not vector_docs:
+            syslog2(LOG_NOTICE, "no chunks with embeddings found")
+            return 0
+
+        # Sync to vector store
+        synced_count = self._sync_to_vector_store(vector_docs)
+        
+        syslog2(LOG_NOTICE, "sync to vector store complete", synced=synced_count)
+        return synced_count
+    
+    def _prepare_vector_data(self, chunk_ids: Optional[List[str]]) -> List[VectorDoc]:
+        """
+        Prepare vector data from chunks.
+        
+        Args:
+            chunk_ids: Optional list of chunk IDs to sync
+            
+        Returns:
+            List of VectorDoc objects ready for sync
+            
+        Raises:
+            NotImplementedError: If chunk_ids is None (getting all chunks not supported)
+        """
         # Note: This is a simplified implementation.
         # Full implementation would need ChunkStore to support:
         # - get_chunks_with_embeddings() method
@@ -62,8 +88,7 @@ class SyncToVectorStore:
         chunks_to_sync = [chunk for chunk in chunks if chunk.embedding is not None]
         
         if not chunks_to_sync:
-            syslog2(LOG_NOTICE, "no chunks with embeddings found")
-            return 0
+            return []
 
         syslog2(LOG_NOTICE, "chunks to sync", total=len(chunks_to_sync))
 
@@ -79,10 +104,20 @@ class SyncToVectorStore:
                 meta=meta
             )
             vector_docs.append(vector_doc)
-
+        
+        return vector_docs
+    
+    def _sync_to_vector_store(self, vector_docs: List[VectorDoc]) -> int:
+        """
+        Sync vector documents to vector index.
+        
+        Args:
+            vector_docs: List of VectorDoc objects to sync
+            
+        Returns:
+            Number of documents synced
+        """
         # Upsert to vector index
         self.vector_index.upsert(vector_docs)
-        
-        syslog2(LOG_NOTICE, "sync to vector store complete", synced=len(vector_docs))
         return len(vector_docs)
 
