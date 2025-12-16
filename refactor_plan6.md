@@ -280,7 +280,7 @@
 
 - [x] file=src/core/search.py func=search упростить: вынести фильтрацию по threshold в _filter_by_threshold(), получение chunks по IDs в _get_chunks_by_ids(), построение SearchResult в _build_search_results()
 
-- [ ] file=src/core/domain.py упростить: добавить методы валидации для domain objects (Message.validate(), Chunk.validate())
+- [x] file=src/core/domain.py упростить: добавить методы валидации для domain objects (Message.validate(), Chunk.validate())
 
 - [ ] file=src/core/interfaces.py упростить: добавить документацию с примерами использования для каждого Protocol
 
