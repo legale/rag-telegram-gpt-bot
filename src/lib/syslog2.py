@@ -105,16 +105,23 @@ def _prefix() -> str:
     return f"{ts} {file_name}:{line_no} {func_name}:"
 
 
+def _format_message(msg: str, params: dict) -> str:
+    msg = _lower_first_alpha(msg)
+    return msg + _format_kv(params)
+
+
+def _log_message(py_level: int, prefix: str, body: str, exc_info=None) -> None:
+    with _lock:
+        _log.log(py_level, f"{prefix} {body}", exc_info=exc_info)
+
+
 def syslog2(level: int, msg: str, **params) -> None:
     if level > _current_syslog_level:
         return
 
     py_level = _sys_to_py(level)
-    msg = _lower_first_alpha(msg)
-    body = msg + _format_kv(params)
-
-    with _lock:
-        _log.log(py_level, f"{_prefix()} {body}")
+    body = _format_message(msg, params)
+    _log_message(py_level, _prefix(), body)
 
 
 def syslog2_exc(level: int, msg: str, exc: Optional[BaseException] = None, **params) -> None:
@@ -122,14 +129,12 @@ def syslog2_exc(level: int, msg: str, exc: Optional[BaseException] = None, **par
         return
 
     py_level = _sys_to_py(level)
-    msg = _lower_first_alpha(msg)
 
     if exc is None:
         exc_info = True
-        body = msg + _format_kv(params)
+        body = _format_message(msg, params)
     else:
         exc_info = exc
-        body = msg + _format_kv(params) + f" exc={type(exc).__name__}:{exc}"
+        body = _format_message(msg, params) + f" exc={type(exc).__name__}:{exc}"
 
-    with _lock:
-        _log.log(py_level, f"{_prefix()} {body}", exc_info=exc_info)
+    _log_message(py_level, _prefix(), body, exc_info=exc_info)
