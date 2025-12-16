@@ -60,7 +60,7 @@ class RuntimeContext:
         self.profile_manager = None  # Will be initialized in lifespan
         self.task_manager: Optional[TaskManager] = None
         self.ingest_commands: Optional[IngestCommands] = None
-        self.command_dispatcher = None  # CommandDispatcher instance
+        self.command_service = None  # CommandService instance
         self.access_control: Optional[AccessControlService] = None
         self.frequency_controller: FrequencyController = FrequencyController()
         self.debug_rag_mode: bool = False
@@ -100,8 +100,8 @@ def _get_ingest_commands() -> Optional[IngestCommands]:
     return get_runtime_context().ingest_commands
 
 
-def _get_command_dispatcher():
-    return get_runtime_context().command_dispatcher
+def _get_command_service():
+    return get_runtime_context().command_service
 
 
 def _get_access_control() -> Optional[AccessControlService]:
@@ -455,9 +455,9 @@ class MessageHandler:
         """Route command to appropriate handler using CommandDispatcher."""
         syslog2(LOG_ALERT, "route_command", text=text)
         
-        # Use CommandDispatcher if available
-        command_dispatcher = _get_command_dispatcher()
-        if command_dispatcher:
+        # Use CommandService if available
+        command_service = _get_command_service()
+        if command_service:
             from src.app.main_cli import handle_command_async
             message = update.message
             user_id = str(message.from_user.id) if message.from_user else None
@@ -474,7 +474,7 @@ class MessageHandler:
             # Handle command using unified async handler
             result_message, result_data = await handle_command_async(
                 command=text,
-                dispatcher=command_dispatcher,
+                dispatcher=command_service.dispatcher,
                 user_id=user_id,
                 chat_id=chat_id,
                 metadata=metadata
@@ -831,14 +831,14 @@ def _create_admin_components(paths: Dict, bot_instance_local: LegaleBot, ctx: Ru
     return admin_router_local, task_manager_local, ingest_commands_local
 
 
-def _create_command_dispatcher(
+def _create_command_service(
     bot_instance_local: LegaleBot,
     admin_manager_local: AdminManager,
     admin_router_local: AdminCommandRouter,
     debug_rag: bool
 ):
     """
-    Create command dispatcher via CommandService.
+    Create command service with registered handlers.
     
     Args:
         bot_instance_local: LegaleBot instance
@@ -847,7 +847,7 @@ def _create_command_dispatcher(
         debug_rag: Debug RAG flag
         
     Returns:
-        CommandDispatcher instance (from CommandService for backward compatibility)
+        CommandService instance
     """
     from src.core.command_service import CommandService
     from src.app.main_cli import register_sync_handlers, register_async_handlers
@@ -856,8 +856,8 @@ def _create_command_dispatcher(
     register_sync_handlers(command_service, bot_instance_local, admin_manager_local, debug_rag)
     register_async_handlers(command_service, admin_manager_local, admin_router_local)
     
-    syslog2(LOG_NOTICE, "command dispatcher initialized with admin handlers")
-    return command_service.dispatcher
+    syslog2(LOG_NOTICE, "command service initialized with admin handlers")
+    return command_service
 
 
 # инициализация рантайма под текущий профиль
@@ -885,8 +885,8 @@ async def init_runtime_for_current_profile(
     # Step 4: Create admin components (router, task_manager, ingest_commands)
     admin_router_local, task_manager_local, ingest_commands_local = _create_admin_components(paths, bot_instance_local, ctx)
 
-    # Step 5: Create command dispatcher
-    command_dispatcher_local = _create_command_dispatcher(
+    # Step 5: Create command service
+    command_service_local = _create_command_service(
         bot_instance_local,
         admin_manager_local,
         admin_router_local,
@@ -899,7 +899,7 @@ async def init_runtime_for_current_profile(
     ctx.admin_router = admin_router_local
     ctx.task_manager = task_manager_local
     ctx.ingest_commands = ingest_commands_local
-    ctx.command_dispatcher = command_dispatcher_local
+    ctx.command_service = command_service_local
 
     return paths
 
