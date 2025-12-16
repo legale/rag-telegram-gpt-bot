@@ -316,7 +316,7 @@
 
 - [x] file=src/core/dispatcher.py func=dispatch убрать из runtime: заменить на CommandService с простым registry dict[name]=handler, без async ветвления если не критично (выполнено: command_dispatcher заменен на command_service в RuntimeContext, используется CommandService вместо прямого доступа к dispatcher)
 
-- [ ] file=src/bot/command_parser.py func=parse_command упростить: парсит только текст в CommandRequest (name-args-raw), никакой логики разрешений-частоты-списка команд
+- [x] file=src/bot/command_parser.py func=parse_command упростить: парсит только текст в CommandRequest (name-args-raw), никакой логики разрешений-частоты-списка команд (выполнено: создана функция parse_command, которая парсит текст в CommandRequest без бизнес-логики)
 
 - [ ] file=src/bot/core.py class=LegaleBot расщепить: вынести conversation_state в src/core/conversation_state.py, context_provider в src/core/context_provider.py, prompt_builder в src/core/prompt_builder.py, llm_gateway в src/core/llm_gateway.py, LegaleBot оставить как thin facade или удалить
 

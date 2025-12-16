@@ -5,6 +5,7 @@ Common command parsing utilities for CLI and Telegram bot.
 
 from typing import Tuple, Optional
 from src.bot.admin import AdminManager
+from src.app.types import CommandRequest
 
 
 def _parse_rag_method(parts: list[str]) -> Tuple[Optional[str], Optional[str]]:
@@ -146,4 +147,51 @@ def parse_find_command_args(
         return None, None, error
     
     return rag_method, action, query
+
+
+def parse_command(text: str, user_id: Optional[str] = None, chat_id: Optional[str] = None, meta: Optional[dict] = None) -> CommandRequest:
+    """
+    Parse command text into CommandRequest.
+    
+    This function only parses text into command structure (name-args-raw),
+    without any business logic like permissions, frequency, or command list validation.
+    
+    Args:
+        text: Command text (e.g., "/find hybrid vpn туннель" or "/help")
+        user_id: Optional user ID
+        chat_id: Optional chat ID
+        meta: Optional metadata dictionary
+        
+    Returns:
+        CommandRequest with parsed command name, args, and raw text
+    """
+    text = text.strip()
+    
+    # If not a command, return empty CommandRequest
+    if not text.startswith("/"):
+        return CommandRequest(
+            user_id=user_id,
+            chat_id=chat_id,
+            name="",
+            args=[],
+            raw=text,
+            meta=meta
+        )
+    
+    # Parse command name and arguments
+    parts = text.split(maxsplit=1)
+    command_name = parts[0].lstrip("/")  # Remove leading slash
+    args_text = parts[1] if len(parts) > 1 else ""
+    
+    # Split args into list
+    args = args_text.split() if args_text else []
+    
+    return CommandRequest(
+        user_id=user_id,
+        chat_id=chat_id,
+        name=command_name,
+        args=args,
+        raw=text,
+        meta=meta
+    )
 
