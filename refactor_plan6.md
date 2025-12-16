@@ -296,7 +296,7 @@
 
 - [x] file=src/app/bootstrap.py func=create_app добавить: собрать все зависимости и вернуть объект App с методами handle_request(), handle_command(), ingest(), никаких импортов src/bot внутри core
 
-- [ ] file=src/app/app.py func=handle_request создать: единая точка обработки входа (telegram или cli), вход AppRequest (user_id-chat_id-text-transport-meta), выход AppResponse (text-actions)
+- [x] file=src/app/app.py func=handle_request создать: единая точка обработки входа (telegram или cli), вход AppRequest (user_id-chat_id-text-transport-meta), выход AppResponse (text-actions)
 
 - [ ] file=src/app/types.py создать: dataclass AppRequest-AppResponse, CommandRequest-QueryRequest, чтобы transport не знал про core детали
 
