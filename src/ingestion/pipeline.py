@@ -462,17 +462,36 @@ class IngestionPipeline:
         
         Topic clustering (L1/L2) is no longer needed for hybrid/FTS5 search.
         """
-        syslog2(LOG_NOTICE, "running stage0: parse and store messages")
-        self.run_stage0(file_path)
+        stages = [
+            {
+                "name": "stage0: parse and store messages",
+                "func": self.run_stage0,
+                "args": (file_path,),
+                "kwargs": {}
+            },
+            {
+                "name": "stage1: create and store chunks",
+                "func": self.run_stage1,
+                "args": (),
+                "kwargs": {}
+            },
+            {
+                "name": "stage2: generate embeddings for chunks (save to SQLite)",
+                "func": self.run_stage2,
+                "args": (),
+                "kwargs": {"model": model, "batch_size": batch_size}
+            },
+            {
+                "name": "stage3: sync chunks to vector database",
+                "func": self.run_stage3,
+                "args": (),
+                "kwargs": {}
+            }
+        ]
         
-        syslog2(LOG_NOTICE, "running stage1: create and store chunks")
-        self.run_stage1()
-        
-        syslog2(LOG_NOTICE, "running stage2: generate embeddings for chunks (save to SQLite)")
-        self.run_stage2(model=model, batch_size=batch_size)
-        
-        syslog2(LOG_NOTICE, "running stage3: sync chunks to vector database")
-        self.run_stage3()
+        for stage in stages:
+            syslog2(LOG_NOTICE, "running", stage_name=stage["name"])
+            stage["func"](*stage["args"], **stage["kwargs"])
         
         syslog2(LOG_NOTICE, "all stages complete (stages 0-3: messages, chunks, embeddings, vector sync)")
 

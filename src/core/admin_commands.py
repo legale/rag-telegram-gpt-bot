@@ -65,14 +65,42 @@ class AdminSetCommandHandler(AsyncCommandHandler):
 
         password = parts[1].strip()
 
+        # Validate password
+        validation_result = self._validate_password(password)
+        if validation_result is not None:
+            return validation_result
+
+        # Set admin user
+        return self._set_admin_user(message)
+
+    def _validate_password(self, password: str) -> Optional[CommandResult]:
+        """
+        Validate admin password.
+
+        Args:
+            password: Password to validate
+
+        Returns:
+            CommandResult with error if validation failed, None if valid
+        """
         if not self.admin_manager.verify_password(password):
             return CommandResult(
                 success=False,
                 message="Неверный пароль.",
                 error="Invalid password"
             )
+        return None
 
-        # Set admin
+    def _set_admin_user(self, message) -> CommandResult:
+        """
+        Set admin user from message.
+
+        Args:
+            message: Telegram message object
+
+        Returns:
+            CommandResult with success status and message
+        """
         user = message.from_user
         user_id = user.id
         username = user.username or "unknown"
