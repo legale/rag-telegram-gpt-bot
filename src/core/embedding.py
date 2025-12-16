@@ -535,6 +535,14 @@ def create_embedding_client(
     """
     Create embedding client based on generator type.
     
+    DEPRECATED: This function is kept for backward compatibility only.
+    The logic for choosing between local and API clients has been moved to
+    create_embedding_client_from_config() in src/app/bootstrap.py.
+    
+    Core modules should use only the Embedder interface and should not call
+    this function directly. Use create_embedding_client_from_config() from
+    bootstrap.py instead.
+    
     Args:
         generator: Generator type ("openrouter", "openai", "local")
         model: Model name
@@ -542,11 +550,17 @@ def create_embedding_client(
     Returns:
         EmbeddingClient or LocalEmbeddingClient instance
     """
+    # Import here to avoid circular dependency
+    from src.app.bootstrap import create_embedding_client_from_config
+    
+    # For backward compatibility, we still support generator parameter
+    # but delegate to bootstrap function when possible
     if generator is None:
         generator = os.getenv("EMBEDDING_PROVIDER", "openrouter")
     
     generator_lower = generator.lower()
     
+    # Delegate to helper functions for backward compatibility
     if generator_lower in ["openrouter", "openai", "current"]:
         return _create_api_client(model)
     elif generator_lower == "local":

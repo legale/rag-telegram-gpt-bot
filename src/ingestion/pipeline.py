@@ -15,7 +15,8 @@ from src.ingestion.parser import ChatParser
 from src.ingestion.chunker import MessageChunker
 from src.storage.db import Database, ChunkModel
 from src.storage.vector_store import VectorStore
-from src.core.embedding import EmbeddingClient, create_embedding_client
+from src.core.embedding import EmbeddingClient
+from src.app.bootstrap import create_embedding_client_from_config
 from pathlib import Path
 import uuid
 import json
@@ -72,11 +73,11 @@ class IngestionPipeline:
                 syslog2(LOG_NOTICE, "example config.json", example='{"embedding_model": "paraphrase-multilingual-mpnet-base-v2", "embedding_generator": "local", "current_model": "openai/gpt-oss-20b:free"}')
                 raise ConfigurationError("embedding_model is not set in profile config")
             
-            embedding_generator = config.embedding_generator
-            
-            embedding_client = create_embedding_client(
-                generator=embedding_generator,
-                model=embedding_model
+            # Use bootstrap function to create embedding client
+            # This handles the choice between local and API based on config
+            embedding_client = create_embedding_client_from_config(
+                embedding_client=None,
+                profile_dir=profile_path
             )
             
             # Initialize chunker with token-based parameters from config
@@ -735,9 +736,11 @@ class IngestionPipeline:
         emb_client = self.embedding_client
         if model:
             # Create new client with specified model
-            from src.core.embedding import create_embedding_client
-            generator = os.getenv("EMBEDDING_PROVIDER", "openrouter")
-            emb_client = create_embedding_client(generator=generator, model=model)
+            # Use bootstrap function to handle local vs API choice
+            # For model override, we create API client by default
+            # (local models should be set via config, not runtime override)
+            from src.core.embedding import EmbeddingClient
+            emb_client = EmbeddingClient(model=model)
         
         if emb_client is None:
             raise RuntimeError("Embedding client was not initialized. This is a bug.")

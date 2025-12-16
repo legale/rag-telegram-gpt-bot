@@ -109,6 +109,97 @@ class HybridSearch:
                 original_messages = messages
         
         return original_messages
+    
+    def _filter_by_threshold(
+        self,
+        scored_docs: List[ScoredDoc],
+        threshold: Optional[float]
+    ) -> List[ScoredDoc]:
+        """
+        Filter scored documents by threshold if provided.
+        
+        Args:
+            scored_docs: List of ScoredDoc objects
+            threshold: Minimum similarity score (0.0-1.0), None to skip filtering
+            
+        Returns:
+            Filtered list of ScoredDoc objects
+        """
+        if threshold is not None:
+            return [doc for doc in scored_docs if doc.score >= threshold]
+        return scored_docs
+    
+    def _get_chunks_by_ids(
+        self,
+        chunk_ids: List[str]
+    ) -> dict[str, Chunk]:
+        """
+        Retrieve chunks by IDs and create a mapping for efficient lookup.
+        
+        Args:
+            chunk_ids: List of chunk IDs to retrieve
+            
+        Returns:
+            Dictionary mapping chunk_id to Chunk object
+        """
+        chunks = self.chunk_store.get_by_ids(chunk_ids)
+        return {chunk.id: chunk for chunk in chunks}
+    
+    def _build_search_results(
+        self,
+        scored_docs: List[ScoredDoc],
+        chunk_map: dict[str, Chunk],
+        enrich_with_messages: bool,
+        message_window_sec: int
+    ) -> List[SearchResult]:
+        """
+        Build SearchResult objects from scored documents and chunks.
+        
+        Args:
+            scored_docs: List of ScoredDoc objects with chunk IDs and scores
+            chunk_map: Dictionary mapping chunk_id to Chunk object
+            enrich_with_messages: Whether to enrich results with original messages
+            message_window_sec: Time window in seconds for message context retrieval
+            
+        Returns:
+            List of SearchResult objects, sorted by score (descending)
+        """
+        results = []
+        for scored_doc in scored_docs:
+            chunk = chunk_map.get(scored_doc.id)
+            if not chunk:
+                # Chunk not found in store, skip
+                continue
+
+            # Extract topics from chunk metadata
+            topics = []
+            if chunk.metadata:
+                # Look for topic information in metadata
+                # topic_l1 and topic_l2 removed - clustering is deprecated
+                
+                # Also check for topic_ids list
+                topic_ids = chunk.metadata.get("topic_ids", [])
+                topics.extend([str(tid) for tid in topic_ids if tid not in topics])
+
+            # Enrich with original messages if requested
+            original_messages = self._enrich_with_messages(
+                chunk,
+                enrich_with_messages,
+                message_window_sec
+            )
+
+            # Create SearchResult
+            result = SearchResult(
+                chunk=chunk,
+                score=scored_doc.score,
+                original_messages=original_messages,
+                topics=topics
+            )
+            results.append(result)
+
+        # Sort by score (descending) - highest score first
+        results.sort(key=lambda r: r.score, reverse=True)
+        return results
 
     def search(
         self,
@@ -145,55 +236,22 @@ class HybridSearch:
             return []
 
         # Step 3: Filter by threshold if provided
-        if threshold is not None:
-            scored_docs = [doc for doc in scored_docs if doc.score >= threshold]
+        scored_docs = self._filter_by_threshold(scored_docs, threshold)
 
         if not scored_docs:
             return []
 
         # Step 4: Retrieve full chunk objects by IDs
         chunk_ids = [doc.id for doc in scored_docs]
-        chunks = self.chunk_store.get_by_ids(chunk_ids)
-
-        # Create a mapping from chunk_id to chunk for efficient lookup
-        chunk_map = {chunk.id: chunk for chunk in chunks}
+        chunk_map = self._get_chunks_by_ids(chunk_ids)
 
         # Step 5: Build SearchResult objects with enrichment
-        results = []
-        for scored_doc in scored_docs:
-            chunk = chunk_map.get(scored_doc.id)
-            if not chunk:
-                # Chunk not found in store, skip
-                continue
-
-            # Extract topics from chunk metadata
-            topics = []
-            if chunk.metadata:
-                # Look for topic information in metadata
-                # topic_l1 and topic_l2 removed - clustering is deprecated
-                
-                # Also check for topic_ids list
-                topic_ids = chunk.metadata.get("topic_ids", [])
-                topics.extend([str(tid) for tid in topic_ids if tid not in topics])
-
-            # Enrich with original messages if requested
-            original_messages = self._enrich_with_messages(
-                chunk,
-                enrich_with_messages,
-                message_window_sec
-            )
-
-            # Create SearchResult
-            result = SearchResult(
-                chunk=chunk,
-                score=scored_doc.score,
-                original_messages=original_messages,
-                topics=topics
-            )
-            results.append(result)
-
-        # Sort by score (descending) - highest score first
-        results.sort(key=lambda r: r.score, reverse=True)
+        results = self._build_search_results(
+            scored_docs,
+            chunk_map,
+            enrich_with_messages,
+            message_window_sec
+        )
 
         return results
 

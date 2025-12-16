@@ -27,6 +27,10 @@ def create_embedding_client_from_config(
     """
     Create embedding client from config or use provided one.
     
+    This function handles the choice between local and API embedding clients
+    based on configuration. Core modules should use only the Embedder interface
+    and not make this choice themselves.
+    
     Args:
         embedding_client: Optional pre-configured embedding client
         profile_dir: Optional profile directory for loading embedding config
@@ -44,15 +48,27 @@ def create_embedding_client_from_config(
             try:
                 from src.bot.config import BotConfig
                 config = BotConfig(profile_path)
-                return create_embedding_client(
-                    generator=config.embedding_generator,
-                    model=config.embedding_model
-                )
+                generator = config.embedding_generator
+                model = config.embedding_model
+                
+                # Choose between local and API based on generator
+                # This logic is moved here from core/embedding.py
+                generator_lower = generator.lower() if generator else "openrouter"
+                
+                if generator_lower == "local":
+                    # Create local embedding client
+                    from src.core.embedding import LocalEmbeddingClient
+                    local_model = model or "paraphrase-multilingual-mpnet-base-v2"
+                    return LocalEmbeddingClient(model=local_model)
+                else:
+                    # Create API embedding client (openrouter, openai, etc.)
+                    api_model = model or "text-embedding-3-small"
+                    return EmbeddingClient(model=api_model)
             except Exception:
                 # Fall back to default if config load fails
                 return EmbeddingClient()
     
-    # Default fallback
+    # Default fallback to API client
     return EmbeddingClient()
 
 

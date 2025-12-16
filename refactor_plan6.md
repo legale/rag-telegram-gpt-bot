@@ -278,7 +278,7 @@
 
 - [x] file=src/core/search.py func=search упростить: вынести вычисление query embedding в _compute_query_embedding(), векторный поиск в _perform_vector_search(), обогащение результатами в _enrich_with_messages()
 
-- [ ] file=src/core/search.py func=search упростить: вынести фильтрацию по threshold в _filter_by_threshold(), получение chunks по IDs в _get_chunks_by_ids(), построение SearchResult в _build_search_results()
+- [w] file=src/core/search.py func=search упростить: вынести фильтрацию по threshold в _filter_by_threshold(), получение chunks по IDs в _get_chunks_by_ids(), построение SearchResult в _build_search_results()
 
 - [ ] file=src/core/domain.py упростить: добавить методы валидации для domain objects (Message.validate(), Chunk.validate())
 
