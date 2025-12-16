@@ -302,7 +302,7 @@
 
 - [x] file=src/core/command_service.py func=dispatch создать: единый сервис команд, принимает CommandRequest, возвращает CommandResult, регистрации команд только здесь
 
-- [ ] file=src/core/chat_service.py func=chat создать: единый сервис чата (retrieval+prompt+llm), без доступа к transport и файловой системе
+- [x] file=src/core/chat_service.py func=chat создать: единый сервис чата (retrieval+prompt+llm), без доступа к transport и файловой системе
 
 - [ ] file=src/core/access_control.py func=check_access создать: логика allowed_chats-is_admin сюда, transport только вызывает и мапит отказ в текст
 
