@@ -254,7 +254,7 @@
 
 - [x] file=src/core/ingest_use_cases/generate_embeddings.py func=execute упростить: вынести получение chunks без embeddings в _get_chunks_without_embeddings(), генерацию embeddings в _generate_embeddings(), сохранение embeddings в _save_embeddings()
 
-- [w] file=src/core/ingest_use_cases/sync_to_vector_store.py func=execute упростить: вынести подготовку данных в _prepare_vector_data(), синхронизацию в _sync_to_vector_store()
+- [x] file=src/core/ingest_use_cases/sync_to_vector_store.py func=execute упростить: вынести подготовку данных в _prepare_vector_data(), синхронизацию в _sync_to_vector_store()
 
 - [x] file=src/core/ingest_use_cases/pipeline_orchestrator.py func=run_all упростить: вынести выполнение stage в _execute_stage(), обработку ошибок stage в _handle_stage_error()
 
