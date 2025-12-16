@@ -19,7 +19,6 @@ from src.core.interfaces import (
     Embedder,
     FTSIndex,
     LLM,
-    ConfigProvider,
     VectorDoc,
     ScoredDoc,
     SearchFilters,

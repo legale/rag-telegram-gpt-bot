@@ -75,11 +75,12 @@ class ChromaVectorIndex:
         where = self._convert_filter_to_where(filter)
 
         # Query with the embedding vector
+        # Include documents to avoid reading from SQLite for each candidate
         results = collection.query(
             query_embeddings=[vector],
             n_results=top_k,
             where=where,
-            include=["metadatas", "distances"]
+            include=["metadatas", "distances", "documents"]
         )
 
         # Convert ChromaDB results to ScoredDoc objects
@@ -107,7 +108,8 @@ class ChromaVectorIndex:
             results: ChromaDB query results dict
 
         Returns:
-            List of ScoredDoc objects
+            List of ScoredDoc objects with chunk_id, score, and metadata (including text)
+            to avoid reading chunks from SQLite for each candidate
         """
         scored_docs = []
         
@@ -116,6 +118,7 @@ class ChromaVectorIndex:
             ids_list = results["ids"][0] if results["ids"] else []
             distances_list = results["distances"][0] if results.get("distances") and results["distances"] else []
             metadatas_list = results["metadatas"][0] if results.get("metadatas") and results["metadatas"] else []
+            documents_list = results.get("documents", [[]])[0] if results.get("documents") and results["documents"] else []
 
             for i, doc_id in enumerate(ids_list):
                 # ChromaDB returns distances (lower is better), convert to score (higher is better)
@@ -127,7 +130,14 @@ class ChromaVectorIndex:
                 # Clamp to [0, 1] range
                 score = max(0.0, min(1.0, 1.0 - distance))
 
-                metadata = metadatas_list[i] if i < len(metadatas_list) else {}
+                # Get metadata and include text from documents to minimize SQLite roundtrips
+                metadata = metadatas_list[i].copy() if i < len(metadatas_list) and metadatas_list[i] else {}
+                
+                # Include text from documents if available and not already in metadata
+                if i < len(documents_list) and documents_list[i]:
+                    document_text = documents_list[i]
+                    if document_text and "text" not in metadata:
+                        metadata["text"] = document_text
 
                 scored_docs.append(ScoredDoc(
                     id=doc_id,

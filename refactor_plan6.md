@@ -332,21 +332,21 @@
 
 - [ ] file=src/adapters/persistence/sqlite_message_store.py func=* запретить импорт src/storage/db.py как "бог-объект": использовать session factory и models, реализовать только MessageStore контракт
 
-- [ ] file=src/adapters/persistence/sqlite_chunk_store.py func=* убрать embedding_json из ответственности стора: ChunkStore хранит текст-мета-связи, embeddings источник правды только в VectorIndex или только в SQLite (выбрать один)
+- [w] file=src/adapters/persistence/sqlite_chunk_store.py func=* убрать embedding_json из ответственности стора: ChunkStore хранит текст-мета-связи, embeddings источник правды только в VectorIndex или только в SQLite (выбрать один)
 
-- [ ] file=src/adapters/vector/chroma_vector_index.py func=query расширить: возвращать (chunk_id-score-metadata) без необходимости читать chunks из SQLite для каждого кандидата, минимизировать roundtrips
+- [w] file=src/adapters/vector/chroma_vector_index.py func=query расширить: возвращать (chunk_id-score-metadata) без необходимости читать chunks из SQLite для каждого кандидата, минимизировать roundtrips
 
-- [ ] file=src/core/interfaces.py пересмотреть: оставить "несущие стены" только для границ (MessageStore-ChunkStore-FTSIndex-VectorIndex-Embedder-LLM-ConfigProvider), удалить все что не используется напрямую use cases
+- [w] file=src/core/interfaces.py пересмотреть: оставить "несущие стены" только для границ (MessageStore-ChunkStore-FTSIndex-VectorIndex-Embedder-LLM-ConfigProvider), удалить все что не используется напрямую use cases
 
-- [ ] file=src/bot/config.py class=BotConfig перенести: в src/app/config_store.py (профиль и файлы), core получает ConfigProvider интерфейс, AdminManager не читает json напрямую
+- [w] file=src/bot/config.py class=BotConfig перенести: в src/app/config_store.py (профиль и файлы), core получает ConfigProvider интерфейс, AdminManager не читает json напрямую
 
-- [ ] file=src/bot/admin.py class=AdminManager заменить: на src/core/access_control.py + src/app/config_store.py, чтобы админ логика не жила в transport
+- [w] file=src/bot/admin.py class=AdminManager заменить: на src/core/access_control.py + src/app/config_store.py, чтобы админ логика не жила в transport
 
-- [ ] file=legale.py func=main упростить: CLI только собирает App через bootstrap и вызывает app.handle_command(), никакой ручной сборки Database-VectorStore внутри команд
+- [x] file=legale.py func=main упростить: CLI только собирает App через bootstrap и вызывает app.handle_command(), никакой ручной сборки Database-VectorStore внутри команд
 
-- [ ] file=src/bot/cli.py func=main упростить: CLI как transport, делает AppRequest и печатает AppResponse, без прямого вызова LegaleBot и без регистрации команд
+- [w] file=src/bot/cli.py func=main упростить: CLI как transport, делает AppRequest и печатает AppResponse, без прямого вызова LegaleBot и без регистрации команд
 
-- [ ] file=src/app/main_cli.py func=create_dispatcher удалить: заменить на create_app() + CommandService registry, чтобы не было второго центра регистрации
+- [w] file=src/app/main_cli.py func=create_dispatcher удалить: заменить на create_app() + CommandService registry, чтобы не было второго центра регистрации
 
 - [ ] file=src/lib/syslog2.py scope=api унифицировать: сделать LoggingPort интерфейс в core (минимальный), syslog2 оставить реализацией, core не зависит от конкретного логгера
 

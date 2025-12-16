@@ -12,10 +12,8 @@ from src.core.interfaces import (
     Embedder,
     FTSIndex,
     LLM,
-    ConfigProvider,
-    TransactionManager
 )
-from src.core.domain import Message, Chunk, TopicUpdate, ProfileConfig
+from src.core.domain import Message, Chunk, TopicUpdate
 
 
 class TestVectorDoc:
@@ -204,27 +202,4 @@ class TestProtocols:
         llm = MockLLM()
         # Protocol check - just verify methods exist
         assert hasattr(llm, 'complete')
-    
-    def test_config_provider_protocol(self):
-        """Test ConfigProvider protocol can be implemented"""
-        class MockConfigProvider:
-            def get_profile_config(self, profile_name):
-                return ProfileConfig(model_name="test", embedding_provider="local")
-        
-        provider = MockConfigProvider()
-        # Protocol check - just verify methods exist
-        assert hasattr(provider, 'get_profile_config')
-    
-    def test_transaction_manager_protocol(self):
-        """Test TransactionManager protocol can be implemented"""
-        from contextlib import contextmanager
-        
-        class MockTransactionManager:
-            @contextmanager
-            def atomic(self):
-                yield None
-        
-        manager = MockTransactionManager()
-        # Protocol check - just verify methods exist
-        assert hasattr(manager, 'atomic')
 

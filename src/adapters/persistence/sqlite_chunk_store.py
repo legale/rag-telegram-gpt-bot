@@ -28,6 +28,9 @@ class SqliteChunkStore:
         """
         Prepare chunk data for database storage.
         
+        Note: Embeddings are not stored in ChunkStore - they belong to VectorIndex.
+        ChunkStore only stores text, metadata, and message relationships.
+        
         Args:
             chunk: Chunk domain object
             
@@ -37,12 +40,8 @@ class SqliteChunkStore:
         # Prepare metadata JSON
         metadata_json = json.dumps(chunk.metadata) if chunk.metadata else None
 
-        # Prepare embedding JSON
-        embedding_json = None
-        embedding_dim = None
-        if chunk.embedding:
-            embedding_json = json.dumps(chunk.embedding)
-            embedding_dim = len(chunk.embedding)
+        # Embeddings are not stored in ChunkStore - they belong to VectorIndex
+        # embedding_json and embedding_dim are not part of ChunkStore responsibility
 
         # Extract message IDs and timestamps
         msg_id_start = None
@@ -67,8 +66,6 @@ class SqliteChunkStore:
 
         return {
             "metadata_json": metadata_json,
-            "embedding_json": embedding_json,
-            "embedding_dim": embedding_dim,
             "msg_id_start": msg_id_start,
             "msg_id_end": msg_id_end,
             "ts_from": ts_from,
@@ -101,6 +98,8 @@ class SqliteChunkStore:
         """
         Create or update chunk in database.
         
+        Note: Embeddings are not stored in ChunkStore - they belong to VectorIndex.
+        
         Args:
             session: Database session
             chunk: Chunk domain object
@@ -114,8 +113,7 @@ class SqliteChunkStore:
             # Update existing chunk
             existing.text = chunk.text
             existing.metadata_json = chunk_data["metadata_json"]
-            existing.embedding_json = chunk_data["embedding_json"]
-            existing.embedding_dim = chunk_data["embedding_dim"]
+            # embedding_json and embedding_dim are not updated - they belong to VectorIndex
             existing.msg_id_start = chunk_data["msg_id_start"]
             existing.msg_id_end = chunk_data["msg_id_end"]
             existing.ts_from = chunk_data["ts_from"]
@@ -129,8 +127,9 @@ class SqliteChunkStore:
                 id=chunk.id,
                 text=chunk.text,
                 metadata_json=chunk_data["metadata_json"],
-                embedding_json=chunk_data["embedding_json"],
-                embedding_dim=chunk_data["embedding_dim"],
+                # embedding_json and embedding_dim are not set - they belong to VectorIndex
+                embedding_json=None,
+                embedding_dim=None,
                 msg_id_start=chunk_data["msg_id_start"],
                 msg_id_end=chunk_data["msg_id_end"],
                 ts_from=chunk_data["ts_from"],
@@ -343,11 +342,15 @@ class SqliteChunkStore:
         """
         Convert ChunkModel to domain Chunk object.
 
+        Note: Embeddings are not loaded from ChunkStore - they belong to VectorIndex.
+        The embedding field in Chunk domain object will be None when loaded from ChunkStore.
+        To get embeddings, use VectorIndex.get_embeddings_by_ids().
+
         Args:
             model: ChunkModel instance
 
         Returns:
-            Chunk domain object
+            Chunk domain object (with embedding=None, as embeddings are in VectorIndex)
         """
         # Parse metadata
         metadata = {}
@@ -357,13 +360,9 @@ class SqliteChunkStore:
             except (json.JSONDecodeError, TypeError):
                 metadata = {}
 
-        # Parse embedding
+        # Embeddings are not loaded from ChunkStore - they belong to VectorIndex
+        # If you need embeddings, use VectorIndex.get_embeddings_by_ids()
         embedding = None
-        if model.embedding_json:
-            try:
-                embedding = json.loads(model.embedding_json)
-            except (json.JSONDecodeError, TypeError):
-                embedding = None
 
         # Build msg_ids tuple (must be 2-tuple: (start_id, end_id))
         msg_ids = None
@@ -382,7 +381,7 @@ class SqliteChunkStore:
             text=model.text,
             msg_ids=msg_ids,
             valid_period=valid_period,
-            embedding=embedding,
+            embedding=embedding,  # Always None - embeddings are in VectorIndex
             metadata=metadata
         )
 

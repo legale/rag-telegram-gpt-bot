@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Protocol
-from contextlib import AbstractContextManager
 from datetime import datetime
 
-from .domain import Message, Chunk, TopicUpdate, ProfileConfig
+from .domain import Message, Chunk, TopicUpdate
 
 
 @dataclass
@@ -148,12 +147,144 @@ class LLM(Protocol):
 
 
 class ConfigProvider(Protocol):
-    def get_profile_config(self, profile_name: str) -> ProfileConfig:
+    """Protocol for configuration providers. Core uses this interface instead of direct BotConfig access."""
+    
+    @property
+    def admin_password(self) -> str:
+        """Get admin password."""
         ...
-
-
-class TransactionManager(Protocol):
-    def atomic(self) -> AbstractContextManager[None]:
+    
+    @admin_password.setter
+    def admin_password(self, value: str) -> None:
+        """Set admin password."""
+        ...
+    
+    @property
+    def allowed_chats(self) -> List[int]:
+        """Get list of allowed chat IDs."""
+        ...
+    
+    @allowed_chats.setter
+    def allowed_chats(self, value: List[int]) -> None:
+        """Set list of allowed chat IDs."""
+        ...
+    
+    @property
+    def response_frequency(self) -> int:
+        """Get response frequency limit."""
+        ...
+    
+    @response_frequency.setter
+    def response_frequency(self, value: int) -> None:
+        """Set response frequency limit."""
+        ...
+    
+    @property
+    def current_model(self) -> str:
+        """Get current LLM model name."""
+        ...
+    
+    @current_model.setter
+    def current_model(self, value: str) -> None:
+        """Set current LLM model name."""
+        ...
+    
+    @property
+    def system_prompt(self) -> str:
+        """Get system prompt."""
+        ...
+    
+    @system_prompt.setter
+    def system_prompt(self, value: str) -> None:
+        """Set system prompt."""
+        ...
+    
+    def get_system_prompt(self) -> str:
+        """Get system prompt (with default fallback)."""
+        ...
+    
+    @property
+    def embedding_model(self) -> str:
+        """Get embedding model name."""
+        ...
+    
+    @embedding_model.setter
+    def embedding_model(self, value: str) -> None:
+        """Set embedding model name."""
+        ...
+    
+    @property
+    def embedding_generator(self) -> str:
+        """Get embedding generator type."""
+        ...
+    
+    @embedding_generator.setter
+    def embedding_generator(self, value: str) -> None:
+        """Set embedding generator type."""
+        ...
+    
+    @property
+    def chunk_token_min(self) -> int:
+        """Get minimum chunk token count."""
+        ...
+    
+    @chunk_token_min.setter
+    def chunk_token_min(self, value: int) -> None:
+        """Set minimum chunk token count."""
+        ...
+    
+    @property
+    def chunk_token_max(self) -> int:
+        """Get maximum chunk token count."""
+        ...
+    
+    @chunk_token_max.setter
+    def chunk_token_max(self, value: int) -> None:
+        """Set maximum chunk token count."""
+        ...
+    
+    @property
+    def chunk_overlap_ratio(self) -> float:
+        """Get chunk overlap ratio."""
+        ...
+    
+    @chunk_overlap_ratio.setter
+    def chunk_overlap_ratio(self, value: float) -> None:
+        """Set chunk overlap ratio."""
+        ...
+    
+    @property
+    def cosine_distance_thr(self) -> float:
+        """Get cosine distance threshold."""
+        ...
+    
+    @cosine_distance_thr.setter
+    def cosine_distance_thr(self, value: float) -> None:
+        """Set cosine distance threshold."""
+        ...
+    
+    @property
+    def rag_ntop(self) -> int:
+        """Get RAG top N value."""
+        ...
+    
+    @rag_ntop.setter
+    def rag_ntop(self, value: int) -> None:
+        """Set RAG top N value."""
+        ...
+    
+    @property
+    def fts5_score_thr(self) -> float:
+        """Get FTS5 score threshold."""
+        ...
+    
+    @fts5_score_thr.setter
+    def fts5_score_thr(self, value: float) -> None:
+        """Set FTS5 score threshold."""
+        ...
+    
+    def save(self) -> None:
+        """Save configuration to file."""
         ...
 
 

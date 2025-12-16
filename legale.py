@@ -385,8 +385,13 @@ def cmd_ingest(argv: list[str], profile_manager: ProfileManager) -> None:
         return
 
     if subcmd == "stage1":
-        from src.storage.db import Database
-        db = Database(paths["db_url"])
+        from src.app.bootstrap import create_app
+        app = create_app(
+            db_url=paths["db_url"],
+            vector_db_path=str(paths["vector_db_path"]),
+            profile_dir=str(paths["profile_dir"]),
+        )
+        db = app.get_database()
         if db.count_messages() == 0:
             syslog2(LOG_ERR, "no messages found in database, run ingest stage0 first")
             sys.exit(1)
@@ -396,8 +401,13 @@ def cmd_ingest(argv: list[str], profile_manager: ProfileManager) -> None:
         return
 
     if subcmd == "stage2":
-        from src.storage.db import Database
-        db = Database(paths["db_url"])
+        from src.app.bootstrap import create_app
+        app = create_app(
+            db_url=paths["db_url"],
+            vector_db_path=str(paths["vector_db_path"]),
+            profile_dir=str(paths["profile_dir"]),
+        )
+        db = app.get_database()
         if db.count_chunks() == 0:
             syslog2(LOG_ERR, "no chunks found in database, run ingest stage1 first")
             sys.exit(1)
@@ -410,8 +420,14 @@ def cmd_ingest(argv: list[str], profile_manager: ProfileManager) -> None:
         return
 
     if subcmd == "stage3":
-        from src.storage.db import Database, ChunkModel
-        db = Database(paths["db_url"])
+        from src.app.bootstrap import create_app
+        from src.storage.db import ChunkModel
+        app = create_app(
+            db_url=paths["db_url"],
+            vector_db_path=str(paths["vector_db_path"]),
+            profile_dir=str(paths["profile_dir"]),
+        )
+        db = app.get_database()
         session = db.get_session()
         try:
             cnt = session.query(ChunkModel).filter(ChunkModel.embedding_json.isnot(None)).count()

@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import sys
 import os
-import re
 
 # Add project root to sys.path to allow imports from src
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -10,7 +9,8 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 try:
-    from src.bot.core import LegaleBot
+    from src.app.bootstrap import create_app
+    from src.app.types import AppRequest, AppResponse
 except ImportError as e:
     # Only try auto-poetry execution if NOT already running under poetry
     # We can check an env var set by poetry, or just check if 'src' is importable after path fix.
@@ -78,94 +78,7 @@ def parse_flag(args: list, name: str) -> bool:
 def parse_option(args: list, name: str) -> str | None:
     """Parse an option with value from args list."""
     return _find_and_remove_next(args, name)
-from src.bot.command_parser import parse_find_command_args as parse_find_args_common
-from typing import Optional, Tuple
-from pathlib import Path
-
-def parse_find_command_args(text: str, admin_manager) -> Tuple[Optional[float], Optional[str]]:
-    """
-    Parse find command arguments (threshold and query).
-    
-    Args:
-        text: Command text (e.g., "2.0 vpn туннель" or "vpn туннель")
-        admin_manager: AdminManager instance for config access
-        
-    Returns:
-        Tuple of (threshold, query) or (None, error_message)
-    """
-    return parse_find_args_common(text, admin_manager=admin_manager)
-
-
-def handle_find_command_cli(args_text: str, bot, admin_manager, debug_rag: bool) -> str:
-    """
-    Handle /find command in CLI mode - output results to console.
-    
-    Args:
-        args_text: Command arguments
-        bot: LegaleBot instance
-        admin_manager: AdminManager instance (can be None)
-        debug_rag: Whether to show debug RAG info
-        
-    Returns:
-        Response message
-    """
-    try:
-        # Parse arguments
-        threshold, query = parse_find_command_args(args_text, admin_manager)
-        if threshold is None:
-            return query  # query is error message
-        
-        # Simple search in chunk embeddings
-        results = bot.retrieval.search_chunks_basic(query, n_results=100)
-        
-        # Filter results by cosine distance threshold
-        filtered_results = [
-            item for item in results 
-            if float(item.get("distance", float('inf'))) <= threshold
-        ]
-        
-        if not filtered_results:
-            return f'по запросу "{query}" ничего не найдено (distance <= {threshold})'
-        
-        # Prepare message parts from filtered results
-        from src.core.message_search import _prepare_message_parts_from_results
-        message_parts_list = _prepare_message_parts_from_results(bot.db, filtered_results, debug_rag)
-        
-        if not message_parts_list:
-            return f'по запросу "{query}" ничего не найдено'
-        
-        # Format and print results to console
-        output_lines = [f'Найдено результатов по запросу "{query}" (threshold={threshold}):\n']
-        output_lines.append("=" * 70)
-        
-        for idx, message_parts in enumerate(message_parts_list, 1):
-            for part_idx, part in enumerate(message_parts, 1):
-                # Remove HTML tags for console output
-                content = part.get("content", "")
-                # Simple HTML tag removal
-                content = re.sub(r'<[^>]+>', '', content)
-                
-                output_lines.append(f"\n--- Результат {idx}, часть {part_idx} ---")
-                output_lines.append(f"Distance: {part.get('distance', 'N/A')}")
-                output_lines.append("-" * 70)
-                output_lines.append(content)
-                output_lines.append("-" * 70)
-        
-        syslog2(
-            LOG_ALERT,
-            "find command cli",
-            query=query,
-            threshold=threshold,
-            chunks_found=len(filtered_results),
-            messages=len(message_parts_list),
-        )
-        
-        return "\n".join(output_lines)
-        
-    except Exception as e:
-        syslog2(LOG_ERR, "find command cli failed", error=str(e))
-        return f"Ошибка при выполнении поиска: {e}"
-
+from typing import Optional
 
 def main():
     # Load .env from project root
@@ -246,16 +159,16 @@ def main():
         print("Please use 'legale chat' command instead of running cli.py directly.")
         return
 
-    bot, dispatcher = _init_bot(db_url, vector_db_path, model_name, syslog_level, debug_rag, profile_dir, retrieval_type)
-    if bot is None:
+    app = _init_app(db_url, vector_db_path, model_name, syslog_level, debug_rag, profile_dir, retrieval_type)
+    if app is None:
         return
 
-    _handle_user_input(bot, dispatcher, chunks, debug_rag)
+    _handle_user_input(app, chunks, debug_rag)
 
 
-def _init_bot(db_url: str, vector_db_path: str, model_name: str, syslog_level: int, debug_rag: bool, profile_dir: Optional[str], retrieval_type: str):
+def _init_app(db_url: str, vector_db_path: str, model_name: str, syslog_level: int, debug_rag: bool, profile_dir: Optional[str], retrieval_type: str):
     """
-    Initialize bot and dispatcher.
+    Initialize App with all dependencies.
     
     Args:
         db_url: Database URL
@@ -267,53 +180,38 @@ def _init_bot(db_url: str, vector_db_path: str, model_name: str, syslog_level: i
         retrieval_type: Retrieval type
         
     Returns:
-        Tuple of (bot, dispatcher) or (None, None) if initialization failed
+        App instance or None if initialization failed
     """
     try:
-        bot = LegaleBot(
+        app = create_app(
             db_url=db_url,
             vector_db_path=vector_db_path,
-            model_name=model_name, 
+            model_name=model_name,
             log_level=syslog_level,
             debug_rag=debug_rag,
             profile_dir=profile_dir,
             retrieval_type=retrieval_type
         )
         
-        # Create AdminManager if profile_dir is available (for config access)
-        admin_manager = None
-        if profile_dir:
-            try:
-                from src.bot.admin import AdminManager
-                admin_manager = AdminManager(Path(profile_dir))
-            except Exception as e:
-                syslog2(LOG_WARNING, "admin manager init failed", error=str(e), action="continuing without admin_manager")
-        
         print("Bot ready! Type 'exit' or 'quit' to stop.")
         print("Use /help to see available commands.")
         print("-" * 50)
         
-        # Create dispatcher once before the loop
-        from src.app.main_cli import create_dispatcher, handle_command
-        dispatcher = create_dispatcher(bot, admin_manager, debug_rag)
-        return bot, dispatcher
+        return app
     except Exception as e:
-        _handle_error("bot initialization", e)
-        return None, None
+        _handle_error("app initialization", e)
+        return None
 
 
-def _handle_user_input(bot: LegaleBot, dispatcher, chunks: int, debug_rag: bool) -> None:
+def _handle_user_input(app, chunks: int, debug_rag: bool) -> None:
     """
     Handle user input in interactive loop.
     
     Args:
-        bot: LegaleBot instance
-        dispatcher: CommandDispatcher instance
+        app: App instance
         chunks: Number of chunks to retrieve
         debug_rag: Whether to show debug RAG info
     """
-    from src.app.main_cli import handle_command
-    
     while True:
         try:
             user_input = input("You: ")
@@ -324,18 +222,16 @@ def _handle_user_input(bot: LegaleBot, dispatcher, chunks: int, debug_rag: bool)
             if not user_input.strip():
                 continue
             
-            # Check if input is a command using dispatcher (unified parsing)
-            command_response = handle_command(user_input, dispatcher)
-            if command_response is not None:
-                # Command was handled
-                print(f"Bot: {command_response}")
-                print("-" * 50)
-                continue
+            # Create AppRequest
+            request = AppRequest(
+                text=user_input,
+                transport="cli",
+                meta={"chunks": chunks, "debug_rag": debug_rag}
+            )
             
-            # Not a command - handle as regular query
             # Debug RAG mode - show retrieved chunks and prompt
             if debug_rag:
-                debug_info = bot.get_rag_debug_info(user_input, n_results=chunks)
+                debug_info = app.bot.get_rag_debug_info(user_input, n_results=chunks)
                 print("\n" + "=" * 70)
                 print("RAG DEBUG INFO")
                 print("=" * 70)
@@ -360,8 +256,9 @@ def _handle_user_input(bot: LegaleBot, dispatcher, chunks: int, debug_rag: bool)
                 print(f"Token count: {debug_info.get('token_count', 'N/A')}")
                 print("=" * 70 + "\n")
             
-            response = bot.chat(user_input, n_results=chunks)
-            print(f"Bot: {response}")
+            # Handle request through App
+            response = app.handle_request(request)
+            print(f"Bot: {response.text}")
             print("-" * 50)
             
         except KeyboardInterrupt:

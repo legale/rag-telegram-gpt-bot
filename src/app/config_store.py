@@ -1,32 +1,15 @@
 """
-Configuration management for Legale Bot profiles.
-Handles settings like admin password, allowed chats, and response frequency.
-
-DEPRECATED: This module is deprecated. Use src.app.config_store.BotConfig instead.
-This module is kept for backward compatibility and will be removed in a future version.
+Configuration storage for Legale Bot.
+Handles storage of admin information and configuration files.
 """
 
-import warnings
+import os
+import json
 from pathlib import Path
+from typing import Optional, Dict, List
 
-# Import from new location
-from src.app.config_store import BotConfig as _BotConfig
 
-# Re-export for backward compatibility
-class BotConfig(_BotConfig):
-    """
-    Deprecated: Use src.app.config_store.BotConfig instead.
-    
-    This class is a proxy to the new location and will be removed in a future version.
-    """
-    
-    def __init__(self, profile_dir: Path):
-        warnings.warn(
-            "src.bot.config.BotConfig is deprecated. Use src.app.config_store.BotConfig instead.",
-            DeprecationWarning,
-            stacklevel=2
-        )
-        super().__init__(profile_dir)
+class BotConfig:
     """Manages profile-specific configuration stored in config.json."""
     
     def __init__(self, profile_dir: Path):
@@ -427,4 +410,91 @@ class BotConfig(_BotConfig):
         value = self._validate_fts5_score_thr(value)
         self.data["fts5_score_thr"] = value
         self.save()
+
+
+class AdminStore:
+    """Stores and retrieves admin information from admin.json file."""
+    
+    def __init__(self, profile_dir: Path):
+        """
+        Initialize AdminStore with profile directory.
+        
+        Args:
+            profile_dir: Path to the profile directory
+        """
+        self.profile_dir = Path(profile_dir)
+        self.admin_file = self.profile_dir / "admin.json"
+    
+    def _load_admin_data(self) -> Dict:
+        """Load admin data from file."""
+        if not self.admin_file.exists():
+            return {}
+        
+        try:
+            with open(self.admin_file, 'r') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return {}
+    
+    def _save_admin_data(self, data: Dict) -> None:
+        """Save admin data to file."""
+        self.profile_dir.mkdir(parents=True, exist_ok=True)
+        
+        with open(self.admin_file, 'w') as f:
+            json.dump(data, f, indent=2)
+        
+        # Restrict file permissions (owner read/write only)
+        os.chmod(self.admin_file, 0o600)
+    
+    def get_admin(self) -> Optional[Dict]:
+        """
+        Get current admin info.
+        
+        Returns:
+            Dict with admin info or None if no admin set
+        """
+        data = self._load_admin_data()
+        return data if data else None
+    
+    def set_admin(self, user_id: int, username: str, first_name: str, last_name: Optional[str] = None) -> None:
+        """
+        Save admin information to file.
+        
+        Args:
+            user_id: Telegram user ID
+            username: Telegram username
+            first_name: User's first name
+            last_name: User's last name (optional)
+        """
+        data = {
+            'user_id': user_id,
+            'username': username,
+            'first_name': first_name,
+            'last_name': last_name or '',
+            'full_name': f"{first_name} {last_name}".strip() if last_name else first_name
+        }
+        
+        self._save_admin_data(data)
+    
+    def remove_admin(self) -> bool:
+        """
+        Remove current admin.
+        
+        Returns:
+            True if admin was removed
+        """
+        if self.admin_file.exists():
+            self.admin_file.unlink()
+            return True
+        return False
+    
+    def admin_exists(self) -> bool:
+        """
+        Check if admin exists.
+        
+        Returns:
+            True if admin exists
+        """
+        admin = self.get_admin()
+        return admin is not None
 

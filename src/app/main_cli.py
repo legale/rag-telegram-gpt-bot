@@ -1,4 +1,4 @@
-"""Main CLI entry point using CommandDispatcher."""
+"""Main CLI entry point using CommandService."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Optional
 
 from src.core.dispatcher import CommandDispatcher, CommandContext
+from src.core.command_service import CommandService
 from src.core.commands import (
     StartCommandHandler,
     HelpCommandHandler,
@@ -22,8 +23,8 @@ from src.bot.admin_router import AdminCommandRouter
 from src.lib.syslog2 import *
 
 
-def _register_sync_handlers(
-    dispatcher: CommandDispatcher,
+def register_sync_handlers(
+    command_service: CommandService,
     bot: LegaleBot,
     admin_manager: Optional[AdminManager] = None,
     debug_rag: bool = False
@@ -32,20 +33,20 @@ def _register_sync_handlers(
     Register synchronous command handlers.
     
     Args:
-        dispatcher: CommandDispatcher instance
+        command_service: CommandService instance
         bot: LegaleBot instance
         admin_manager: Optional AdminManager instance
         debug_rag: Whether to enable debug RAG mode
     """
-    dispatcher.register("start", StartCommandHandler())
-    dispatcher.register("help", HelpCommandHandler())
-    dispatcher.register("reset", ResetCommandHandler(bot))
-    dispatcher.register("tokens", TokensCommandHandler(bot))
-    dispatcher.register("model", ModelCommandHandler(bot, admin_manager))
-    dispatcher.register("find", FindCommandHandler(bot, admin_manager, debug_rag))
+    command_service.register("start", StartCommandHandler())
+    command_service.register("help", HelpCommandHandler())
+    command_service.register("reset", ResetCommandHandler(bot))
+    command_service.register("tokens", TokensCommandHandler(bot))
+    command_service.register("model", ModelCommandHandler(bot, admin_manager))
+    command_service.register("find", FindCommandHandler(bot, admin_manager, debug_rag))
 
-def _register_async_handlers(
-    dispatcher: CommandDispatcher,
+def register_async_handlers(
+    command_service: CommandService,
     admin_manager: Optional[AdminManager] = None,
     admin_router: Optional[AdminCommandRouter] = None
 ) -> None:
@@ -53,7 +54,7 @@ def _register_async_handlers(
     Register asynchronous admin command handlers.
     
     Args:
-        dispatcher: CommandDispatcher instance
+        command_service: CommandService instance
         admin_manager: Optional AdminManager instance
         admin_router: Optional AdminCommandRouter instance
     """
@@ -64,39 +65,11 @@ def _register_async_handlers(
     )
     
     if admin_manager:
-        dispatcher.register_async("admin_set", AdminSetCommandHandler(admin_manager))
-        dispatcher.register_async("admin_get", AdminGetCommandHandler(admin_manager))
+        command_service.register_async("admin_set", AdminSetCommandHandler(admin_manager))
+        command_service.register_async("admin_get", AdminGetCommandHandler(admin_manager))
     
     if admin_router:
-        dispatcher.register_async("admin", AdminCommandHandler(admin_router))
-
-def create_dispatcher(
-    bot: LegaleBot,
-    admin_manager: Optional[AdminManager] = None,
-    admin_router: Optional[AdminCommandRouter] = None,
-    debug_rag: bool = False
-) -> CommandDispatcher:
-    """
-    Create and configure CommandDispatcher with all command handlers.
-
-    Args:
-        bot: LegaleBot instance
-        admin_manager: Optional AdminManager instance
-        admin_router: Optional AdminCommandRouter instance
-        debug_rag: Whether to enable debug RAG mode
-
-    Returns:
-        Configured CommandDispatcher instance
-    """
-    dispatcher = CommandDispatcher()
-
-    # Register synchronous command handlers
-    _register_sync_handlers(dispatcher, bot, admin_manager, debug_rag)
-
-    # Register asynchronous admin command handlers
-    _register_async_handlers(dispatcher, admin_manager, admin_router)
-
-    return dispatcher
+        command_service.register_async("admin", AdminCommandHandler(admin_router))
 
 
 def parse_command(text: str) -> tuple[Optional[str], str]:

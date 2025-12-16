@@ -66,6 +66,9 @@ class TestChromaVectorIndex:
         results = index.query(query_vector, top_k=5)
         assert len(results) > 0
         assert isinstance(results[0], ScoredDoc)
+        # Verify text is included in metadata to avoid SQLite roundtrips
+        assert "text" in results[0].meta
+        assert results[0].meta["text"] == "Test"
     
     def test_query_with_filter(self, vector_store):
         """Test query with metadata filter."""
@@ -78,6 +81,37 @@ class TestChromaVectorIndex:
         filter_dict = {"chat_id": "chat1"}
         results = index.query(query_vector, top_k=5, filter=filter_dict)
         assert len(results) >= 0
+        if len(results) > 0:
+            # Verify text is included in metadata
+            assert "text" in results[0].meta
+    
+    def test_query_includes_text_in_metadata(self, vector_store):
+        """Test that query returns text in metadata to minimize SQLite roundtrips."""
+        index = ChromaVectorIndex(vector_store)
+        embedding = [0.1] * 384
+        # Document with text in metadata (should preserve it)
+        doc1 = VectorDoc(id="doc1", vector=embedding, meta={"text": "Test document", "chat_id": "chat1"})
+        # Document without text in metadata (should add it from ChromaDB documents)
+        doc2 = VectorDoc(id="doc2", vector=embedding, meta={"chat_id": "chat2"})
+        index.upsert([doc1, doc2])
+        
+        query_vector = [0.1] * 384
+        results = index.query(query_vector, top_k=10)
+        assert len(results) >= 2
+        
+        # Find results by id
+        result_dict = {r.id: r for r in results}
+        
+        # doc1 should have text from metadata
+        if "doc1" in result_dict:
+            assert "text" in result_dict["doc1"].meta
+            assert result_dict["doc1"].meta["text"] == "Test document"
+        
+        # doc2 should have text added from ChromaDB documents field
+        # (ChromaDB stores text in documents field when upserting)
+        if "doc2" in result_dict:
+            # Text should be present (either from metadata if already there, or from documents)
+            assert "text" in result_dict["doc2"].meta
     
     def test_delete_empty(self, vector_store):
         """Test delete with empty list."""

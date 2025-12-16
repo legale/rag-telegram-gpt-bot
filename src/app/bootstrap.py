@@ -196,3 +196,64 @@ def create_hybrid_retrieval(
 
     return hybrid_retrieval
 
+
+def create_app(
+    db_url: str,
+    vector_db_path: str,
+    model_name: Optional[str] = None,
+    log_level: int = LOG_WARNING,
+    debug_rag: bool = False,
+    profile_dir: Optional[str | Path] = None,
+    retrieval_type: str = "hybrid",
+) -> 'App':
+    """
+    Create and configure App with all dependencies.
+    
+    This function creates LegaleBot, AdminManager, and App instance.
+    
+    Args:
+        db_url: Database URL
+        vector_db_path: Vector database path
+        model_name: Model name
+        log_level: Logging level
+        debug_rag: Whether to enable debug RAG mode
+        profile_dir: Optional profile directory path
+        retrieval_type: Retrieval type
+        
+    Returns:
+        Configured App instance
+    """
+    from src.bot.core import LegaleBot
+    from src.bot.admin import AdminManager
+    from src.app.app import App
+    
+    # Create bot
+    bot = LegaleBot(
+        db_url=db_url,
+        vector_db_path=vector_db_path,
+        model_name=model_name,
+        log_level=log_level,
+        debug_rag=debug_rag,
+        profile_dir=profile_dir,
+        retrieval_type=retrieval_type
+    )
+    
+    # Create AdminManager if profile_dir is available
+    admin_manager = None
+    if profile_dir:
+        try:
+            profile_path = Path(profile_dir)
+            admin_manager = AdminManager(profile_path)
+        except Exception:
+            # Continue without admin_manager if it fails
+            pass
+    
+    # Create App (dispatcher will be created inside App)
+    app = App(
+        bot=bot,
+        admin_manager=admin_manager,
+        debug_rag=debug_rag
+    )
+    
+    return app
+
