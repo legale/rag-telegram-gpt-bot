@@ -354,4 +354,4 @@
 
 - [ ] file=src/core/embedding.py class=EmbeddingClient разгрузить: вынести выбор local-vs-api в src/app/bootstrap.py, core использует только Embedder интерфейс, никаких if generator=="local" внутри core
 
-- [ ] file=tests/* добавить: тесты на границы слоев - core use cases тестируются с in-memory фейками интерфейсов, без sqlite-chroma-telethon-fastapi*
+- [x] file=tests/* добавить: тесты на границы слоев - core use cases тестируются с in-memory фейками интерфейсов, без sqlite-chroma-telethon-fastapi*
