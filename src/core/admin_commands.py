@@ -145,6 +145,50 @@ class AdminGetCommandHandler(AsyncCommandHandler):
         """
         self.admin_manager = admin_manager
 
+    def _get_admin_info(self, user_id: int) -> Optional[CommandResult]:
+        """
+        Get admin information.
+        
+        Args:
+            user_id: User ID to check admin status
+            
+        Returns:
+            CommandResult with error if check failed, None if successful
+        """
+        if not self.admin_manager:
+            return CommandResult(
+                success=False,
+                message="Система администрирования недоступна.",
+                error="AdminManager not available"
+            )
+
+        if not self.admin_manager.is_admin(user_id):
+            return CommandResult(
+                success=False,
+                message="Эта команда доступна только администратору.",
+                error="User is not admin"
+            )
+        
+        return None
+    
+    def _format_admin_info(self, admin_info: dict) -> str:
+        """
+        Format admin information for display.
+        
+        Args:
+            admin_info: Admin information dictionary
+            
+        Returns:
+            Formatted message string
+        """
+        return (
+            f"**Информация об администраторе:**\n\n"
+            f"• Имя: {admin_info.get('first_name', 'N/A')} {admin_info.get('last_name', '')}\n"
+            f"• Username: @{admin_info.get('username', 'N/A')}\n"
+            f"• User ID: `{admin_info.get('user_id', 'N/A')}`\n"
+            f"• Назначен: {admin_info.get('created_at', 'N/A')}"
+        )
+
     async def handle(self, context: CommandContext) -> CommandResult:
         """
         Handle /admin_get command.
@@ -155,13 +199,6 @@ class AdminGetCommandHandler(AsyncCommandHandler):
         Returns:
             CommandResult with admin information
         """
-        if not self.admin_manager:
-            return CommandResult(
-                success=False,
-                message="Система администрирования недоступна.",
-                error="AdminManager not available"
-            )
-
         # Get user_id from context
         user_id_str = context.user_id
         if not user_id_str:
@@ -180,12 +217,10 @@ class AdminGetCommandHandler(AsyncCommandHandler):
                 error=f"Invalid user_id: {user_id_str}"
             )
 
-        if not self.admin_manager.is_admin(user_id):
-            return CommandResult(
-                success=False,
-                message="Эта команда доступна только администратору.",
-                error="User is not admin"
-            )
+        # Check admin access
+        error_result = self._get_admin_info(user_id)
+        if error_result is not None:
+            return error_result
 
         # Get admin info
         admin_info = self.admin_manager.get_admin_info()
@@ -198,13 +233,7 @@ class AdminGetCommandHandler(AsyncCommandHandler):
 
         return CommandResult(
             success=True,
-            message=(
-                f"**Информация об администраторе:**\n\n"
-                f"• Имя: {admin_info.get('first_name', 'N/A')} {admin_info.get('last_name', '')}\n"
-                f"• Username: @{admin_info.get('username', 'N/A')}\n"
-                f"• User ID: `{admin_info.get('user_id', 'N/A')}`\n"
-                f"• Назначен: {admin_info.get('created_at', 'N/A')}"
-            ),
+            message=self._format_admin_info(admin_info),
             data=admin_info
         )
 
