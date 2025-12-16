@@ -20,6 +20,41 @@ class EmbedderAdapter:
         """
         self.client = embedding_client
 
+    def _validate_documents(self, texts: List[str]) -> None:
+        """
+        Validate input documents for embedding.
+        
+        Args:
+            texts: List of text strings to validate
+            
+        Raises:
+            ValueError: If validation fails
+        """
+        if not isinstance(texts, list):
+            raise ValueError("texts must be a list")
+        if not texts:
+            raise ValueError("texts list cannot be empty")
+        for i, text in enumerate(texts):
+            if not isinstance(text, str):
+                raise ValueError(f"texts[{i}] must be a string, got {type(text).__name__}")
+            if not text.strip():
+                raise ValueError(f"texts[{i}] cannot be empty or whitespace-only")
+
+    def _validate_query(self, text: str) -> None:
+        """
+        Validate input query for embedding.
+        
+        Args:
+            text: Query text string to validate
+            
+        Raises:
+            ValueError: If validation fails
+        """
+        if not isinstance(text, str):
+            raise ValueError(f"text must be a string, got {type(text).__name__}")
+        if not text.strip():
+            raise ValueError("text cannot be empty or whitespace-only")
+
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
         """
         Embed multiple documents.
@@ -31,18 +66,9 @@ class EmbedderAdapter:
             List of embedding vectors
             
         Raises:
-            ValueError: If texts is empty or contains invalid values
+            ValueError: If input validation fails
         """
-        if not texts:
-            raise ValueError("texts list cannot be empty")
-        
-        # Validate that all texts are non-empty strings
-        for i, text in enumerate(texts):
-            if not isinstance(text, str):
-                raise ValueError(f"texts[{i}] must be a string, got {type(text).__name__}")
-            if not text.strip():
-                raise ValueError(f"texts[{i}] cannot be empty or whitespace-only")
-        
+        self._validate_documents(texts)
         return self.client.get_embeddings(texts)
 
     def embed_query(self, text: str) -> List[float]:
@@ -56,12 +82,7 @@ class EmbedderAdapter:
             Embedding vector
             
         Raises:
-            ValueError: If text is empty or invalid
+            ValueError: If input validation fails
         """
-        if not isinstance(text, str):
-            raise ValueError(f"text must be a string, got {type(text).__name__}")
-        if not text.strip():
-            raise ValueError("text cannot be empty or whitespace-only")
-        
+        self._validate_query(text)
         return self.client.get_embedding(text)
-
