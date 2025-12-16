@@ -308,7 +308,7 @@
 
 - [x] file=src/core/rate_limit.py func=allow создать: логика frequency controller сюда, transport только вызывает
 
-- [ ] file=src/core/commands.py удалить: перенести все user команды в src/core/commands/user.py, оставить только thin registration layer или удалить целиком
+- [x] file=src/core/commands.py удалить: перенести все user команды в src/core/commands/user.py, оставить только thin registration layer или удалить целиком
 
 - [ ] file=src/core/admin_commands.py удалить: перенести admin команды в src/core/commands/admin.py, убрать дублирование с src/bot/admin_commands.py
 
@@ -322,15 +322,7 @@
 
 - [ ] file=src/core/hybrid_retrieval.py class=HybridRetrievalService разгрузить: вынести packing (dedup-neighbors-token budget) в src/core/context_packer.py func=pack(), вынести rephrase в отдельный этап ContextProvider
 
-- [ ] file=src/core/message_search.py объединить: слить в src/core/hybrid_retrieval.py или src/core/context_provider.py, чтобы не было второго параллельного слоя "high-level search"
-
-- [ ] file=src/ingestion/pipeline.py class=IngestionPipeline убрать оркестрацию: перенести orchestration в src/core/use_cases/ingest.py func=run_ingest(), а src/ingestion оставить как адаптеры parser-chunker-telegram_fetcher
-
-- [ ] dir=src/core/ingest_use_cases удалить: слить ingest_messages-process_chunks-generate_embeddings-sync_to_vector_store-pipeline_orchestrator в один use case src/core/use_cases/ingest.py с шагами, зависимости только через interfaces
-
-- [ ] file=src/storage/db.py разделить: вынести ORM модели в src/storage/models.py, вынести schema-migrations в src/storage/migrations/, db.py оставить только engine-session factory
-
-- [ ] file=src/adapters/persistence/sqlite_message_store.py func=* запретить импорт src/storage/db.py как "бог-объект": использовать session factory и models, реализовать только MessageStore контракт
+- [ ] file=src/core/message_search.py объединить: слить в src/core/hybrid_retrieval.py, чтобы не было второго параллельного слоя "high-level search"
 
 - [w] file=src/adapters/persistence/sqlite_chunk_store.py func=* убрать embedding_json из ответственности стора: ChunkStore хранит текст-мета-связи, embeddings источник правды только в SQLite
 
