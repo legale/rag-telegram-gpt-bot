@@ -214,6 +214,51 @@ class ConfigProvider(Protocol):
         """Get admin password."""
         ...
     
+    @admin_password.setter
+    def admin_password(self, value: str) -> None:
+        """Set admin password."""
+        ...
+    
+    @property
+    def allowed_chats(self) -> List[int]:
+        """Get list of allowed chat IDs."""
+        ...
+    
+    @allowed_chats.setter
+    def allowed_chats(self, value: List[int]) -> None:
+        """Set list of allowed chat IDs."""
+        ...
+    
+    @property
+    def response_frequency(self) -> int:
+        """Get response frequency limit."""
+        ...
+    
+    @response_frequency.setter
+    def response_frequency(self, value: int) -> None:
+        """Set response frequency limit."""
+        ...
+    
+    @property
+    def current_model(self) -> str:
+        """Get current LLM model name."""
+        ...
+    
+    @current_model.setter
+    def current_model(self, value: str) -> None:
+        """Set current LLM model name."""
+        ...
+    
+    @property
+    def system_prompt(self) -> str:
+        """Get system prompt."""
+        ...
+    
+    @system_prompt.setter
+    def system_prompt(self, value: str) -> None:
+        """Set system prompt."""
+        ...
+    
     def get_system_prompt(self) -> str:
         """Get system prompt (with default fallback)."""
         ...
