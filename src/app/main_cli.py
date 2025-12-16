@@ -22,6 +22,54 @@ from src.bot.admin_router import AdminCommandRouter
 from src.lib.syslog2 import *
 
 
+def _register_sync_handlers(
+    dispatcher: CommandDispatcher,
+    bot: LegaleBot,
+    admin_manager: Optional[AdminManager] = None,
+    debug_rag: bool = False
+) -> None:
+    """
+    Register synchronous command handlers.
+    
+    Args:
+        dispatcher: CommandDispatcher instance
+        bot: LegaleBot instance
+        admin_manager: Optional AdminManager instance
+        debug_rag: Whether to enable debug RAG mode
+    """
+    dispatcher.register("start", StartCommandHandler())
+    dispatcher.register("help", HelpCommandHandler())
+    dispatcher.register("reset", ResetCommandHandler(bot))
+    dispatcher.register("tokens", TokensCommandHandler(bot))
+    dispatcher.register("model", ModelCommandHandler(bot, admin_manager))
+    dispatcher.register("find", FindCommandHandler(bot, admin_manager, debug_rag))
+
+def _register_async_handlers(
+    dispatcher: CommandDispatcher,
+    admin_manager: Optional[AdminManager] = None,
+    admin_router: Optional[AdminCommandRouter] = None
+) -> None:
+    """
+    Register asynchronous admin command handlers.
+    
+    Args:
+        dispatcher: CommandDispatcher instance
+        admin_manager: Optional AdminManager instance
+        admin_router: Optional AdminCommandRouter instance
+    """
+    from src.core.admin_commands import (
+        AdminSetCommandHandler,
+        AdminGetCommandHandler,
+        AdminCommandHandler,
+    )
+    
+    if admin_manager:
+        dispatcher.register_async("admin_set", AdminSetCommandHandler(admin_manager))
+        dispatcher.register_async("admin_get", AdminGetCommandHandler(admin_manager))
+    
+    if admin_router:
+        dispatcher.register_async("admin", AdminCommandHandler(admin_router))
+
 def create_dispatcher(
     bot: LegaleBot,
     admin_manager: Optional[AdminManager] = None,

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional, Union
+from typing import Optional, Union, Dict
 from telegram import Update
 
 from src.core.dispatcher import AsyncCommandHandler, CommandContext, CommandResult
@@ -289,7 +289,7 @@ class AdminCommandHandler(AsyncCommandHandler):
         
         return (update, admin_manager)
 
-    async def _execute_admin_command(self, update: Update, admin_manager: object, message_text: str) -> CommandResult:
+    async def _execute_admin_command(self, update: Update, admin_manager: object) -> CommandResult:
         """
         Execute admin command using admin router.
         
