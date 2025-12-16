@@ -259,7 +259,7 @@ class AdminCommandHandler(AsyncCommandHandler):
         """
         self.admin_router = admin_router
 
-    def _parse_admin_command(self, context: CommandContext) -> tuple[Update, object] | CommandResult:
+    def _parse_admin_command(self, context: CommandContext) -> Union[tuple[Update, object], CommandResult]:
         """
         Parse admin command from context metadata.
         
