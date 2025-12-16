@@ -220,7 +220,7 @@
 
 - [x] file=src/core/prompt.py func=construct_prompt упростить: вынести проверку custom_template в _should_use_custom_template(), построение промпта из template в _build_from_template()
 
-- [w] file=src/storage/vector_store.py func=_recreate_collection_with_dimension вынести в публичный метод recreate_collection() для переиспользования
+- [x] file=src/storage/vector_store.py func=_recreate_collection_with_dimension вынести в публичный метод recreate_collection() для переиспользования
 
 - [x] file=src/ingestion/pipeline.py func=_get_llm_client упростить: вынести получение model из config в _get_model_from_config(), создание LLMClient в _create_llm_client()
 
@@ -236,7 +236,7 @@
 
 - [x] file=src/core/admin_commands.py func=AdminGetCommandHandler.handle упростить: вынести получение admin info в _get_admin_info(), форматирование ответа в _format_admin_info()
 
-- [ ] file=src/core/admin_commands.py func=AdminCommandHandler.handle упростить: вынести парсинг команды в _parse_admin_command(), выполнение команды в _execute_admin_command()
+- [x] file=src/core/admin_commands.py func=AdminCommandHandler.handle упростить: вынести парсинг команды в _parse_admin_command(), выполнение команды в _execute_admin_command()
 
 - [ ] file=src/app/main_cli.py func=create_dispatcher упростить: вынести регистрацию sync handlers в _register_sync_handlers(), регистрацию async handlers в _register_async_handlers()
 

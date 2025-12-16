@@ -259,18 +259,19 @@ class AdminCommandHandler(AsyncCommandHandler):
         """
         self.admin_router = admin_router
 
-    async def handle(self, context: CommandContext) -> CommandResult:
+    def _parse_admin_command(self, context: CommandContext) -> tuple[Optional[Update], Optional[object], Optional[str], Optional[CommandResult]]:
         """
-        Handle /admin command.
-
+        Parse admin command from context.
+        
         Args:
             context: Command context with admin subcommand and args
-
+            
         Returns:
-            CommandResult with admin panel response
+            Tuple of (update, admin_manager, message_text, error_result)
+            error_result is None if parsing succeeded
         """
         if not self.admin_router:
-            return CommandResult(
+            return None, None, None, CommandResult(
                 success=False,
                 message="Админ-панель недоступна. Проверьте конфигурацию бота.",
                 error="AdminCommandRouter not available"
@@ -281,23 +282,37 @@ class AdminCommandHandler(AsyncCommandHandler):
         admin_manager = context.metadata.get("admin_manager") if context.metadata else None
 
         if not update:
-            return CommandResult(
+            return None, None, None, CommandResult(
                 success=False,
                 message="Ошибка: не удалось получить данные сообщения.",
                 error="Update object not found in context metadata"
             )
 
         if not admin_manager:
-            return CommandResult(
+            return None, None, None, CommandResult(
                 success=False,
                 message="Ошибка: AdminManager не доступен.",
                 error="AdminManager not found in context metadata"
             )
 
+        # AdminCommandRouter expects the full command text
+        message_text = update.message.text if update.message else "/admin"
+        
+        return update, admin_manager, message_text, None
+
+    async def _execute_admin_command(self, update: Update, admin_manager: object) -> CommandResult:
+        """
+        Execute admin command using admin router.
+        
+        Args:
+            update: Telegram Update object
+            admin_manager: AdminManager instance
+            
+        Returns:
+            CommandResult with admin panel response
+        """
         try:
             # Delegate to AdminCommandRouter
-            # AdminCommandRouter expects the full command text
-            message_text = update.message.text if update.message else "/admin"
             response = await self.admin_router.route(update, None, admin_manager)
             
             return CommandResult(
@@ -312,4 +327,22 @@ class AdminCommandHandler(AsyncCommandHandler):
                 message=f"Ошибка при выполнении админ-команды: {e}",
                 error=str(e)
             )
+
+    async def handle(self, context: CommandContext) -> CommandResult:
+        """
+        Handle /admin command.
+
+        Args:
+            context: Command context with admin subcommand and args
+
+        Returns:
+            CommandResult with admin panel response
+        """
+        # Parse command
+        update, admin_manager, message_text, error_result = self._parse_admin_command(context)
+        if error_result is not None:
+            return error_result
+
+        # Execute command
+        return await self._execute_admin_command(update, admin_manager)
 
