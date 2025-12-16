@@ -50,9 +50,32 @@ class BaseAdminCommand:
         """
         return ErrorHandler.handle_error_static(error, context)
     
-    def get_profile_paths(self, profile_name: str = None):
+    def _validate_profile_name(self, profile_name: Optional[str]) -> Optional[str]:
         """
-        Get paths for a profile with validation.
+        Validate profile name.
+        
+        Args:
+            profile_name: Profile name to validate (None is valid for current profile)
+            
+        Returns:
+            Validated profile name, or None if using current profile
+            
+        Raises:
+            ValueError: If profile name is invalid
+        """
+        if profile_name is None:
+            return None
+        
+        # Validate profile name format if provided
+        is_valid, error = self.validator.validate_profile_name(profile_name)
+        if not is_valid:
+            raise ValueError(error)
+        
+        return profile_name
+    
+    def _get_paths_for_profile(self, profile_name: Optional[str]) -> Dict:
+        """
+        Get paths for a profile.
         
         Args:
             profile_name: Profile name (None = current profile)
@@ -63,6 +86,19 @@ class BaseAdminCommand:
         if profile_name:
             return self.profile_manager.get_profile_paths(profile_name)
         return self.profile_manager.get_profile_paths()
+    
+    def get_profile_paths(self, profile_name: str = None):
+        """
+        Get paths for a profile with validation.
+        
+        Args:
+            profile_name: Profile name (None = current profile)
+            
+        Returns:
+            Dictionary with profile paths
+        """
+        validated_name = self._validate_profile_name(profile_name)
+        return self._get_paths_for_profile(validated_name)
     
     def validate_profile_exists(self, profile_name: str) -> tuple[bool, str]:
         """
