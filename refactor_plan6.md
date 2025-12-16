@@ -232,7 +232,7 @@
 
 - [ ] file=src/bot/admin_commands.py func=BaseAdminCommand.handle_error упростить: вынести логирование ошибки в _log_error(), форматирование сообщения в _format_error_message()
 
-- [ ] file=src/core/admin_commands.py func=AdminSetCommandHandler.handle упростить: вынести валидацию пароля в _validate_password(), установку admin в _set_admin_user()
+- [w] file=src/core/admin_commands.py func=AdminSetCommandHandler.handle упростить: вынести валидацию пароля в _validate_password(), установку admin в _set_admin_user()
 
 - [ ] file=src/core/admin_commands.py func=AdminGetCommandHandler.handle упростить: вынести получение admin info в _get_admin_info(), форматирование ответа в _format_admin_info()
 
