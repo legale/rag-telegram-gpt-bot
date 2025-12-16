@@ -31,10 +31,17 @@ class ChromaVectorIndex:
             return
 
         # Extract data from VectorDoc objects
-        ids, embeddings, metadatas = self._extract_vector_doc_data(items)
+        ids = [item.id for item in items]
+        embeddings = [item.vector for item in items]
+        metadatas = [item.meta for item in items]
         
-        # Prepare documents
-        documents = self._prepare_documents(items)
+        # ChromaDB expects documents (text), but we may not have them
+        # Use empty strings or extract from metadata if available
+        documents = []
+        for item in items:
+            # Try to get text from metadata, otherwise use empty string
+            doc_text = item.meta.get("text", "") if isinstance(item.meta, dict) else ""
+            documents.append(doc_text)
 
         # Use VectorStore's add_documents_with_embeddings method
         self.vector_store.add_documents_with_embeddings(
@@ -44,41 +51,6 @@ class ChromaVectorIndex:
             metadatas=metadatas,
             show_progress=False  # Disable progress for programmatic use
         )
-    
-    def _extract_vector_doc_data(self, items: List[VectorDoc]) -> tuple[List[str], List[List[float]], List[Dict]]:
-        """
-        Extract data from VectorDoc objects.
-        
-        Args:
-            items: List of VectorDoc objects
-            
-        Returns:
-            Tuple of (ids, embeddings, metadatas)
-        """
-        ids = [item.id for item in items]
-        embeddings = [item.vector for item in items]
-        metadatas = [item.meta for item in items]
-        return ids, embeddings, metadatas
-    
-    def _prepare_documents(self, items: List[VectorDoc]) -> List[str]:
-        """
-        Prepare documents (text) from VectorDoc objects.
-        
-        ChromaDB expects documents (text), but we may not have them.
-        Extract from metadata if available, otherwise use empty string.
-        
-        Args:
-            items: List of VectorDoc objects
-            
-        Returns:
-            List of document text strings
-        """
-        documents = []
-        for item in items:
-            # Try to get text from metadata, otherwise use empty string
-            doc_text = item.meta.get("text", "") if isinstance(item.meta, dict) else ""
-            documents.append(doc_text)
-        return documents
 
     def query(self, vector: List[float], top_k: int, filter: Optional[Dict] = None) -> List[ScoredDoc]:
         """
@@ -188,6 +160,38 @@ class ChromaVectorIndex:
         """
         return self.vector_store.count()
 
+    def _fetch_embeddings(self, ids: List[str]) -> Dict[str, Any]:
+        """
+        Fetch embeddings from collection by document IDs.
+        
+        Args:
+            ids: List of document IDs
+            
+        Returns:
+            Dictionary with 'ids' and 'embeddings' keys
+        """
+        return self.vector_store.get_embeddings_by_ids(ids)
+    
+    def _convert_to_dict(self, result: Dict[str, Any]) -> Dict[str, List[float]]:
+        """
+        Convert embeddings result to dictionary format.
+        
+        Args:
+            result: Dictionary with 'ids' and 'embeddings' keys
+            
+        Returns:
+            Dictionary mapping document ID to embedding vector
+        """
+        embeddings_dict = {}
+        result_ids = result.get("ids", [])
+        result_embeddings = result.get("embeddings", [])
+        
+        for i, doc_id in enumerate(result_ids):
+            if i < len(result_embeddings):
+                embeddings_dict[doc_id] = result_embeddings[i]
+        
+        return embeddings_dict
+
     def get_embeddings_by_ids(self, ids: List[str]) -> Dict[str, List[float]]:
         """
         Get embeddings by document IDs.
@@ -201,17 +205,9 @@ class ChromaVectorIndex:
         if not ids:
             return {}
 
-        # Use VectorStore's get_embeddings_by_ids method
-        result = self.vector_store.get_embeddings_by_ids(ids)
+        # Fetch embeddings from collection
+        result = self._fetch_embeddings(ids)
         
         # Convert to dict format: {id: embedding}
-        embeddings_dict = {}
-        result_ids = result.get("ids", [])
-        result_embeddings = result.get("embeddings", [])
-        
-        for i, doc_id in enumerate(result_ids):
-            if i < len(result_embeddings):
-                embeddings_dict[doc_id] = result_embeddings[i]
-        
-        return embeddings_dict
+        return self._convert_to_dict(result)
 
