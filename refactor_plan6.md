@@ -334,7 +334,7 @@
 
 - [w] file=src/adapters/persistence/sqlite_chunk_store.py func=* убрать embedding_json из ответственности стора: ChunkStore хранит текст-мета-связи, embeddings источник правды только в VectorIndex или только в SQLite (выбрать один)
 
-- [w] file=src/adapters/vector/chroma_vector_index.py func=query расширить: возвращать (chunk_id-score-metadata) без необходимости читать chunks из SQLite для каждого кандидата, минимизировать roundtrips
+- [x] file=src/adapters/vector/chroma_vector_index.py func=query расширить: возвращать (chunk_id-score-metadata) без необходимости читать chunks из SQLite для каждого кандидата, минимизировать roundtrips
 
 - [w] file=src/core/interfaces.py пересмотреть: оставить "несущие стены" только для границ (MessageStore-ChunkStore-FTSIndex-VectorIndex-Embedder-LLM-ConfigProvider), удалить все что не используется напрямую use cases
 
@@ -344,7 +344,7 @@
 
 - [x] file=legale.py func=main упростить: CLI только собирает App через bootstrap и вызывает app.handle_command(), никакой ручной сборки Database-VectorStore внутри команд
 
-- [w] file=src/bot/cli.py func=main упростить: CLI как transport, делает AppRequest и печатает AppResponse, без прямого вызова LegaleBot и без регистрации команд
+- [x] file=src/bot/cli.py func=main упростить: CLI как transport, делает AppRequest и печатает AppResponse, без прямого вызова LegaleBot и без регистрации команд
 
 - [w] file=src/app/main_cli.py func=create_dispatcher удалить: заменить на create_app() + CommandService registry, чтобы не было второго центра регистрации
 
