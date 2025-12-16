@@ -234,7 +234,7 @@
 
 - [x] file=src/core/admin_commands.py func=AdminSetCommandHandler.handle упростить: вынести валидацию пароля в _validate_password(), установку admin в _set_admin_user()
 
-- [w] file=src/core/admin_commands.py func=AdminGetCommandHandler.handle упростить: вынести получение admin info в _get_admin_info(), форматирование ответа в _format_admin_info()
+- [x] file=src/core/admin_commands.py func=AdminGetCommandHandler.handle упростить: вынести получение admin info в _get_admin_info(), форматирование ответа в _format_admin_info()
 
 - [ ] file=src/core/admin_commands.py func=AdminCommandHandler.handle упростить: вынести парсинг команды в _parse_admin_command(), выполнение команды в _execute_admin_command()
 
