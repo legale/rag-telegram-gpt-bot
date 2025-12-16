@@ -44,7 +44,7 @@
 
 - [x] file=src/core/hybrid_retrieval.py func=search заменить широкий except Exception на специфичные исключения: обрабатывать EmbeddingError, VectorIndexError отдельно с fallback на FTS-only
 
-- [ ] file=src/bot/core.py func=_call_llm_with_retry заменить широкий except Exception на специфичные исключения: обрабатывать APIError, TimeoutError, RateLimitError отдельно (частично выполнено: TimeoutError обрабатывается отдельно, но APIError и RateLimitError обрабатываются внутри общего except Exception с проверкой типа по строке)
+- [w] file=src/bot/core.py func=_call_llm_with_retry заменить широкий except Exception на специфичные исключения: обрабатывать APIError, TimeoutError, RateLimitError отдельно (частично выполнено: TimeoutError обрабатывается отдельно, но APIError и RateLimitError обрабатываются внутри общего except Exception с проверкой типа по строке)
 
 - [x] file=src/bot/tgbot.py удалить неиспользуемую функцию _send_find_results_simple (помечена как deprecated, используется _send_message_parts_unified)
 
@@ -230,7 +230,7 @@
 
 - [x] file=src/bot/admin_commands.py func=BaseAdminCommand.get_profile_paths упростить: вынести валидацию profile_name в _validate_profile_name(), получение paths в _get_paths_for_profile()
 
-- [ ] file=src/bot/admin_commands.py func=BaseAdminCommand.handle_error упростить: вынести логирование ошибки в _log_error(), форматирование сообщения в _format_error_message()
+- [x] file=src/bot/admin_commands.py func=BaseAdminCommand.handle_error упростить: вынести логирование ошибки в _log_error(), форматирование сообщения в _format_error_message()
 
 - [x] file=src/core/admin_commands.py func=AdminSetCommandHandler.handle упростить: вынести валидацию пароля в _validate_password(), установку admin в _set_admin_user()
 

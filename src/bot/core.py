@@ -10,6 +10,16 @@ from src.app.bootstrap import create_hybrid_retrieval, create_embedding_client_f
 import os
 from src.lib.syslog2 import *
 
+# Import OpenAI exceptions for specific error handling
+try:
+    from openai import RateLimitError, APIError, APIConnectionError, APITimeoutError
+except ImportError:
+    # Fallback if openai is not available
+    RateLimitError = type('RateLimitError', (Exception,), {})
+    APIError = type('APIError', (Exception,), {})
+    APIConnectionError = type('APIConnectionError', (Exception,), {})
+    APITimeoutError = type('APITimeoutError', (Exception,), {})
+
 class LegaleBot:
     """Main bot class orchestrating the RAG pipeline."""
     
