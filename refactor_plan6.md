@@ -258,7 +258,7 @@
 
 - [w] file=src/core/ingest_use_cases/pipeline_orchestrator.py func=run упростить: вынести выполнение stage в _execute_stage(), обработку ошибок stage в _handle_stage_error()
 
-- [ ] file=src/adapters/persistence/sqlite_chunk_store.py func=get_by_ids упростить: вынести получение chunks из БД в _fetch_chunks_from_db(), конвертацию в domain objects в _convert_to_domain_chunks()
+- [x] file=src/adapters/persistence/sqlite_chunk_store.py func=get_by_ids упростить: вынести получение chunks из БД в _fetch_chunks_from_db(), конвертацию в domain objects в _convert_to_domain_chunks()
 
 - [ ] file=src/adapters/persistence/sqlite_chunk_store.py func=update_topics упростить: вынести обновление topic для одного chunk в _update_chunk_topics(), batch update в _batch_update_topics()
 
