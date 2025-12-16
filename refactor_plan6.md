@@ -274,7 +274,7 @@
 
 - [x] file=src/adapters/llm/llm_adapter.py func=complete упростить: вынести построение messages в _build_messages(), извлечение kwargs в _extract_kwargs(), вызов LLM в _call_llm()
 
-- [ ] file=src/adapters/embedding/embedder_adapter.py упростить: методы embed_documents и embed_query просто делегируют к client, можно оставить как есть или добавить валидацию входных данных
+- [x] file=src/adapters/embedding/embedder_adapter.py упростить: методы embed_documents и embed_query просто делегируют к client, можно оставить как есть или добавить валидацию входных данных
 
 - [ ] file=src/core/search.py func=search упростить: вынести вычисление query embedding в _compute_query_embedding(), векторный поиск в _perform_vector_search(), обогащение результатами в _enrich_with_messages()
 

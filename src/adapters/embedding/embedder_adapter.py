@@ -29,7 +29,20 @@ class EmbedderAdapter:
 
         Returns:
             List of embedding vectors
+            
+        Raises:
+            ValueError: If texts is empty or contains invalid values
         """
+        if not texts:
+            raise ValueError("texts list cannot be empty")
+        
+        # Validate that all texts are non-empty strings
+        for i, text in enumerate(texts):
+            if not isinstance(text, str):
+                raise ValueError(f"texts[{i}] must be a string, got {type(text).__name__}")
+            if not text.strip():
+                raise ValueError(f"texts[{i}] cannot be empty or whitespace-only")
+        
         return self.client.get_embeddings(texts)
 
     def embed_query(self, text: str) -> List[float]:
@@ -41,6 +54,14 @@ class EmbedderAdapter:
 
         Returns:
             Embedding vector
+            
+        Raises:
+            ValueError: If text is empty or invalid
         """
+        if not isinstance(text, str):
+            raise ValueError(f"text must be a string, got {type(text).__name__}")
+        if not text.strip():
+            raise ValueError("text cannot be empty or whitespace-only")
+        
         return self.client.get_embedding(text)
 
