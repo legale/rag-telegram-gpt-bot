@@ -6,18 +6,19 @@ DEPRECATED: This module is deprecated. Use src.app.config_store.BotConfig instea
 This module is kept for backward compatibility and will be removed in a future version.
 """
 
+import json
+import os
 import warnings
 from pathlib import Path
+from typing import Dict, List
 
-# Import from new location
-from src.app.config_store import BotConfig as _BotConfig
 
-# Re-export for backward compatibility
-class BotConfig(_BotConfig):
+class BotConfig:
     """
     Deprecated: Use src.app.config_store.BotConfig instead.
     
-    This class is a proxy to the new location and will be removed in a future version.
+    This class is kept for backward compatibility and will be removed in a future version.
+    Manages profile-specific configuration stored in config.json.
     """
     
     def __init__(self, profile_dir: Path):
@@ -26,16 +27,6 @@ class BotConfig(_BotConfig):
             DeprecationWarning,
             stacklevel=2
         )
-        super().__init__(profile_dir)
-    """Manages profile-specific configuration stored in config.json."""
-    
-    def __init__(self, profile_dir: Path):
-        """
-        Initialize BotConfig.
-        
-        Args:
-            profile_dir: Path to the profile directory
-        """
         self.profile_dir = Path(profile_dir)
         self.config_file = self.profile_dir / "config.json"
         self.data = self._load()
@@ -427,4 +418,3 @@ class BotConfig(_BotConfig):
         value = self._validate_fts5_score_thr(value)
         self.data["fts5_score_thr"] = value
         self.save()
-

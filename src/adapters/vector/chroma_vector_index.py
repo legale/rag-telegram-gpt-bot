@@ -133,11 +133,11 @@ class ChromaVectorIndex:
                 # Get metadata and include text from documents to minimize SQLite roundtrips
                 metadata = metadatas_list[i].copy() if i < len(metadatas_list) and metadatas_list[i] else {}
                 
-                # Include text from documents if available and not already in metadata
-                if i < len(documents_list) and documents_list[i]:
-                    document_text = documents_list[i]
-                    if document_text and "text" not in metadata:
-                        metadata["text"] = document_text
+                # Ensure text is present in metadata to avoid SQLite roundtrips.
+                # ChromaDB stores text in the "documents" field; for legacy data it can be empty.
+                if "text" not in metadata:
+                    document_text = documents_list[i] if i < len(documents_list) else ""
+                    metadata["text"] = document_text or ""
 
                 scored_docs.append(ScoredDoc(
                     id=doc_id,
@@ -220,4 +220,3 @@ class ChromaVectorIndex:
         
         # Convert to dict format: {id: embedding}
         return self._convert_to_dict(result)
-

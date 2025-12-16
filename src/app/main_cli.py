@@ -23,6 +23,24 @@ from src.bot.admin_router import AdminCommandRouter
 from src.lib.syslog2 import *
 
 
+def create_dispatcher(
+    bot: LegaleBot,
+    admin_manager: Optional[AdminManager] = None,
+    admin_router: Optional[AdminCommandRouter] = None,
+    debug_rag: bool = False,
+) -> CommandDispatcher:
+    """
+    Backward-compatible factory for CommandDispatcher.
+
+    New code should prefer creating an App via bootstrap and using CommandService directly.
+    """
+    command_service = CommandService()
+    register_sync_handlers(command_service, bot, admin_manager=admin_manager, debug_rag=debug_rag)
+    if admin_manager is not None or admin_router is not None:
+        register_async_handlers(command_service, admin_manager=admin_manager, admin_router=admin_router)
+    return command_service.dispatcher
+
+
 def register_sync_handlers(
     command_service: CommandService,
     bot: LegaleBot,
@@ -225,4 +243,3 @@ async def handle_command_async(
     if result.success or result.error:
         return result.message, result.data
     return None, None
-

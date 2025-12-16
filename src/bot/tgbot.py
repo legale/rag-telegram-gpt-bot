@@ -121,10 +121,15 @@ def _set_debug_rag_mode(value: bool) -> None:
 class MessageHandler:
     """Handles message routing and command processing."""
     
-    def __init__(self, bot_instance, admin_manager, admin_router, ctx: RuntimeContext):
+    def __init__(self, bot_instance, admin_manager, admin_router, ctx: Optional[RuntimeContext] = None):
         self.bot = bot_instance
         self.admin_manager = admin_manager
         self.admin_router = admin_router
+        if ctx is None:
+            ctx = RuntimeContext()
+            ctx.bot_instance = bot_instance
+            ctx.admin_manager = admin_manager
+            ctx.admin_router = admin_router
         self.ctx = ctx
     
     async def handle_start_command(self) -> str:
@@ -534,7 +539,7 @@ def _register_command_group(
             router.register(group_name, method)
 
 
-def _get_profile_paths(ctx: RuntimeContext) -> Dict:
+def _get_profile_paths(ctx: Optional[RuntimeContext] = None) -> Dict:
     """
     Get profile paths for current active profile.
     
@@ -547,6 +552,9 @@ def _get_profile_paths(ctx: RuntimeContext) -> Dict:
     Raises:
         RuntimeError: If profile_manager is not initialized
     """
+    if ctx is None:
+        ctx = get_runtime_context()
+
     if ctx.profile_manager is None:
         raise RuntimeError("profile_manager is not initialized")
     
@@ -624,7 +632,15 @@ def _get_bot_configuration(admin_manager_local: AdminManager, args: Optional[Sim
     return model_name, debug_rag, log_level, retrieval_type
 
 
-def _create_legale_bot(paths: Dict, model_name: str, log_level: int, debug_rag: bool, profile_dir: str, ctx: RuntimeContext, retrieval_type: str = "hybrid") -> LegaleBot:
+def _create_legale_bot(
+    paths: Dict,
+    model_name: str,
+    log_level: int,
+    debug_rag: bool,
+    profile_dir: str,
+    retrieval_type: str = "hybrid",
+    ctx: Optional[RuntimeContext] = None,
+) -> LegaleBot:
     """
     Create and initialize LegaleBot instance.
     
@@ -640,6 +656,9 @@ def _create_legale_bot(paths: Dict, model_name: str, log_level: int, debug_rag: 
     Returns:
         Initialized LegaleBot instance
     """
+    if ctx is None:
+        ctx = get_runtime_context()
+
     bot_instance_local = LegaleBot(
         db_url=paths["db_url"],
         vector_db_path=str(paths["vector_db_path"]),
@@ -786,7 +805,7 @@ def _create_bot_instance(paths: Dict, admin_manager_local: AdminManager, ctx: Ru
     
     # Create LegaleBot
     profile_dir = paths["profile_dir"]
-    bot_instance_local = _create_legale_bot(paths, model_name, log_level, debug_rag, profile_dir, ctx, retrieval_type)
+    bot_instance_local = _create_legale_bot(paths, model_name, log_level, debug_rag, profile_dir, retrieval_type, ctx=ctx)
     
     return bot_instance_local, debug_rag
 

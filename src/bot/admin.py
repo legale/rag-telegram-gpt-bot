@@ -7,6 +7,7 @@ New code should use AdminStore (src/app/config_store.py) and AdminAccessControl 
 """
 
 import os
+import json
 from pathlib import Path
 from typing import Optional, Dict
 
@@ -30,6 +31,7 @@ class AdminManager:
             profile_dir: Path to the profile directory
         """
         self.profile_dir = Path(profile_dir)
+        self.admin_file = self.profile_dir / "admin.json"
         
         # Initialize config
         self.config = BotConfig(self.profile_dir)
@@ -46,6 +48,34 @@ class AdminManager:
         # Initialize new components
         self._admin_store = AdminStore(self.profile_dir)
         self._access_control = AdminAccessControl(self._admin_store, self.config)
+
+    def _load_admin_data(self) -> Dict:
+        """
+        Backward-compatible admin.json loader.
+
+        Returns:
+            Dict with admin info, or empty dict if missing/invalid.
+        """
+        if not self.admin_file.exists():
+            return {}
+        try:
+            with open(self.admin_file, "r") as f:
+                data = json.load(f)
+            return data if isinstance(data, dict) else {}
+        except (json.JSONDecodeError, OSError):
+            return {}
+
+    def _save_admin_data(self, data: Dict) -> None:
+        """
+        Backward-compatible admin.json saver.
+
+        Args:
+            data: Dict with admin info to persist.
+        """
+        self.profile_dir.mkdir(parents=True, exist_ok=True)
+        with open(self.admin_file, "w") as f:
+            json.dump(data, f, indent=2)
+        os.chmod(self.admin_file, 0o600)
     
     def _validate_admin_password(self, password: Optional[str] = None) -> bool:
         """

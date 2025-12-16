@@ -16,7 +16,7 @@ from src.ingestion.chunker import MessageChunker
 from src.storage.db import Database, ChunkModel
 from src.storage.vector_store import VectorStore
 from src.core.embedding import EmbeddingClient
-from src.app.bootstrap import create_embedding_client_from_config
+from src.app.bootstrap import create_embedding_client_from_config as create_embedding_client
 from pathlib import Path
 import uuid
 import json
@@ -75,9 +75,9 @@ class IngestionPipeline:
             
             # Use bootstrap function to create embedding client
             # This handles the choice between local and API based on config
-            embedding_client = create_embedding_client_from_config(
+            embedding_client = create_embedding_client(
                 embedding_client=None,
-                profile_dir=profile_path
+                profile_dir=self.profile_dir,
             )
             
             # Initialize chunker with token-based parameters from config

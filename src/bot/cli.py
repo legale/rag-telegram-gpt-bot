@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import sys
 import os
+from pathlib import Path
 
 # Add project root to sys.path to allow imports from src
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -9,8 +10,9 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 try:
-    from src.app.bootstrap import create_app
-    from src.app.types import AppRequest, AppResponse
+    from src.bot.core import LegaleBot
+    from src.app.main_cli import create_dispatcher, handle_command
+    from src.bot.admin import AdminManager
 except ImportError as e:
     # Only try auto-poetry execution if NOT already running under poetry
     # We can check an env var set by poetry, or just check if 'src' is importable after path fix.
@@ -159,16 +161,24 @@ def main():
         print("Please use 'legale chat' command instead of running cli.py directly.")
         return
 
-    app = _init_app(db_url, vector_db_path, model_name, syslog_level, debug_rag, profile_dir, retrieval_type)
-    if app is None:
+    bot = _init_bot(db_url, vector_db_path, model_name, syslog_level, debug_rag, profile_dir, retrieval_type)
+    if bot is None:
         return
 
-    _handle_user_input(app, chunks, debug_rag)
+    admin_manager = None
+    if profile_dir:
+        try:
+            admin_manager = AdminManager(Path(profile_dir))
+        except Exception:
+            admin_manager = None
+
+    dispatcher = create_dispatcher(bot, admin_manager=admin_manager)
+    _handle_user_input(bot, dispatcher, chunks, debug_rag)
 
 
-def _init_app(db_url: str, vector_db_path: str, model_name: str, syslog_level: int, debug_rag: bool, profile_dir: Optional[str], retrieval_type: str):
+def _init_bot(db_url: str, vector_db_path: str, model_name: str, syslog_level: int, debug_rag: bool, profile_dir: Optional[str], retrieval_type: str):
     """
-    Initialize App with all dependencies.
+    Initialize bot with all dependencies.
     
     Args:
         db_url: Database URL
@@ -180,10 +190,10 @@ def _init_app(db_url: str, vector_db_path: str, model_name: str, syslog_level: i
         retrieval_type: Retrieval type
         
     Returns:
-        App instance or None if initialization failed
+        LegaleBot instance or None if initialization failed
     """
     try:
-        app = create_app(
+        bot = LegaleBot(
             db_url=db_url,
             vector_db_path=vector_db_path,
             model_name=model_name,
@@ -197,18 +207,19 @@ def _init_app(db_url: str, vector_db_path: str, model_name: str, syslog_level: i
         print("Use /help to see available commands.")
         print("-" * 50)
         
-        return app
+        return bot
     except Exception as e:
-        _handle_error("app initialization", e)
+        _handle_error("bot initialization", e)
         return None
 
 
-def _handle_user_input(app, chunks: int, debug_rag: bool) -> None:
+def _handle_user_input(bot, dispatcher, chunks: int, debug_rag: bool) -> None:
     """
     Handle user input in interactive loop.
     
     Args:
-        app: App instance
+        bot: LegaleBot instance
+        dispatcher: CommandDispatcher instance
         chunks: Number of chunks to retrieve
         debug_rag: Whether to show debug RAG info
     """
@@ -222,16 +233,9 @@ def _handle_user_input(app, chunks: int, debug_rag: bool) -> None:
             if not user_input.strip():
                 continue
             
-            # Create AppRequest
-            request = AppRequest(
-                text=user_input,
-                transport="cli",
-                meta={"chunks": chunks, "debug_rag": debug_rag}
-            )
-            
             # Debug RAG mode - show retrieved chunks and prompt
             if debug_rag:
-                debug_info = app.bot.get_rag_debug_info(user_input, n_results=chunks)
+                debug_info = bot.get_rag_debug_info(user_input, n_results=chunks)
                 print("\n" + "=" * 70)
                 print("RAG DEBUG INFO")
                 print("=" * 70)
@@ -256,9 +260,17 @@ def _handle_user_input(app, chunks: int, debug_rag: bool) -> None:
                 print(f"Token count: {debug_info.get('token_count', 'N/A')}")
                 print("=" * 70 + "\n")
             
-            # Handle request through App
-            response = app.handle_request(request)
-            print(f"Bot: {response.text}")
+            command_response = handle_command(
+                command=user_input,
+                dispatcher=dispatcher,
+            )
+            if command_response is not None:
+                print(f"Bot: {command_response}")
+                print("-" * 50)
+                continue
+
+            response_text = bot.chat(user_input, n_results=chunks)
+            print(f"Bot: {response_text}")
             print("-" * 50)
             
         except KeyboardInterrupt:

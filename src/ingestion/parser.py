@@ -14,6 +14,19 @@ class ChatMessage:
 class ChatParser:
     """Parses chat dump files into structured ChatMessage objects."""
     
+    def _parse_timestamp(self, item: dict) -> datetime:
+        raw = item.get("timestamp") or item.get("date")
+        if raw is None:
+            return datetime.now()
+        if isinstance(raw, (int, float)):
+            return datetime.fromtimestamp(raw)
+        if isinstance(raw, str):
+            try:
+                return datetime.fromisoformat(raw)
+            except ValueError:
+                return datetime.now()
+        return datetime.now()
+
     def _parse_json_file(self, f, file_path: str) -> List[ChatMessage]:
         """
         Parses JSON file content into ChatMessage objects.
@@ -32,8 +45,8 @@ class ChatParser:
                 # Handle Telegram dump format
                 msg = ChatMessage(
                     id=str(item.get('id')),
-                    timestamp=datetime.fromisoformat(item.get('date')),
-                    sender=item.get('sender', 'Unknown'),
+                    timestamp=self._parse_timestamp(item),
+                    sender=item.get('sender', item.get('from_id', 'Unknown')),
                     content=item.get('content', '')
                 )
                 messages.append(msg)

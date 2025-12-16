@@ -34,11 +34,12 @@ def cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
 
 def distance_to_similarity(distance: float) -> float:
     """
-    Convert distance to similarity score (inverse of similarity_to_distance).
-    
-    This function is the inverse of similarity_to_distance() for consistency.
-    Since similarity_to_distance(similarity) = 1.0 - similarity,
-    the inverse is: distance_to_similarity(distance) = 1.0 - distance.
+    Convert distance to similarity score.
+
+    Notes:
+        This project historically mixes "cosine distance" conventions. For distances
+        in [0, 1] we use a simple inverse (1 - d). For distances in (1, 2] (possible
+        for cosine distance), we scale by 2 (1 - d/2). Values above 2 are clamped to 0.
     
     Args:
         distance: Distance value from vector search
@@ -46,10 +47,11 @@ def distance_to_similarity(distance: float) -> float:
     Returns:
         Similarity score (0.0-1.0)
     """
-    # Strict inverse of similarity_to_distance for consistency
-    # similarity_to_distance(s) = 1.0 - s
-    # Therefore: distance_to_similarity(d) = 1.0 - d
-    return max(0.0, 1.0 - distance)
+    if distance <= 1.0:
+        return max(0.0, 1.0 - distance)
+    if distance <= 2.0:
+        return max(0.0, 1.0 - (distance / 2.0))
+    return 0.0
 
 
 def similarity_to_distance(similarity: float) -> float:
@@ -63,6 +65,5 @@ def similarity_to_distance(similarity: float) -> float:
         Distance value
     """
     return 1.0 - similarity
-
 
 
