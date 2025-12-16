@@ -6,7 +6,7 @@
 
 ## План задач рефакторинга
 
-- [ ] file=src/bot/tgbot.py убрать глобальные переменные bot_instance, admin_manager, admin_router, task_manager, ingest_commands, command_dispatcher: создать класс RuntimeContext для хранения состояния и передавать его через dependency injection (частично выполнено: RuntimeContext создан, глобальные переменные убраны, но dependency injection не реализован - везде используется get_runtime_context() как глобальный синглтон вместо передачи через параметры функций. Нужно: заменить все вызовы get_runtime_context() на передачу ctx: RuntimeContext через параметры функций, убрать глобальную переменную _runtime_context и функцию get_runtime_context())
+- [x] file=src/bot/tgbot.py убрать глобальные переменные bot_instance, admin_manager, admin_router, task_manager, ingest_commands, command_dispatcher: создать класс RuntimeContext для хранения состояния и передавать его через dependency injection (выполнено: RuntimeContext создан, глобальные переменные убраны, dependency injection реализован - все функции принимают ctx: RuntimeContext через параметры, глобальная переменная _runtime_context и функция get_runtime_context() удалены)
 
 - [x] file=src/bot/tgbot.py func=init_runtime_for_current_profile уменьшить цикломатическую сложность: разбить на отдельные функции _create_bot_instance(), _create_admin_components(), _create_command_dispatcher()
 
