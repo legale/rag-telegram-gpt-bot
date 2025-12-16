@@ -13,6 +13,7 @@ import sys
 import os
 import logging
 import signal
+import inspect
 from types import SimpleNamespace
 from typing import Optional, Dict, List, Tuple, Union, Callable
 from contextlib import asynccontextmanager
@@ -39,6 +40,7 @@ from src.bot.utils import AccessControlService, FrequencyController, ErrorHandle
 from src.bot.utils.response_formatter import ResponseFormatter
 from src.bot.command_parser import parse_find_command_args as parse_find_args_common
 from src.lib.syslog2 import *
+from src.app.types import AppRequest, AppResponse
 
 # Load environment variables
 load_dotenv()
@@ -1281,82 +1283,95 @@ async def _handle_user_message(update: Update) -> None:
 
 async def _process_webhook_update(update: Update) -> Optional[str]:
     """
-    Process Telegram update (business logic).
+    Process Telegram update.
     
     Args:
         update: Telegram update object
         
     Returns:
-        Response text to send (for document updates) or None
+        Response text to send (backward-compatible, primarily for document updates) or None
     """
-    # Handle document update (file upload)
-    response_text = await process_document_update(update)
-    if response_text:
-        return response_text
-    
-    # Handle text message update
-    if not (update.message and update.message.text):
-        return None
-    
-    # Determine if message is a command or regular message
-    text = update.message.text
-    is_command = text.startswith("/")
-    
-    try:
-        if is_command:
-            await _handle_command(update)
-        else:
-            await _handle_user_message(update)
-    except ValueError as e:
-        syslog2(LOG_ERR, "message handling failed: invalid value", error=str(e), update_id=update.update_id)
-        # Try to send error message to user
+    parsed_update = parse_update(update)
+    request = _to_app_request(parsed_update)
+    app = _get_telegram_transport_app()
+    response = await app.handle_request(request)
+    await _send_response(parsed_update, response)
+    return response.text or None
+
+
+def parse_update(update: Update) -> Update:
+    """Parse/validate incoming Update for the transport."""
+    return update
+
+
+def _to_app_request(update: Update) -> AppRequest:
+    """Map Telegram Update to AppRequest."""
+    message = getattr(update, "message", None)
+    user_id = None
+    chat_id = None
+    text = ""
+    if message:
         try:
-            ctx = get_runtime_context()
-            if update.message:
-                await ctx.telegram_app.bot.send_message(
-                    chat_id=update.message.chat_id,
-                    text=ResponseFormatter.format_error_message(f"неверное значение параметра. {str(e)}")
-                )
+            user = getattr(message, "from_user", None)
+            if user and getattr(user, "id", None) is not None:
+                user_id = str(user.id)
         except Exception:
-            pass  # Ignore errors when sending error message
-    except KeyError as e:
-        syslog2(LOG_ERR, "message handling failed: missing key", error=str(e), update_id=update.update_id)
-        # Try to send error message to user
+            user_id = None
         try:
-            ctx = get_runtime_context()
-            if update.message:
-                await ctx.telegram_app.bot.send_message(
-                    chat_id=update.message.chat_id,
-                    text=ResponseFormatter.format_error_message(f"отсутствует необходимый параметр. {str(e)}")
-                )
+            if getattr(message, "chat_id", None) is not None:
+                chat_id = str(message.chat_id)
         except Exception:
-            pass  # Ignore errors when sending error message
-    except AttributeError as e:
-        syslog2(LOG_ERR, "message handling failed: missing attribute", error=str(e), update_id=update.update_id)
-        # Try to send error message to user
-        try:
-            ctx = get_runtime_context()
-            if update.message:
-                await ctx.telegram_app.bot.send_message(
-                    chat_id=update.message.chat_id,
-                    text=ResponseFormatter.format_error_message(f"отсутствует необходимый атрибут. {str(e)}")
-                )
-        except Exception:
-            pass  # Ignore errors when sending error message
-    except Exception as e:
-        syslog2(LOG_ERR, "message handling failed: unexpected error", error=str(e), update_id=update.update_id)
-        # Try to send error message to user
-        try:
-            ctx = get_runtime_context()
-            if update.message:
-                await ctx.telegram_app.bot.send_message(
-                    chat_id=update.message.chat_id,
-                    text="Произошла ошибка при обработке сообщения. Попробуйте позже."
-                )
-        except:
-            pass
-    
-    return None
+            chat_id = None
+        text = getattr(message, "text", "") or ""
+
+    return AppRequest(
+        user_id=user_id,
+        chat_id=chat_id,
+        text=text,
+        transport="telegram",
+        meta={"update": update},
+    )
+
+
+async def _send_response(update: Update, response: AppResponse) -> None:
+    """Send AppResponse to Telegram."""
+    if not response.text:
+        return
+    message = getattr(update, "message", None)
+    if not message:
+        return
+    ctx = get_runtime_context()
+    telegram_app = getattr(ctx, "telegram_app", None)
+    bot = getattr(telegram_app, "bot", None)
+    if not bot:
+        return
+    result = bot.send_message(chat_id=message.chat_id, text=response.text)
+    if inspect.isawaitable(result):
+        await result
+
+
+class _TelegramTransportApp:
+    async def handle_request(self, request: AppRequest) -> AppResponse:
+        update = (request.meta or {}).get("update")
+        if update is None:
+            return AppResponse(text="")
+
+        response_text = await process_document_update(update)
+        if response_text:
+            return AppResponse(text=response_text)
+
+        await process_text_update(update)
+        return AppResponse(text="")
+
+
+_telegram_transport_app: Optional[_TelegramTransportApp] = None
+
+
+def _get_telegram_transport_app() -> _TelegramTransportApp:
+    global _telegram_transport_app
+    if _telegram_transport_app is None:
+        _telegram_transport_app = _TelegramTransportApp()
+    return _telegram_transport_app
 
 
 def _create_webhook_handler():
@@ -1378,15 +1393,7 @@ def _create_webhook_handler():
         
         try:
             # Process update (business logic)
-            response_text = await _process_webhook_update(update)
-            
-            # Send response if needed (for document updates)
-            ctx = get_runtime_context()
-            if response_text and update.message:
-                await ctx.telegram_app.bot.send_message(
-                    chat_id=update.message.chat_id, 
-                    text=response_text
-                )
+            await _process_webhook_update(update)
             
             return Response(status_code=200)
         

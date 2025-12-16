@@ -292,7 +292,7 @@
 
 - [x] file=src/lib/argparse2.py func=gen_help упростить: вынести генерацию help для опций в _gen_options_help(), генерацию help для команд в _gen_commands_help()
 
-- [ ] file=src/bot/tgbot.py func=_process_webhook_update упростить: оставить только parse_update()-_to_app_request()-call app.handle_request()-send_response(), весь access control-rate limit-command routing вынести из transport
+- [x] file=src/bot/tgbot.py func=_process_webhook_update упростить: оставить только parse_update()-_to_app_request()-call app.handle_request()-send_response(), весь access control-rate limit-command routing вынести из transport
 
 - [ ] file=src/app/bootstrap.py func=create_app добавить: собрать все зависимости и вернуть объект App с методами handle_request(), handle_command(), ingest(), никаких импортов src/bot внутри core
 
@@ -332,11 +332,9 @@
 
 - [ ] file=src/adapters/persistence/sqlite_message_store.py func=* запретить импорт src/storage/db.py как "бог-объект": использовать session factory и models, реализовать только MessageStore контракт
 
-- [w] file=src/adapters/persistence/sqlite_chunk_store.py func=* убрать embedding_json из ответственности стора: ChunkStore хранит текст-мета-связи, embeddings источник правды только в VectorIndex или только в SQLite (выбрать один)
+- [w] file=src/adapters/persistence/sqlite_chunk_store.py func=* убрать embedding_json из ответственности стора: ChunkStore хранит текст-мета-связи, embeddings источник правды только в SQLite
 
 - [x] file=src/adapters/vector/chroma_vector_index.py func=query расширить: возвращать (chunk_id-score-metadata) без необходимости читать chunks из SQLite для каждого кандидата, минимизировать roundtrips
-
-- [w] file=src/core/interfaces.py пересмотреть: оставить "несущие стены" только для границ (MessageStore-ChunkStore-FTSIndex-VectorIndex-Embedder-LLM-ConfigProvider), удалить все что не используется напрямую use cases
 
 - [w] file=src/bot/config.py class=BotConfig перенести: в src/app/config_store.py (профиль и файлы), core получает ConfigProvider интерфейс, AdminManager не читает json напрямую
 
@@ -348,7 +346,7 @@
 
 - [w] file=src/app/main_cli.py func=create_dispatcher удалить: заменить на create_app() + CommandService registry, чтобы не было второго центра регистрации
 
-- [ ] file=src/lib/syslog2.py scope=api унифицировать: сделать LoggingPort интерфейс в core (минимальный), syslog2 оставить реализацией, core не зависит от конкретного логгера
+- [ ] file=src/lib/syslog2.py scope=api унифицировать: сделать интерфейс Logging, syslog2 оставить реализацией, core не зависит от конкретного логгера
 
 - [ ] file=src/core/llm.py class=LLMClient разгрузить: вынести retry-timeouts-backoff в src/core/llm_gateway.py, LLMClient оставить как тонкий HTTP клиент
 
