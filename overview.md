@@ -32,7 +32,7 @@ Legale Bot is a RAG (Retrieval-Augmented Generation) Telegram bot that analyzes 
    poetry run python legale.py profile create mybot --set-active
    poetry run python legale.py telegram dump "Chat Name" --limit 10000
    poetry run python legale.py ingest telegram_dump_Chat.json
-   poetry run python legale.py chat -vv
+   poetry run python legale.py chat -V 7
    poetry run python legale.py bot run --port 8080
    ```
 

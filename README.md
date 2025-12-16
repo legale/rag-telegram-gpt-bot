@@ -48,7 +48,7 @@ poetry run python legale.py telegram dump "My Chat" --limit 10000
 poetry run python legale.py ingest telegram_dump_My_Chat.json
 
 # Test with interactive chat
-poetry run python legale.py chat -vv
+poetry run python legale.py chat -V 7
 ```
 
 ## CLI Reference
@@ -122,8 +122,8 @@ legale chat
 
 # With log levels
 legale chat -v      # Basic info
-legale chat -vv     # Retrieval details
-legale chat -vvv    # Full LLM logs
+legale chat -V 7     # Retrieval details
+legale chat -V 7     # Full LLM logs
 
 # Custom context chunks
 legale chat --chunks 10
@@ -158,7 +158,7 @@ legale bot delete
 
 # Run in foreground (testing)
 legale bot run
-legale bot run -vv --port 8080
+legale bot run -V 7 --port 8080
 
 # Run as daemon (production)
 legale bot daemon
@@ -182,7 +182,7 @@ legale bot daemon
 legale profile create dev --set-active
 legale telegram dump "Dev Chat" --limit 1000
 legale ingest telegram_dump_Dev_Chat.json
-legale chat -vv
+legale chat -V 7
 
 # Production
 legale profile create prod
@@ -221,7 +221,7 @@ sudo nginx -t && sudo systemctl reload nginx
 legale bot register --url https://yourdomain.com/webhook
 
 # 4. Run bot
-legale bot run -vv  # Test first
+legale bot run -V 7  # Test first
 legale bot daemon   # Then run as daemon
 ```
 
@@ -399,7 +399,7 @@ legale bot delete
 legale bot register --url https://yourdomain.com/webhook
 
 # Check logs
-legale bot run -vvv
+legale bot run -V 7v
 ```
 
 ## License
