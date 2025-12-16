@@ -861,12 +861,16 @@ def _create_command_dispatcher(
 
 
 # инициализация рантайма под текущий профиль
-async def init_runtime_for_current_profile(args: Optional[SimpleNamespace] = None):
+async def init_runtime_for_current_profile(
+    ctx: Optional[RuntimeContext] = None,
+    args: Optional[SimpleNamespace] = None,
+):
     """
     создать/переинициализировать bot_instance, admin_manager, admin_router и связанные команды
     под текущий активный профиль profile_manager
     """
-    ctx = get_runtime_context()
+    if ctx is None:
+        ctx = get_runtime_context()
 
     # Step 1: Get profile paths
     paths = _get_profile_paths(ctx)
@@ -906,7 +910,7 @@ async def reload_for_current_profile(args: Optional[SimpleNamespace] = None):
     hot-reload рантайма под активный профиль (используется /admin restart)
     """
     syslog2(LOG_WARNING, "hot reload requested")
-    paths = await init_runtime_for_current_profile(args)
+    paths = await init_runtime_for_current_profile(args=args)
     ctx = get_runtime_context()
     syslog2(LOG_WARNING, "hot reload completed", profile=ctx.profile_manager.get_current_profile() if ctx.profile_manager else "unknown", db=paths["db_path"], vector=paths["vector_db_path"])
     return paths
@@ -1031,7 +1035,7 @@ async def _init_profile_manager() -> None:
 async def _init_runtime(args: Optional[SimpleNamespace] = None) -> None:
     """Initialize runtime for current profile."""
     try:
-        await init_runtime_for_current_profile(args)
+        await init_runtime_for_current_profile(args=args)
     except Exception as e:
         syslog2(LOG_ERR, "runtime init failed", error=str(e))
         raise
@@ -1168,12 +1172,13 @@ def _parse_update_from_json(data: dict, bot) -> Optional[Update]:
         return None
 
 
-async def _parse_webhook_update(request: Request) -> Optional[Update]:
+async def _parse_webhook_update(request: Request, ctx: Optional[RuntimeContext] = None) -> Optional[Update]:
     """
     Parse Telegram update from HTTP request.
     
     Args:
         request: FastAPI request object
+        ctx: Optional RuntimeContext (for tests/injection)
         
     Returns:
         Update object or None if parsing failed
@@ -1184,7 +1189,8 @@ async def _parse_webhook_update(request: Request) -> Optional[Update]:
         return None
     
     # Step 2: Parse Update from JSON
-    ctx = get_runtime_context()
+    if ctx is None:
+        ctx = get_runtime_context()
     update = _parse_update_from_json(data, ctx.telegram_app.bot)
     return update
 
@@ -1281,7 +1287,7 @@ async def _handle_user_message(update: Update) -> None:
     await _send_response_if_available(response, chat_id, False, respond)
 
 
-async def _process_webhook_update(update: Update) -> Optional[str]:
+async def _process_webhook_update(update: Update, ctx: Optional[RuntimeContext] = None) -> Optional[str]:
     """
     Process Telegram update.
     
@@ -1291,6 +1297,12 @@ async def _process_webhook_update(update: Update) -> Optional[str]:
     Returns:
         Response text to send (backward-compatible, primarily for document updates) or None
     """
+    if ctx is not None:
+        if getattr(update, "message", None) and getattr(update.message, "document", None):
+            return await process_document_update(update)
+        await process_text_update(update)
+        return None
+
     parsed_update = parse_update(update)
     request = _to_app_request(parsed_update)
     app = _get_telegram_transport_app()
