@@ -40,6 +40,48 @@ class PipelineOrchestrator:
         self.generate_embeddings = generate_embeddings
         self.sync_to_vector_store = sync_to_vector_store
 
+    def _execute_stage(
+        self,
+        stage_name: str,
+        stage_num: int,
+        stage_func: callable,
+        *args,
+        **kwargs
+    ) -> Optional[Any]:
+        """
+        Execute a single pipeline stage with error handling.
+        
+        Args:
+            stage_name: Name of the stage (e.g., "parse and store messages")
+            stage_num: Stage number for logging
+            stage_func: Function to execute for this stage
+            *args: Positional arguments for stage_func
+            **kwargs: Keyword arguments for stage_func
+            
+        Returns:
+            Result from stage_func execution, or None if stage is not implemented
+        """
+        try:
+            syslog2(LOG_NOTICE, f"running stage{stage_num}: {stage_name}")
+            return stage_func(*args, **kwargs)
+        except Exception as e:
+            return self._handle_stage_error(stage_name, stage_num, e)
+    
+    def _handle_stage_error(self, stage_name: str, stage_num: int, error: Exception) -> None:
+        """
+        Handle error that occurred during stage execution.
+        
+        Args:
+            stage_name: Name of the stage that failed
+            stage_num: Stage number that failed
+            error: Exception that occurred
+            
+        Returns:
+            None (always raises exception after logging)
+        """
+        syslog2(LOG_ERR, f"stage{stage_num} failed", stage=stage_name, error=str(error))
+        raise error
+
     def run_all(
         self,
         file_path: str,
@@ -62,25 +104,46 @@ class PipelineOrchestrator:
         stats = {}
 
         # Stage 0: Parse and store messages
-        syslog2(LOG_NOTICE, "running stage0: parse and store messages")
-        messages_saved = self.ingest_messages.execute(file_path)
-        stats["stage0_messages_saved"] = messages_saved
+        messages_saved = self._execute_stage(
+            "parse and store messages",
+            0,
+            self.ingest_messages.execute,
+            file_path
+        )
+        if messages_saved is not None:
+            stats["stage0_messages_saved"] = messages_saved
 
         # Stage 1: Create and store chunks
-        syslog2(LOG_NOTICE, "running stage1: create and store chunks")
-        chunks_saved = self.process_chunks.execute()
-        stats["stage1_chunks_saved"] = chunks_saved
+        chunks_saved = self._execute_stage(
+            "create and store chunks",
+            1,
+            self.process_chunks.execute
+        )
+        if chunks_saved is not None:
+            stats["stage1_chunks_saved"] = chunks_saved
 
         # Stage 2: Generate embeddings
         # Note: This requires getting chunk IDs first, which needs ChunkStore extension
         # For now, this is a placeholder showing the structure
-        syslog2(LOG_NOTICE, "running stage2: generate embeddings for chunks (save to SQLite)")
-        # stats["stage2_embeddings_generated"] = self.generate_embeddings.execute(...)
+        # embeddings_generated = self._execute_stage(
+        #     "generate embeddings for chunks (save to SQLite)",
+        #     2,
+        #     self.generate_embeddings.execute,
+        #     ...
+        # )
+        # if embeddings_generated is not None:
+        #     stats["stage2_embeddings_generated"] = embeddings_generated
 
         # Stage 3: Sync chunks to vector database
         # Note: This also requires getting chunk IDs first
-        syslog2(LOG_NOTICE, "running stage3: sync chunks to vector database")
-        # stats["stage3_chunks_synced"] = self.sync_to_vector_store.execute(...)
+        # chunks_synced = self._execute_stage(
+        #     "sync chunks to vector database",
+        #     3,
+        #     self.sync_to_vector_store.execute,
+        #     ...
+        # )
+        # if chunks_synced is not None:
+        #     stats["stage3_chunks_synced"] = chunks_synced
 
         # Stages 4-9 (clustering and topic naming) are not yet migrated to use cases
         # They remain in IngestionPipeline for now

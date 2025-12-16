@@ -243,6 +243,76 @@ class SqliteChunkStore:
         """
         return [self._model_to_domain(model) for model in models]
 
+    def _update_chunk_topics(self, session, chunk: ChunkModel, topic_update: TopicUpdate) -> None:
+        """
+        Update topic assignments for a single chunk.
+        
+        Args:
+            session: Database session
+            chunk: ChunkModel instance to update
+            topic_update: TopicUpdate object with topic information
+        """
+        # Extract topic IDs from TopicUpdate
+        # TopicUpdate has topic_ids list - we need to map to topic_l1_id and topic_l2_id
+        # For now, we'll store topic IDs in metadata and try to extract L1/L2 IDs
+        topic_l1_id = None
+        topic_l2_id = None
+
+        # Parse topic_ids - assume format like "l1:123" or "l2:456" or just integer IDs
+        for topic_id_str in topic_update.topic_ids:
+            if topic_id_str.startswith("l1:"):
+                try:
+                    topic_l1_id = int(topic_id_str.split(":", 1)[1])
+                except (ValueError, IndexError):
+                    pass
+            elif topic_id_str.startswith("l2:"):
+                try:
+                    topic_l2_id = int(topic_id_str.split(":", 1)[1])
+                except (ValueError, IndexError):
+                    pass
+            else:
+                # Try to parse as integer - assume L1 if not specified
+                try:
+                    topic_l1_id = int(topic_id_str)
+                except ValueError:
+                    pass
+
+        # Update topic assignments
+        if topic_l1_id is not None:
+            chunk.topic_l1_id = topic_l1_id
+        if topic_l2_id is not None:
+            chunk.topic_l2_id = topic_l2_id
+
+        # Update metadata if provided
+        if topic_update.metadata:
+            existing_meta = {}
+            if chunk.metadata_json:
+                try:
+                    existing_meta = json.loads(chunk.metadata_json)
+                except (json.JSONDecodeError, TypeError):
+                    existing_meta = {}
+            
+            existing_meta.update(topic_update.metadata)
+            chunk.metadata_json = json.dumps(existing_meta)
+
+    def _batch_update_topics(self, session, updates: Dict[str, TopicUpdate]) -> None:
+        """
+        Perform batch update of topic assignments.
+        
+        Args:
+            session: Database session
+            updates: Dictionary mapping chunk_id to TopicUpdate
+        """
+        for chunk_id, topic_update in updates.items():
+            chunk = session.query(ChunkModel).filter(
+                ChunkModel.id == chunk_id
+            ).first()
+
+            if not chunk:
+                continue
+
+            self._update_chunk_topics(session, chunk, topic_update)
+
     def update_topics(self, updates: Dict[str, TopicUpdate]) -> None:
         """
         Update topic assignments for chunks.
@@ -255,57 +325,7 @@ class SqliteChunkStore:
 
         session = self.db.get_session()
         try:
-            for chunk_id, topic_update in updates.items():
-                chunk = session.query(ChunkModel).filter(
-                    ChunkModel.id == chunk_id
-                ).first()
-
-                if not chunk:
-                    continue
-
-                # Extract topic IDs from TopicUpdate
-                # TopicUpdate has topic_ids list - we need to map to topic_l1_id and topic_l2_id
-                # For now, we'll store topic IDs in metadata and try to extract L1/L2 IDs
-                topic_l1_id = None
-                topic_l2_id = None
-
-                # Parse topic_ids - assume format like "l1:123" or "l2:456" or just integer IDs
-                for topic_id_str in topic_update.topic_ids:
-                    if topic_id_str.startswith("l1:"):
-                        try:
-                            topic_l1_id = int(topic_id_str.split(":", 1)[1])
-                        except (ValueError, IndexError):
-                            pass
-                    elif topic_id_str.startswith("l2:"):
-                        try:
-                            topic_l2_id = int(topic_id_str.split(":", 1)[1])
-                        except (ValueError, IndexError):
-                            pass
-                    else:
-                        # Try to parse as integer - assume L1 if not specified
-                        try:
-                            topic_l1_id = int(topic_id_str)
-                        except ValueError:
-                            pass
-
-                # Update topic assignments
-                if topic_l1_id is not None:
-                    chunk.topic_l1_id = topic_l1_id
-                if topic_l2_id is not None:
-                    chunk.topic_l2_id = topic_l2_id
-
-                # Update metadata if provided
-                if topic_update.metadata:
-                    existing_meta = {}
-                    if chunk.metadata_json:
-                        try:
-                            existing_meta = json.loads(chunk.metadata_json)
-                        except (json.JSONDecodeError, TypeError):
-                            existing_meta = {}
-                    
-                    existing_meta.update(topic_update.metadata)
-                    chunk.metadata_json = json.dumps(existing_meta)
-
+            self._batch_update_topics(session, updates)
             session.commit()
         except Exception as e:
             session.rollback()

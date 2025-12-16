@@ -132,6 +132,24 @@ class SqliteMessageStore:
         Returns:
             List of Message domain objects
         """
+        # Fetch messages from database
+        models, session = self._fetch_messages_from_db(chat_id, limit, offset)
+        
+        # Convert to domain objects
+        return self._convert_to_domain_messages(models, session)
+    
+    def _fetch_messages_from_db(self, chat_id: str, limit: int, offset: int) -> tuple[List[MessageModel], object]:
+        """
+        Fetch message models from database by chat ID.
+        
+        Args:
+            chat_id: Chat ID to filter by
+            limit: Maximum number of messages to return
+            offset: Number of messages to skip
+            
+        Returns:
+            Tuple of (list of MessageModel instances, database session)
+        """
         session = self.db.get_session()
         try:
             # Query with limit and offset
@@ -140,6 +158,23 @@ class SqliteMessageStore:
             ).order_by(MessageModel.ts).offset(offset).limit(limit)
             
             models = query.all()
+            return models, session
+        except Exception:
+            session.close()
+            raise
+    
+    def _convert_to_domain_messages(self, models: List[MessageModel], session) -> List[Message]:
+        """
+        Convert MessageModel instances to domain Message objects.
+        
+        Args:
+            models: List of MessageModel instances
+            session: Database session for loading metadata
+            
+        Returns:
+            List of Message domain objects
+        """
+        try:
             return [self._model_to_domain(model, session) for model in models]
         finally:
             session.close()

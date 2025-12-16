@@ -262,7 +262,7 @@
 
 - [ ] file=src/adapters/persistence/sqlite_chunk_store.py func=update_topics упростить: вынести обновление topic для одного chunk в _update_chunk_topics(), batch update в _batch_update_topics()
 
-- [ ] file=src/adapters/persistence/sqlite_message_store.py func=get_by_chat упростить: вынести получение messages из БД в _fetch_messages_from_db(), конвертацию в domain objects в _convert_to_domain_messages()
+- [x] file=src/adapters/persistence/sqlite_message_store.py func=get_by_chat упростить: вынести получение messages из БД в _fetch_messages_from_db(), конвертацию в domain objects в _convert_to_domain_messages()
 
 - [ ] file=src/adapters/persistence/sqlite_message_store.py func=get_context упростить: вынести вычисление time window в _calculate_time_window(), получение messages в window в _get_messages_in_window()
 
