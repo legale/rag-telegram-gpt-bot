@@ -46,9 +46,9 @@ class LLMClient:
             # Completely silence HTTP logging below LOG_INFO
             logging.getLogger("httpx").setLevel(logging.WARNING)
             logging.getLogger("httpcore").setLevel(logging.WARNING)
-            logging.getLogger("urllib3").setLevel(logging.WARNING)
             logging.getLogger("openai").setLevel(logging.WARNING)
-        elif log_level >= LOG_DEBUG:
+        
+        if log_level >= LOG_DEBUG:
             # Enable low-level HTTP logging at LOG_DEBUG and above
             httpx_logger = logging.getLogger("httpx")
             httpx_logger.setLevel(logging.DEBUG)
@@ -56,8 +56,14 @@ class LLMClient:
 
     @property
     def model_name(self) -> str:
+        """Get the model name."""
         return self.model
-    
+
+    @model_name.setter
+    def model_name(self, value: str):
+        """Set the model name."""
+        self.model = value
+
     def count_tokens(self, messages: List[Dict[str, str]]) -> int:
         """
         Count the number of tokens in a list of messages.

@@ -89,17 +89,62 @@ class ModelCommandHandler(CommandHandler):
 
     def handle(self, context: CommandContext) -> CommandResult:
         try:
-            message = self._switch_model()
-            self._save_model_to_config()
-            return CommandResult(success=True, message=message, data={"model": self.bot.current_model_name})
+            if not context.args:
+                return self._show_help()
+            
+            subcommand = context.args[0].lower()
+            
+            if subcommand == "list":
+                return self._show_list()
+            elif subcommand == "get":
+                return self._get_current()
+            elif subcommand == "set":
+                if len(context.args) < 2:
+                    return CommandResult(success=False, message="Укажите имя модели: /model set <имя_модели>")
+                return self._set_model(context.args[1])
+            elif subcommand == "help":
+                return self._show_help()
+            else:
+                 return self._show_help()
+
         except Exception as e:
             from src.lib.syslog2 import LOG_ERR, syslog2
 
-            syslog2(LOG_ERR, "get model failed", error=str(e))
-            return CommandResult(success=False, message="Ошибка при переключении модели.", error=str(e))
+            syslog2(LOG_ERR, "model command failed", error=str(e))
+            return CommandResult(success=False, message="Ошибка при выполнении команды модели.", error=str(e))
+            
+    def _show_help(self) -> CommandResult:
+        message = (
+            "Команды управления моделью:\n\n"
+            "• /model list — показать список моделей и их параметры\n"
+            "• /model get — показать текущую модель\n"
+            "• /model set <имя> — установить модель\n"
+            "• /model help — эта справка"
+        )
+        return CommandResult(success=True, message=message)
 
-    def _switch_model(self) -> str:
-        return self.bot.get_model()
+    def _show_list(self) -> CommandResult:
+        models = self.bot.available_models
+        if not models:
+             return CommandResult(success=True, message="Нет доступных моделей.")
+             
+        lines = ["Доступные модели:"]
+        current = self.bot.current_model_name
+        
+        for model in models:
+            is_current = " (текущая)" if model == current else ""
+            max_tokens = self.bot.model_max_tokens.get(model, 140000)
+            lines.append(f"• {model} [context: {max_tokens}]{is_current}")
+            
+        return CommandResult(success=True, message="\n".join(lines))
+
+    def _get_current(self) -> CommandResult:
+        return CommandResult(success=True, message=self.bot.get_current_model())
+        
+    def _set_model(self, model_name: str) -> CommandResult:
+        message = self.bot.set_model(model_name)
+        self._save_model_to_config()
+        return CommandResult(success=True, message=message, data={"model": self.bot.current_model_name})
 
     def _save_model_to_config(self) -> None:
         if self.admin_manager:

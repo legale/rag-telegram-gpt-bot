@@ -102,29 +102,90 @@ class TestModelCommandHandler:
         assert handler.bot is None
         assert handler.admin_manager is None
     
-    def test_handle_with_bot(self, tmp_path, monkeypatch):
-        """Test handle with bot."""
+    def test_handle_no_args_shows_help(self, tmp_path, monkeypatch):
+        """Test handle shows help when no args provided."""
+        handler = self._create_handler(tmp_path, monkeypatch)
+        context = CommandContext(args=[])
+        result = handler.handle(context)
+        assert result.success is True
+        assert "Команды управления моделью" in result.message
+
+    def test_handle_help(self, tmp_path, monkeypatch):
+        """Test handle help subcommand."""
+        handler = self._create_handler(tmp_path, monkeypatch)
+        context = CommandContext(args=["help"])
+        result = handler.handle(context)
+        assert result.success is True
+        assert "Команды управления моделью" in result.message
+
+    def test_handle_list(self, tmp_path, monkeypatch):
+        """Test handle list subcommand."""
+        handler = self._create_handler(tmp_path, monkeypatch)
+        handler.bot.available_models = ["model1", "model2"]
+        # bot.current_model_name reads from self.llm_client.model_name
+        handler.bot.llm_client.model_name = "model1"
+        handler.bot.model_max_tokens = {"model1": 140000, "model2": 10000}
+        
+        context = CommandContext(args=["list"])
+        result = handler.handle(context)
+        
+        assert result.success is True
+        assert "Доступные модели:" in result.message
+        assert "model1" in result.message
+        assert "model2" in result.message
+        assert "(текущая)" in result.message
+
+    def test_handle_get(self, tmp_path, monkeypatch):
+        """Test handle get subcommand."""
+        handler = self._create_handler(tmp_path, monkeypatch)
+        # Mock get_current_model method
+        handler.bot.get_current_model = lambda: "Current model info"
+        
+        context = CommandContext(args=["get"])
+        result = handler.handle(context)
+        
+        assert result.success is True
+        assert "Current model info" in result.message
+
+    def test_handle_set_success(self, tmp_path, monkeypatch):
+        """Test handle set subcommand success."""
+        handler = self._create_handler(tmp_path, monkeypatch)
+        
+        # We need to ensure that when set_model is called, it updates the state 
+        # that current_model_name reads from, OR we mock set_model to do nothing 
+        # and manually force the state for verification.
+        
+        def mock_set_model(name):
+            handler.bot.llm_client.model_name = name
+            return f"Model set to {name}"
+            
+        handler.bot.set_model = mock_set_model
+        
+        context = CommandContext(args=["set", "new-model"])
+        result = handler.handle(context)
+        
+        assert result.success is True
+        assert "Model set to new-model" in result.message
+        assert result.data["model"] == "new-model"
+
+    def test_handle_set_missing_arg(self, tmp_path, monkeypatch):
+        """Test handle set subcommand without model name."""
+        handler = self._create_handler(tmp_path, monkeypatch)
+        context = CommandContext(args=["set"])
+        result = handler.handle(context)
+        
+        assert result.success is False
+        assert "Укажите имя модели" in result.message
+
+    def _create_handler(self, tmp_path, monkeypatch):
         monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
         from src.bot.core import LegaleBot
-        
         bot = LegaleBot(
             db_url=f"sqlite:///{tmp_path}/test.db",
             vector_db_path=str(tmp_path / "vector"),
             model_name="test-model"
         )
-        
-        # Ensure bot has required attributes
-        if not hasattr(bot, 'current_model_index'):
-            bot.current_model_index = 0
-        if not hasattr(bot, 'current_model_name'):
-            bot.current_model_name = "test-model"
-        
-        handler = ModelCommandHandler(bot)
-        context = CommandContext()
-        result = handler.handle(context)
-        
-        # May fail if models.txt is missing, so just check it doesn't crash
-        assert result is not None
+        return ModelCommandHandler(bot)
 
 
 class TestFindCommandHandler:
