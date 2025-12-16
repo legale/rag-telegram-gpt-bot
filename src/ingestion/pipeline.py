@@ -399,10 +399,16 @@ class IngestionPipeline:
         
         syslog2(LOG_NOTICE, "stage3 complete")
 
-    def _get_llm_client(self):
-        """Get LLM client using model from profile config. Model must be explicitly set."""
-        from src.core.llm import LLMClient
+    def _get_model_from_config(self) -> str:
+        """
+        Get model name from profile config.
         
+        Returns:
+            Model name string
+            
+        Raises:
+            ConfigurationError: If profile directory not found or model not set
+        """
         if not self.profile_dir or not self.profile_dir.exists():
             syslog2(LOG_ERR, "profile directory not found")
             raise ConfigurationError("profile directory not found")
@@ -419,12 +425,30 @@ class IngestionPipeline:
                 syslog2(LOG_NOTICE, "example config.json", example='{"embedding_model": "paraphrase-multilingual-mpnet-base-v2", "embedding_generator": "local", "current_model": "openai/gpt-oss-20b:free"}')
                 raise ConfigurationError("current_model is not set in profile config")
             
-            return LLMClient(model=model_name, log_level=LOG_WARNING)
+            return model_name
         except ConfigurationError:
             raise
         except Exception as e:
-            syslog2(LOG_ERR, "failed to load model from profile config", error=str(e))
-            raise ConfigurationError(f"failed to load model from profile config: {e}") from e
+            syslog2(LOG_ERR, "could not load profile config", error=str(e))
+            raise ConfigurationError(f"could not load profile config: {e}") from e
+    
+    def _create_llm_client(self, model_name: str):
+        """
+        Create LLM client with specified model.
+        
+        Args:
+            model_name: Model name to use
+            
+        Returns:
+            LLMClient instance
+        """
+        from src.core.llm import LLMClient
+        return LLMClient(model=model_name, log_level=LOG_WARNING)
+    
+    def _get_llm_client(self):
+        """Get LLM client using model from profile config. Model must be explicitly set."""
+        model_name = self._get_model_from_config()
+        return self._create_llm_client(model_name)
 
     def run_all(self, file_path: str, model: Optional[str] = None, batch_size: int = 128, **clustering_params):
         """

@@ -222,7 +222,7 @@
 
 - [w] file=src/storage/vector_store.py func=_recreate_collection_with_dimension вынести в публичный метод recreate_collection() для переиспользования
 
-- [ ] file=src/ingestion/pipeline.py func=_get_llm_client упростить: вынести получение model из config в _get_model_from_config(), создание LLMClient в _create_llm_client()
+- [x] file=src/ingestion/pipeline.py func=_get_llm_client упростить: вынести получение model из config в _get_model_from_config(), создание LLMClient в _create_llm_client()
 
 - [ ] file=src/ingestion/pipeline.py func=run_all упростить: использовать список stage функций и вызывать их в цикле вместо явных вызовов
 
