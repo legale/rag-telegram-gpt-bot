@@ -364,21 +364,23 @@ class ProfileCommandHandler(AsyncCommandHandler):
             
             # Determine max tokens settings
             max_context_tokens = 60000
-            llm_max_tokens = 5000
+            llm_max_tokens = 60000
             
             if hasattr(self.bot, 'config') and self.bot.config:
                  # Use bot.config if available (preferred)
-                 if hasattr(self.bot.config, 'profile_context_tokens'):
-                     max_context_tokens = self.bot.config.profile_context_tokens
                  if hasattr(self.bot.config, 'llm_max_tokens'):
-                     llm_max_tokens = self.bot.config.llm_max_tokens
+                     val = self.bot.config.llm_max_tokens
+                     max_context_tokens = val
+                     llm_max_tokens = val
             elif hasattr(self.bot, 'profile_dir') and self.bot.profile_dir:
                 # Fallback to loading config from dir
                 try:
                     from src.bot.config import BotConfig
                     config = BotConfig(self.bot.profile_dir)
-                    max_context_tokens = config.profile_context_tokens
-                    llm_max_tokens = config.llm_max_tokens
+                    # Use llm_max_tokens for both
+                    val = config.llm_max_tokens
+                    max_context_tokens = val
+                    llm_max_tokens = val
                 except Exception as e:
                     syslog2(LOG_ERR, "failed to load profile config", error=str(e))
 
