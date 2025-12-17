@@ -437,8 +437,8 @@ class ProfileCommandHandler(AsyncCommandHandler):
         if self.bot.log_level >= LOG_DEBUG:
             syslog2(LOG_DEBUG, "profile gather_context started", username=username, max_tokens=max_tokens)
         
-        # Get recent messages. Start with 30.
-        messages = self.bot.db.get_messages_by_user(username, limit=30)
+        # Get recent messages. Start with 500.
+        messages = self.bot.db.get_messages_by_user(username, limit=500)
         
         if not messages:
             return ""
