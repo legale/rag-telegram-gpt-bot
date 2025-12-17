@@ -151,12 +151,12 @@ class LLMClient:
             
         # Extract params from kwargs if present, otherwise use defaults
         temperature = kwargs.get("temperature", 0.7)
-        max_tokens = kwargs.get("max_tokens", 1500)
+        max_tokens = kwargs.get("max_tokens", 5000)
         
         return self.complete_messages(messages, temperature=temperature, max_tokens=max_tokens)
 
     
-    def complete_messages(self, messages: List[Dict[str, str]], temperature: float = 0.7, max_tokens: int = 1500) -> str:
+    def complete_messages(self, messages: List[Dict[str, str]], temperature: float = 0.7, max_tokens: int = 5000) -> str:
         """
         Generates a completion for the given messages with retry logic.
         

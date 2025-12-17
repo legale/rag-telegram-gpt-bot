@@ -49,7 +49,8 @@ class BotConfig:
             "cosine_distance_thr": 4,
             "rag_ntop": 40,
             "fts5_score_thr": 0.2,
-            "profile_context_tokens": 60000
+            "profile_context_tokens": 60000,
+            "llm_max_tokens": 60000
         }
 
     def _create_default_config(self) -> Dict:
@@ -433,4 +434,19 @@ class BotConfig:
     def profile_context_tokens(self, value: int):
         value = self._validate_profile_context_tokens(value)
         self.data["profile_context_tokens"] = value
+        self.save()
+
+    @property
+    def llm_max_tokens(self) -> int:
+        return self.data.get("llm_max_tokens", 60000)
+
+    def _validate_llm_max_tokens(self, value: int) -> int:
+        if not isinstance(value, int) or value < 100:
+            raise ValueError("llm_max_tokens must be a positive integer >= 100")
+        return value
+
+    @llm_max_tokens.setter
+    def llm_max_tokens(self, value: int):
+        value = self._validate_llm_max_tokens(value)
+        self.data["llm_max_tokens"] = value
         self.save()
