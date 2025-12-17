@@ -597,7 +597,9 @@ def _get_bot_configuration(admin_manager_local: AdminManager, args: Optional[Sim
     
     # Получаем log_level из args, преобразуем строку в константу если нужно
     log_level = getattr(args, 'log_level', LOG_WARNING) if args else LOG_WARNING
+    syslog2(LOG_WARNING, "[DEBUG] tgbot.py _get_bot_configuration: before mapping", raw_log_level=log_level, raw_type=type(log_level).__name__)
     log_level = _map_log_level_to_constant(log_level)
+    syslog2(LOG_WARNING, "[DEBUG] tgbot.py _get_bot_configuration: after mapping", mapped_log_level=log_level, mapped_type=type(log_level).__name__)
     
     retrieval_type = getattr(args, 'retrieval_type', 'hybrid') if args else 'hybrid'
     
@@ -631,6 +633,7 @@ def _create_legale_bot(
     if ctx is None:
         ctx = get_runtime_context()
 
+    syslog2(LOG_WARNING, "[DEBUG] tgbot.py _create_legale_bot: before LegaleBot.__init__", log_level=log_level, log_level_type=type(log_level).__name__)
     bot_instance_local = LegaleBot(
         db_url=paths["db_url"],
         vector_db_path=str(paths["vector_db_path"]),
@@ -640,6 +643,7 @@ def _create_legale_bot(
         profile_dir=profile_dir,
         retrieval_type=retrieval_type
     )
+    syslog2(LOG_WARNING, "[DEBUG] tgbot.py _create_legale_bot: after LegaleBot.__init__", bot_log_level=bot_instance_local.log_level, bot_log_level_type=type(bot_instance_local.log_level).__name__)
     syslog2(
         LOG_WARNING, 
         "bot core initialized", 
@@ -773,12 +777,15 @@ def _create_bot_instance(paths: Dict, admin_manager_local: AdminManager, ctx: Si
     Returns:
         Tuple of (Initialized LegaleBot instance, debug_rag flag)
     """
+    syslog2(LOG_WARNING, "[DEBUG] tgbot.py _create_bot_instance: received args", args_log_level=getattr(args, 'log_level', None) if args else None, args_type=type(getattr(args, 'log_level', None)).__name__ if args and hasattr(args, 'log_level') else 'None')
     # Get bot configuration
     model_name, debug_rag, log_level, retrieval_type = _get_bot_configuration(admin_manager_local, args)
+    syslog2(LOG_WARNING, "[DEBUG] tgbot.py _create_bot_instance: after _get_bot_configuration", log_level=log_level, log_level_type=type(log_level).__name__)
     
     # Create LegaleBot
     profile_dir = paths["profile_dir"]
     bot_instance_local = _create_legale_bot(paths, model_name, log_level, debug_rag, profile_dir, retrieval_type, ctx=ctx)
+    syslog2(LOG_WARNING, "[DEBUG] tgbot.py _create_bot_instance: after _create_legale_bot", bot_log_level=bot_instance_local.log_level, bot_log_level_type=type(bot_instance_local.log_level).__name__)
     
     return bot_instance_local, debug_rag
 
@@ -840,6 +847,7 @@ async def init_runtime_for_current_profile(
     под текущий активный профиль profile_manager
     """
     global _bot_instance, _admin_manager, _admin_router, _task_manager, _ingest_commands, _command_service, _debug_rag_mode
+    syslog2(LOG_WARNING, "[DEBUG] tgbot.py init_runtime_for_current_profile: received args", args_log_level=getattr(args, 'log_level', None) if args else None, args_type=type(getattr(args, 'log_level', None)).__name__ if args and hasattr(args, 'log_level') else 'None')
     if ctx is None:
         ctx = get_runtime_context()
 
@@ -1017,6 +1025,7 @@ async def _init_profile_manager() -> None:
 
 async def _init_runtime(args: Optional[SimpleNamespace] = None) -> None:
     """Initialize runtime for current profile."""
+    syslog2(LOG_WARNING, "[DEBUG] tgbot.py _init_runtime: received args", args_log_level=getattr(args, 'log_level', None) if args else None, args_type=type(getattr(args, 'log_level', None)).__name__ if args and hasattr(args, 'log_level') else 'None')
     try:
         await init_runtime_for_current_profile(args=args)
     except Exception as e:
@@ -1047,6 +1056,7 @@ async def lifespan(app: FastAPI, args: Optional[SimpleNamespace] = None):
     """
     ctx = get_runtime_context()
     
+    syslog2(LOG_WARNING, "[DEBUG] tgbot.py lifespan: received args", args_log_level=getattr(args, 'log_level', None) if args else None, args_type=type(getattr(args, 'log_level', None)).__name__ if args and hasattr(args, 'log_level') else 'None')
     syslog2(LOG_NOTICE, "daemon starting")
     
     # Initialize components
@@ -2184,6 +2194,7 @@ def run_server(host: str = "127.0.0.1", port: int = 8000, log_level: Optional[st
         debug_rag: Enable RAG debug mode
         args: Parsed command line arguments (SimpleNamespace)
     """
+    syslog2(LOG_WARNING, "[DEBUG] tgbot.py run_server: received", log_level_param=log_level, args_log_level=getattr(args, 'log_level', None) if args else None, args_type=type(getattr(args, 'log_level', None)).__name__ if args and hasattr(args, 'log_level') else 'None')
     _set_debug_rag_mode(debug_rag)
     
     uvicorn_log_level, access_log = _setup_server_logging(log_level)

@@ -141,6 +141,7 @@ class LegaleBot:
         profile_dir: Optional[Union[str, Path]] = None,
         retrieval_type: str = "hybrid"  # "hybrid" | "fts_only" | "vector_only"
     ):
+        syslog2(LOG_WARNING, "[DEBUG] core.py LegaleBot.__init__: received", log_level=log_level, log_level_type=type(log_level).__name__)
         # Initialize components
         if not db_url or not vector_db_path:
             raise ValueError("db_url and vector_db_path must be provided")
@@ -152,6 +153,7 @@ class LegaleBot:
         except Exception:
             pass
         self.log_level = log_level
+        syslog2(LOG_WARNING, "[DEBUG] core.py LegaleBot.__init__: set self.log_level", log_level=self.log_level, log_level_type=type(self.log_level).__name__)
         self.debug_rag = debug_rag
         
         # Create embedding client and load config

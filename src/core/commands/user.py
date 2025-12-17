@@ -337,6 +337,7 @@ class ProfileCommandHandler(AsyncCommandHandler):
             
         target_name = " ".join(context.args).strip()
         
+        syslog2(LOG_WARNING, "[DEBUG] user.py ProfileCommandHandler.handle: bot.log_level", bot_log_level=self.bot.log_level, bot_log_level_type=type(self.bot.log_level).__name__)
         if self.bot.log_level >= LOG_DEBUG:
             syslog2(LOG_DEBUG, "profile command started", target_name=target_name)
         

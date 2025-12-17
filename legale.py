@@ -779,6 +779,7 @@ def cmd_bot(argv: list[str], profile_manager: ProfileManager, global_log_level: 
         ll = global_log_level
         # Convert log_level to int if it's a numeric string, so it's properly passed through
         ll_int = _parse_log_level(ll) if ll else LOG_WARNING
+        syslog2(LOG_WARNING, "[DEBUG] legale.py cmd_bot: passing log_level", global_log_level=ll, parsed_log_level=ll_int, type_global=type(ll).__name__, type_parsed=type(ll_int).__name__)
         run_server(host, port, log_level=ll, debug_rag=debug_rag, args=DotDict({"log_level": ll_int, "debug_rag": debug_rag, "profile": profile_name}))
         return
 
@@ -1084,6 +1085,7 @@ def main() -> None:
             raise ValueError("no command specified")
 
         g_opts = DotDict(g_opts_raw)
+        syslog2(LOG_WARNING, "[DEBUG] legale.py main: parsed global opts", g_opts_raw=g_opts_raw, cmd=cmd)
 
         if _need_help(g_opts, cmd):
             _print_help_and_exit("legale", global_opt_table, global_cmd_table, 0)
@@ -1092,7 +1094,8 @@ def main() -> None:
             print("legale-bot version 1.0")
             sys.exit(0)
 
-        global_log_level = g_opts.get("V") or g_opts.get("log-level") or g_opts.get("--log-level")
+        global_log_level = g_opts.get("-V") or g_opts.get("--log-level") or g_opts.get("log-level")
+        syslog2(LOG_WARNING, "[DEBUG] legale.py main: extracted global_log_level", global_log_level=global_log_level, from_V=g_opts.get("-V"), from_log_level=g_opts.get("--log-level"))
         setup_log(_parse_log_level(global_log_level))
 
         profile_manager = ProfileManager(project_root)
