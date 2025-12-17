@@ -882,6 +882,49 @@ class Database:
         finally:
             session.close()
 
+    def get_messages_by_user(self, username: str, limit: Optional[int] = None, date_filter: Optional[datetime] = None) -> List[MessageModel]:
+        """
+        Get messages for a specific user, including aliases.
+        
+        Args:
+            username: Username of the user
+            limit: Optional limit on number of messages
+            date_filter: Optional datetime to filter messages after
+            
+        Returns:
+            List of MessageModel objects
+        """
+        user = self.get_user(username)
+        aliases = []
+        if user and user.aliases:
+            try:
+                aliases = json.loads(user.aliases)
+            except Exception:
+                pass
+        
+        # Search by username and all aliases
+        search_names = [username] + aliases
+        
+        session = self.get_session()
+        try:
+            query = session.query(MessageModel).filter(
+                MessageModel.from_id.in_(search_names)
+            )
+            
+            if date_filter:
+                query = query.filter(MessageModel.ts >= date_filter)
+                
+            query = query.order_by(MessageModel.ts.desc())
+            
+            if limit:
+                query = query.limit(limit)
+                
+            results = query.all()
+            # Sort back to chronological order
+            return sorted(results, key=lambda x: x.ts)
+        finally:
+            session.close()
+
     def get_database_info(self) -> dict:
         """
         Get statistics for all tables in the database.
