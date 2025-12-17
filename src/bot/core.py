@@ -897,18 +897,60 @@ class LegaleBot:
         if self.log_level >= LOG_DEBUG:
             syslog2(LOG_DEBUG, "bot.complete called", prompt_length=len(prompt), has_system_prompt=system_prompt is not None, system_prompt_length=len(system_prompt) if system_prompt else 0, kwargs=kwargs)
         
+        # Prepare messages early to count tokens
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+
+        # Dynamic max_tokens adjustment
+        try:
+            current_model = self.llm_client.model
+            total_model_limit = self.model_max_tokens.get(current_model, 140000)
+            input_tokens = self.llm_client.count_tokens(messages)
+            
+            # Request max_tokens from kwargs or default to a reasonable large number if not specified
+            # But here we want to clamp it. Default in LLMClient is 5000 if not passed.
+            requested_max_tokens = kwargs.get("max_tokens", 5000)
+            
+            # Calculate available space
+            # Reserve a small safety buffer (e.g. 100 tokens)
+            available_tokens = total_model_limit - input_tokens - 100
+            
+            if available_tokens < 1:
+                syslog2(LOG_ERR, "context overflow detected before call", input_tokens=input_tokens, model_limit=total_model_limit)
+                # Let it fail or raise? We'll clamp to 1 effectively, which will fail gracefully or just return empty.
+                available_tokens = 1
+            
+            final_max_tokens = min(requested_max_tokens, available_tokens)
+            
+            if self.log_level >= LOG_DEBUG:
+                syslog2(LOG_DEBUG, "dynamic token adjustment", 
+                        model=current_model,
+                        total_limit=total_model_limit, 
+                        input_tokens=input_tokens, 
+                        requested_max=requested_max_tokens, 
+                        available=available_tokens, 
+                        final_max=final_max_tokens)
+            
+            # Update kwargs
+            kwargs["max_tokens"] = final_max_tokens
+            
+        except Exception as e:
+            syslog2(LOG_WARNING, "failed to adjust dynamic tokens", error=str(e))
+
         # We run the synchronous LLM call directly.
         # Ideally this should be run_in_executor to avoid blocking the loop, 
         # but for now we keep it simple as the underlying HTTP client might be blocking anyway.
+        # We assume LLMClient handles the list of messages if we pass them, or we pass string + system.
+        # LLMClient.complete supports (prompt, system) OR (messages).
+        # Since we already built messages for counting, let's stick to the original signature to avoid side effects
+        # unless LLMClient.complete behaves identically.
+        # Original call was: self.llm_client.complete(prompt, system=system_prompt, **kwargs)
         response = self.llm_client.complete(prompt, system=system_prompt, **kwargs)
         
         # Log messages structure after completion (we can't easily intercept before, but LLMClient logs it)
         if self.log_level >= LOG_DEBUG:
-            # Construct what messages would look like
-            messages = []
-            if system_prompt:
-                messages.append({"role": "system", "content": system_prompt})
-            messages.append({"role": "user", "content": prompt})
             syslog2(LOG_DEBUG, "bot.complete messages structure", messages_count=len(messages), system_role_present=system_prompt is not None, user_role_present=True)
         
         return response
