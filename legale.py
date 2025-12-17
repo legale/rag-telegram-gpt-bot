@@ -725,6 +725,8 @@ def cmd_bot(argv: list[str], profile_manager: ProfileManager, global_log_level: 
         "token": {"arg": True, "desc": "Bot token", "meta": "TOKEN"},
         "debug_rag": {"arg": False, "desc": "Enable RAG debug"},
         "debug-rag": {"arg": False, "desc": "Enable RAG debug (alias)"},
+        "-V": {"arg": True, "desc": "Set log level", "meta": "LEVEL"},
+        "--log-level": {"arg": True, "desc": "Set log level", "meta": "LEVEL"},
     }
     cmd_table = {
         "register": {"desc": "Register webhook"},
@@ -776,7 +778,8 @@ def cmd_bot(argv: list[str], profile_manager: ProfileManager, global_log_level: 
         syslog2(LOG_NOTICE, "database", path=str(paths["db_path"]))
         syslog2(LOG_NOTICE, "vector store", path=str(paths["vector_db_path"]))
 
-        ll = global_log_level
+        # Use parsed log_level from command options, or fall back to global_log_level
+        ll = opts.get("-V") or opts.get("--log-level") or global_log_level
         # Convert log_level to int if it's a numeric string, so it's properly passed through
         ll_int = _parse_log_level(ll) if ll else LOG_WARNING
         syslog2(LOG_WARNING, "[DEBUG] legale.py cmd_bot: passing log_level", global_log_level=ll, parsed_log_level=ll_int, type_global=type(ll).__name__, type_parsed=type(ll_int).__name__)
