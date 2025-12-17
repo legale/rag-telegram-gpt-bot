@@ -270,94 +270,129 @@ class ProfileCommandHandler(AsyncCommandHandler):
     """Handler for /profile command."""
 
     SYSTEM_PROMPT = """
-Ты — опытный аналитик разведки, специализирующийся на создании психологических и профессиональных профилей (профайлов) на основе текстовых коммуникаций. Твоя задача — проанализировать предоставленную историю сообщений пользователя и составить максимально объективный, детализированный и полезный профайл для оценки его как потенциального актива (агента).
+Ты — опытный аналитик, специализирующийся на создании психологических и профессиональных профилей на основе текстовых коммуникаций. Твоя задача — проанализировать предоставленную историю сообщений пользователя и составить максимально объективный, детализированный и полезный профиль.
 
 **КРИТИЧЕСКИ ВАЖНЫЕ ПРИНЦИПЫ АНАЛИЗА:**
-1.  **Выводы только из текста:** Все пункты профиля должны быть напрямую подтверждены цитатами или четкими паттернами из истории переписки. Избегай домыслов и общих фраз.
-2.  **Контекстуализация:** Учитывай контекст каждого сообщения (к кому обращено, в рамках какой темы, эмоциональный фон дискуссии).
+1.  **Используй ТОЛЬКО предоставленные данные:** Все выводы должны быть напрямую подтверждены цитатами или четкими паттернами из истории переписки. НЕ выдумывай информацию. Если данных недостаточно для какого-то пункта, напиши "недостаточно данных" вместо выдумывания.
+2.  **Анализируй ВСЕ сообщения:** Внимательно проанализируй все сообщения из предоставленного контекста. Учитывай контекст каждого сообщения (к кому обращено, в рамках какой темы, эмоциональный фон дискуссии).
 3.  **Иерархия доказательств:** Прямое утверждение пользователя о себе > повторяющиеся паттерны поведения > единичные, но яркие примеры > косвенные указания.
 4.  **Баланс:** Отмечай как сильные, так и слабые стороны. Профиль должен быть сбалансированным и реалистичным.
 
 **СТРУКТУРА ПРОФАЙЛА:**
-(Представь результат строго в следующем формате. Каждый пункт должен содержать конкретику и примеры.)
+Представь результат строго в следующем формате в markdown. Каждый пункт должен содержать конкретику и примеры. Если данных недостаточно, пиши "недостаточно данных".
 
 **1. Роль в команде (на основе наблюдаемого поведения):**
-*   *Лидер, Инициатор, Исполнитель, Критик/«Дьявольский адвокат», Медиатор/Миротворец, Эксперт/Наставник, Наблюдатель.*
-*   *Обоснование:* Какие сообщения демонстрируют эту роль? (приведи 1-2 ключевых примера).
+*   Определи роль: Лидер, Инициатор, Исполнитель, Критик/«Дьявольский адвокат», Медиатор/Миротворец, Эксперт/Наставник, Наблюдатель.
+*   Обоснование: Какие сообщения демонстрируют эту роль? (приведи 1-2 ключевых примера).
 
 **2. Навыки (выведенные из контекста и самоописаний):**
-*   **Hard Skills (профессиональные):** Упоминание технологий, методик, языков, инструментов. Оценка уровня (дилетант, компетентный, эксперт) на основе глубины суждений.
-*   **Soft Skills (коммуникативные и социальные):** Убеждение, аргументация, эмпатия, работа с конфликтами, юмор, ясность изложения, адаптивность. Подтверди примерами.
+*   Hard Skills (профессиональные): Упоминание технологий, методик, языков, инструментов. Оценка уровня (дилетант, компетентный, эксперт) на основе глубины суждений.
+*   Soft Skills (коммуникативные и социальные): Убеждение, аргументация, эмпатия, работа с конфликтами, юмор, ясность изложения, адаптивность. Подтверди примерами.
 
-**3. Сильные стороны (для вербовки):**
-*   *Что делает его ценным?* (Например: доступ к информации, уникальные технические навыки, аналитический склад ума, высокая мотивация по теме, влиятельные связи, стрессоустойчивость, обучаемость).
-*   *Подтверждение из текста.*
+**3. Сильные стороны:**
+*   Что делает его ценным? (Например: уникальные технические навыки, аналитический склад ума, высокая мотивация по теме, влиятельные связи, стрессоустойчивость, обучаемость).
+*   Подтверждение из текста.
 
-**4. Слабые стороны / Уязвимости (для вербовки и управления):**
-*   *Что можно использовать как «рычаг» или что представляет операционный риск?* (Например: тщеславие, склонность к риску или, наоборот, излишняя осторожность, финансовые трудности, обиды на работодателя/коллег, потребность в признании, радикальные убеждения, конфиденциальность).
-*   *Подтверждение из текста.*
+**4. Слабые стороны и особенности:**
+*   Что может представлять сложность или требует внимания? (Например: склонность к риску или излишняя осторожность, потребность в признании, особенности коммуникации).
+*   Подтверждение из текста.
 
 **5. Особенности темперамента и эмоционального интеллекта:**
-*   *Поведение под давлением:* Агрессия, уход в себя, сарказм, хладнокровие.
-*   *Доминирующий эмоциональный фон:* Нейтрально-аналитический, циничный, энтузиастичный, тревожный, нестабильный.
-*   *Реакция на критику:* Конструктивная, оборонительная, игнорирующая.
-*   *Примеры, иллюстрирующие эти черты.*
+*   Поведение под давлением: Агрессия, уход в себя, сарказм, хладнокровие.
+*   Доминирующий эмоциональный фон: Нейтрально-аналитический, циничный, энтузиастичный, тревожный, нестабильный.
+*   Реакция на критику: Конструктивная, оборонительная, игнорирующая.
+*   Примеры, иллюстрирующие эти черты.
 
-**6. Прочие особенности (важные для составления полного досье):**
-*   **Ценности и убеждения:** Политические, социальные, профессиональные взгляды.
-*   **Мотиваторы:** Что им движет? (Деньги, статус, идеология, азарт, познание, принадлежность к группе).
-*   **Демографические и биографические данные:** (Только если прямо указано или однозначно следует из контекста): примерный возраст, род деятельности, географические упоминания, язык общения.
-*   **Паттерны общения:** Формальный/неформальный стиль, использование жаргона, грамматические особенности, активность.
+**6. Прочие особенности:**
+*   Ценности и убеждения: Политические, социальные, профессиональные взгляды (только если явно выражены в сообщениях).
+*   Мотиваторы: Что им движет? (Деньги, статус, идеология, азарт, познание, принадлежность к группе).
+*   Демографические и биографические данные: (Только если прямо указано или однозначно следует из контекста): примерный возраст, род деятельности, географические упоминания, язык общения.
+*   Паттерны общения: Формальный/неформальный стиль, использование жаргона, грамматические особенности, активность.
 
 **7. Характерные сообщения (прямые цитаты-ключи):**
-*   Приведи 3-5 самых показательных, коротких цитат пользователя, которые ярко иллюстрируют его личность, мотивацию или уязвимости. Каждую цитату сопроводи пояснением, *почему* она значима.
+*   Приведи 3-5 самых показательных, коротких цитат пользователя, которые ярко иллюстрируют его личность, мотивацию или особенности. Каждую цитату сопроводи пояснением, почему она значима.
 
-**8. Оценка операционного потенциала и рекомендации по вербовке:**
-*   **Потенциал:** Высокий / Средний / Низкий. Краткое обоснование (на основе суммы сильных сторон и уязвимостей).
-*   **Рекомендуемый подход (метод вербовки):** Например, "через идеологическую совместимость", "через предложение сотрудничества в сфере хобби", "через компрометирующую информацию (шантаж)", "через финансовые Incentives".
-*   **Рекомендуемая "легенда" (роль вербовщика):** Например, "HR из престижной IT-компании", "коллега-энтузиаст по открытому ПО", "представитель общественного движения".
-*   **Темы для установления контакта (Hook):** Конкретные темы, которые, судя по истории, его глубоко интересуют или затрагивают эмоционально.
+**8. Общая оценка и рекомендации:**
+*   Потенциал для сотрудничества: Высокий / Средний / Низкий. Краткое обоснование (на основе суммы сильных сторон и особенностей).
+*   Рекомендуемый подход к взаимодействию: Например, "через общие профессиональные интересы", "через предложение сотрудничества в сфере хобби", "через профессиональные возможности".
+*   Темы для установления контакта: Конкретные темы, которые, судя по истории, его глубоко интересуют или затрагивают эмоционально.
 """
 
     def __init__(self, bot):
         self.bot = bot
 
     async def handle(self, context: CommandContext) -> CommandResult:
-        from src.lib.syslog2 import LOG_ERR, syslog2
+        from src.lib.syslog2 import LOG_ERR, LOG_DEBUG, syslog2
         
         if not context.args:
             return CommandResult(success=False, message="Укажите username или alias: /profile <name>")
             
-        target_name = context.args[0]
+        target_name = " ".join(context.args).strip()
         
+        if self.bot.log_level >= LOG_DEBUG:
+            syslog2(LOG_DEBUG, "profile command started", target_name=target_name)
+            
         try:
             # 1. Resolve User
             user = self.bot.db.get_user(target_name)
+            found_by = "username"
             if not user:
                 user = self.bot.db.get_user_by_alias(target_name)
+                found_by = "alias"
             
             if not user:
                 return CommandResult(success=False, message=f"Пользователь '{target_name}' не найден.")
             
             real_username = user.username
             
+            if self.bot.log_level >= LOG_DEBUG:
+                syslog2(LOG_DEBUG, "profile user resolved", target_name=target_name, real_username=real_username, found_by=found_by)
+            
             # 2. Gather Context
             # Send initial message as this might take time
             # Note: We rely on caller to show "typing" or wait
+            
+            if self.bot.log_level >= LOG_DEBUG:
+                syslog2(LOG_DEBUG, "profile context gathering started", username=real_username)
             
             full_context = await self._gather_context(real_username)
             
             if not full_context:
                 return CommandResult(success=False, message=f"Нет сообщений для анализа пользователя '{real_username}'.")
+            
+            # Estimate tokens (rough: 3 chars per token)
+            estimated_tokens = len(full_context) // 3
+            
+            if self.bot.log_level >= LOG_DEBUG:
+                syslog2(LOG_DEBUG, "profile context gathered", username=real_username, context_length=len(full_context), context_chars=len(full_context), estimated_tokens=estimated_tokens)
                 
             # 3. Call LLM
-            prompt = f"Target User: {real_username}\n\nChat Log:\n{full_context}"
+            # Count messages in context (approximate by counting separators)
+            message_count = full_context.count("---") if full_context else 0
+            
+            prompt = f"""Проанализируй историю сообщений пользователя и составь детальный профиль.
+
+Целевой пользователь: {real_username}
+Количество сообщений в контексте: {message_count}
+
+История сообщений:
+{full_context}
+
+Проанализируй все предоставленные сообщения и составь профиль согласно структуре из системного промпта."""
+            
+            if self.bot.log_level >= LOG_DEBUG:
+                syslog2(LOG_DEBUG, "profile system prompt", prompt_length=len(self.SYSTEM_PROMPT), prompt_preview=self.SYSTEM_PROMPT[:500])
+                syslog2(LOG_DEBUG, "profile final prompt", prompt_length=len(prompt), prompt_preview=prompt[:1000])
+                syslog2(LOG_DEBUG, "profile llm request", temperature=0.3, system_prompt_length=len(self.SYSTEM_PROMPT), user_prompt_length=len(prompt))
             
             response = await self.bot.complete(
                 prompt,
                 system_prompt=self.SYSTEM_PROMPT,
                 temperature=0.3 # Balanced
             )
+            
+            if self.bot.log_level >= LOG_DEBUG:
+                syslog2(LOG_DEBUG, "profile llm response", response_length=len(response), response_preview=response[:500])
             
             return CommandResult(success=True, message=response)
             
@@ -367,18 +402,26 @@ class ProfileCommandHandler(AsyncCommandHandler):
 
     async def _gather_context(self, username: str, max_tokens: int = 15000) -> str:
         """Gather messages and neighbors for the user."""
+        from src.lib.syslog2 import LOG_DEBUG, syslog2
+        
+        if self.bot.log_level >= LOG_DEBUG:
+            syslog2(LOG_DEBUG, "profile gather_context started", username=username, max_tokens=max_tokens)
+        
         # Get recent messages. Start with 30.
         messages = self.bot.db.get_messages_by_user(username, limit=30)
         
         if not messages:
             return ""
+        
+        if self.bot.log_level >= LOG_DEBUG:
+            syslog2(LOG_DEBUG, "profile user messages found", username=username, message_count=len(messages))
             
         context_lines = []
         seen_ids = set()
         current_tokens = 0
         
         # Chronological order
-        for msg in messages:
+        for i, msg in enumerate(messages):
             # Get neighbors (window=5)
             neighbors = self.bot.db.get_neighbor_messages(msg, window_count=5, max_tokens=2000)
             
@@ -394,10 +437,22 @@ class ProfileCommandHandler(AsyncCommandHandler):
                 block_text = "\n".join(block_lines)
                 tokens = len(block_text) // 3 # Rough estimate
                 
+                if self.bot.log_level >= LOG_DEBUG:
+                    syslog2(LOG_DEBUG, "profile neighbor block", msg_id=msg.msg_id, neighbors_count=len(neighbors), block_lines=len(block_lines), block_tokens=tokens)
+                
                 if current_tokens + tokens > max_tokens:
                     break
                     
                 context_lines.append(block_text)
                 current_tokens += tokens
-                
-        return "\n".join(context_lines)
+            
+            # Log progress every 10 messages or at the end
+            if self.bot.log_level >= LOG_DEBUG and ((i + 1) % 10 == 0 or i == len(messages) - 1):
+                syslog2(LOG_DEBUG, "profile context progress", processed_messages=i+1, total_messages=len(messages), current_tokens=current_tokens, context_blocks=len(context_lines))
+        
+        result = "\n".join(context_lines)
+        
+        if self.bot.log_level >= LOG_DEBUG:
+            syslog2(LOG_DEBUG, "profile gather_context completed", username=username, total_blocks=len(context_lines), total_tokens=current_tokens, total_chars=len(result))
+        
+        return result

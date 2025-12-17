@@ -895,12 +895,26 @@ class LegaleBot:
         Async wrapper for LLM completion.
         Used by ProfileCommandHandler and AliasDiscoveryService.
         """
+        if self.log_level >= LOG_DEBUG:
+            syslog2(LOG_DEBUG, "bot.complete called", prompt_length=len(prompt), has_system_prompt=system_prompt is not None, system_prompt_length=len(system_prompt) if system_prompt else 0, kwargs=kwargs)
+        
         # We run the synchronous LLM call directly.
         # Ideally this should be run_in_executor to avoid blocking the loop, 
         # but for now we keep it simple as the underlying HTTP client might be blocking anyway.
-        return self.llm_client.complete(prompt, system=system_prompt, **kwargs)
+        response = self.llm_client.complete(prompt, system=system_prompt, **kwargs)
+        
+        # Log messages structure after completion (we can't easily intercept before, but LLMClient logs it)
+        if self.log_level >= LOG_DEBUG:
+            # Construct what messages would look like
+            messages = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": prompt})
+            syslog2(LOG_DEBUG, "bot.complete messages structure", messages_count=len(messages), system_role_present=system_prompt is not None, user_role_present=True)
+        
+        return response
 
-    def get_rag_debug_info(self, user_input: str, n_results: int = 3) -> Dict:
+    def get_rag_debug_info(self, user_input: str, n_results: int = 5) -> Dict:
         """
         Get debug information about RAG retrieval without actually calling the model.
         Useful for debugging what chunks are retrieved and what prompt is constructed.
