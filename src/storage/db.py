@@ -58,6 +58,14 @@ class ChunkModel(Base):
     embedding_json = Column(Text, nullable=True)
 
 
+class UserModel(Base):
+    """Stores user information and aliases."""
+    __tablename__ = 'users'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    username = Column(String, nullable=False, unique=True, index=True)
+    aliases = Column(Text, nullable=True)  # JSON list of aliases
+
 # ============================================================================
 # Database Class
 # ============================================================================
@@ -250,6 +258,23 @@ class Database:
                     conn.commit()
                 except Exception as e:
                     syslog2(LOG_WARNING, "schema update warning (message_meta)", error=str(e))
+            
+            # Create users table if it doesn't exist
+            try:
+                conn.execute(text("SELECT username FROM users LIMIT 1"))
+            except Exception:
+                try:
+                    conn.execute(text("""
+                        CREATE TABLE IF NOT EXISTS users (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            username VARCHAR NOT NULL UNIQUE,
+                            aliases TEXT
+                        )
+                    """))
+                    conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username)"))
+                    conn.commit()
+                except Exception as e:
+                    syslog2(LOG_WARNING, "schema update warning (users)", error=str(e))
         
     def get_session(self):
         return self.Session()
@@ -795,8 +820,67 @@ class Database:
     # ========================================================================
 
     # ========================================================================
-    # Topic L2 Methods - REMOVED (L2 topics are deprecated)
+    # User Methods
     # ========================================================================
+
+    def add_user(self, username: str, aliases: List[str] = None) -> None:
+        """
+        Add a new user or update existing one.
+        
+        Args:
+            username: Username (primary key)
+            aliases: Optional list of aliases
+        """
+        session = self.get_session()
+        try:
+            user = session.query(UserModel).filter(UserModel.username == username).first()
+            if not user:
+                user = UserModel(username=username)
+                session.add(user)
+            
+            if aliases is not None:
+                user.aliases = json.dumps(aliases)
+                
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
+
+    def get_user(self, username: str) -> Optional[UserModel]:
+        """
+        Get user by username.
+        
+        Args:
+            username: Username to find
+            
+        Returns:
+            UserModel or None
+        """
+        session = self.get_session()
+        try:
+            return session.query(UserModel).filter(UserModel.username == username).first()
+        finally:
+            session.close()
+
+    def update_user_aliases(self, username: str, aliases: List[str]) -> None:
+        """
+        Update aliases for a user.
+        
+        Args:
+            username: Username to update
+            aliases: List of new aliases
+        """
+        self.add_user(username, aliases)
+
+    def get_all_users(self) -> List[UserModel]:
+        """Get all users."""
+        session = self.get_session()
+        try:
+            return session.query(UserModel).all()
+        finally:
+            session.close()
 
     def get_database_info(self) -> dict:
         """
