@@ -667,7 +667,7 @@ class TestCalculateTokenUsage:
             mock_config.return_value.fts5_score_thr = 0.5
             
             bot = LegaleBot(db_url=db_url, vector_db_path=vector_db_path)
-            bot.max_context_tokens = 1000
+            bot.model_max_tokens = 1000
             
             usage = bot._calculate_token_usage("System prompt", "User content")
             
@@ -769,7 +769,7 @@ class TestEnsureContextLimit:
             mock_prompt.return_value = mock_prompt_instance
             
             bot = LegaleBot(db_url=db_url, vector_db_path=vector_db_path)
-            bot.max_context_tokens = 1000
+            bot.model_max_tokens = 1000
             bot.chat_history = [{"role": "user", "content": "test"}]
             
             warning = bot._ensure_context_limit()
@@ -803,7 +803,7 @@ class TestEnsureContextLimit:
             mock_prompt.return_value = mock_prompt_instance
             
             bot = LegaleBot(db_url=db_url, vector_db_path=vector_db_path)
-            bot.max_context_tokens = 1000
+            bot.model_max_tokens = 1000
             bot.chat_history = [{"role": "user", "content": "test"}]
             
             warning = bot._ensure_context_limit()
@@ -1397,7 +1397,7 @@ class TestRAGContextCache:
             mock_prompt.return_value = mock_prompt_instance
             
             bot = LegaleBot(db_url=db_url, vector_db_path=vector_db_path)
-            bot.max_context_tokens = 1000
+            bot.model_max_tokens = 1000
             bot.retrieval_service = mock_retrieval_instance
             bot.chat_history = [{"role": "user", "content": "test"}]
             

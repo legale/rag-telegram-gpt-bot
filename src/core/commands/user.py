@@ -124,17 +124,16 @@ class ModelCommandHandler(CommandHandler):
         return CommandResult(success=True, message=message)
 
     def _show_list(self) -> CommandResult:
-        models = self.bot.available_models
+        models = self.bot.available_models  # Dict[str, int]
         if not models:
              return CommandResult(success=True, message="Нет доступных моделей.")
              
         lines = ["Доступные модели:"]
         current = self.bot.current_model_name
         
-        for model in models:
-            is_current = " (текущая)" if model == current else ""
-            max_tokens = self.bot.model_max_tokens.get(model, 140000)
-            lines.append(f"• {model} [context: {max_tokens}]{is_current}")
+        for model_name, max_tokens in models.items():
+            is_current = " (текущая)" if model_name == current else ""
+            lines.append(f"• {model_name} [context: {max_tokens}]{is_current}")
             
         return CommandResult(success=True, message="\n".join(lines))
 
@@ -383,10 +382,10 @@ class ProfileCommandHandler(AsyncCommandHandler):
             else:
                 # Fallback to model's max tokens
                 current_model = getattr(self.bot, 'current_model_name', 'unknown')
-                model_max_tokens = getattr(self.bot, 'model_max_tokens', {})
-                raw_limit = model_max_tokens.get(current_model, 140000)
-                # Apply 0.8 coefficient to avoid context overflow
-                effective_limit = int(raw_limit * 0.8)
+                available_models = getattr(self.bot, 'available_models', {})
+                raw_limit = available_models.get(current_model, 140000)
+                # Use raw limit, let bot.complete handle the dynamic adjustment
+                effective_limit = raw_limit
                 
                 if self.bot.log_level >= LOG_DEBUG:
                     syslog2(LOG_DEBUG, "profile tokens using model default", model=current_model, limit=effective_limit)

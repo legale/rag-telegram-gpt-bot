@@ -970,13 +970,13 @@ class ModelCommands(BaseAdminCommand):
         if not self.bot_instance:
              return "Бот не инициализирован."
         
-        available = self.bot_instance.available_models
+        available = self.bot_instance.available_models  # Dict[str, int]
         current = self.bot_instance.current_model_name
         
         response = "**Доступные модели:**\n\n"
-        for model in available:
-            marker = "" if model == current else ""
-            response += f"{marker} `{model}`\n"
+        for model_name in available.keys():
+            marker = "" if model_name == current else ""
+            response += f"{marker} `{model_name}`\n"
             
         return response
 

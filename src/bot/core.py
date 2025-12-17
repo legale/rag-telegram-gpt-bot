@@ -162,23 +162,26 @@ class LegaleBot:
             embedding_client=self.embedding_client
         )
         
-        # Model getting support (needed before creating retrieval service)
-        self.model_max_tokens = {}
         # Initial load of models
-        available = self.available_models
+        available = self.available_models  # Dict[str, int]
         if not model_name and available:
-            model_name = available[0]
+            model_name = next(iter(available.keys()))  # first model name
             
         # Find initial model index
         self.current_model_index = 0
-        if model_name and available and model_name in available:
-            self.current_model_index = available.index(model_name)
+        if model_name and model_name in available:
+            model_list = list(available.keys())
+            self.current_model_index = model_list.index(model_name)
+            # Set current_model_max_tokens from available_models dictionary
+            self.current_model_max_tokens = available[model_name]
             
         if not model_name:
              # This means available_models is empty and no model provided
              syslog2(LOG_WARNING, "no model configured and no models found in models.txt")
              model_name = "unknown" # LLMClient might fail or just log warning?
-             
+
+        self.current_model_max_tokens = self.available_models[model_name]
+
         self.llm_client = LLMClient(model=model_name, log_level=log_level)
         
         # Initialize retrieval service
@@ -223,10 +226,6 @@ class LegaleBot:
         
         # Expose profile dir
         self.profile_dir = profile_dir
-        
-        # Token limit configuration
-        # Use value from models.txt if available, otherwise fallback to 140000
-        self.max_context_tokens = self.model_max_tokens.get(model_name, 140000)
     
     # Backward compatibility properties
     @property
@@ -270,25 +269,26 @@ class LegaleBot:
         self.conversation_state.active_context_score = value
     
     @property
-    def available_models(self) -> List[str]:
+    def available_models(self) -> Dict[str, int]:
         """
-        Get list of available models, reloading from file on each access.
-        Also updates self.model_max_tokens.
+        Get dictionary of available models mapping model names to max_tokens.
+        Reloads from file on each access.
+        
+        Returns:
+            Dictionary mapping model names to their max_tokens.
         """
         return self._load_available_models()
 
-    def _load_available_models(self) -> List[str]:
+    def _load_available_models(self) -> Dict[str, int]:
         """
         Load available models from models.txt file.
-        Also populates self.model_max_tokens.
         
         Returns:
-            List of model names.
+            Dictionary mapping model names to their max_tokens.
         """
-        self.model_max_tokens = {}
+        models_max_tokens = {}
         models_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "models.txt")
         try:
-            models = []
             with open(models_file, 'r') as f:
                 for line in f:
                     line = line.strip()
@@ -297,57 +297,29 @@ class LegaleBot:
                     parts = line.split()
                     model_name = parts[0]
                     max_tokens = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 140000
-                    models.append(model_name)
-                    
-                    syslog2(LOG_WARNING, "models.txt", model=model_name, max_tokens=max_tokens)
-                    self.model_max_tokens[model_name] = max_tokens
-            return models
+                    models_max_tokens[model_name] = max_tokens
+
+            return models_max_tokens
         except FileNotFoundError:
             if self.log_level <= LOG_INFO:
                 syslog2(LOG_WARNING, "models file missing", path=models_file)
-            return []
+            return {}
     
     def get_model(self) -> str:
         """
-        get to the next model in the list (cyclic).
+        Get current model information.
         
         Returns:
-            Message with the new model name.
+            Current model name and position in the list.
         """
-        models = self.available_models
-        if not models:
-            return "Нет доступных моделей для переключения."
-        
-        # Recalculate index based on current model name, in case list changed
-        current_name = self.current_model_name
-        try:
-            current_idx = models.index(current_name)
-        except ValueError:
-            current_idx = -1
-            
-        # Move to next model (cyclic)
-        next_idx = (current_idx + 1) % len(models)
-        new_model = models[next_idx]
-        
-        self.current_model_index = next_idx
-        
-        # Recreate LLM client with new model
-        self.llm_client = LLMClient(model=new_model, log_level=self.log_level)
-        
-        # Update token limit
-        self.max_context_tokens = self.model_max_tokens.get(new_model, 140000)
-        
-        if self.log_level <= LOG_INFO:
-            syslog2(LOG_NOTICE, "model geted", new_model=new_model, max_tokens=self.max_context_tokens)
-        
-        return f"Модель переключена на: {new_model}\n({next_idx + 1}/{len(models)})"
+        return self.get_current_model()
 
     def set_model(self, model_name: str) -> str:
         """
         Set a specific model by name.
         
         Args:
-            model_name: Name of the model to get to.
+            model_name: Name of the model to set.
             
         Returns:
             Success message or error message.
@@ -355,16 +327,17 @@ class LegaleBot:
         if model_name not in self.available_models:
             return f"Модель `{model_name}` не найдена в списке доступных."
         
-        self.current_model_index = self.available_models.index(model_name)
+        model_list = list(self.available_models.keys())
+        self.current_model_index = model_list.index(model_name)
         
         # Recreate LLM client with new model
         self.llm_client = LLMClient(model=model_name, log_level=self.log_level)
         
-        # Update token limit
-        self.max_context_tokens = self.model_max_tokens.get(model_name, 140000)
+        # Update current_model_max_tokens from available_models dictionary
+        self.current_model_max_tokens = self.available_models[model_name]
         
         if self.log_level <= LOG_INFO:
-            syslog2(LOG_NOTICE, "model set", new_model=model_name, max_tokens=self.max_context_tokens)
+            syslog2(LOG_NOTICE, "model set", new_model=model_name, max_tokens=self.current_model_max_tokens)
             
         return f"Модель успешно установлена: {model_name}"
     
@@ -386,7 +359,8 @@ class LegaleBot:
         if not self.available_models:
             return "Нет доступных моделей."
         
-        current_model = self.available_models[self.current_model_index]
+        model_list = list(self.available_models.keys())
+        current_model = model_list[self.current_model_index]
         return f"Текущая модель: {current_model}\n({self.current_model_index + 1}/{len(self.available_models)})"
         
     def _clear_active_context(self, reason: str) -> None:
@@ -596,11 +570,11 @@ class LegaleBot:
         messages = self._build_messages_for_token_count(system_prompt, user_content)
         
         current_tokens = self.llm_client.count_tokens(messages)
-        percentage = (current_tokens / self.max_context_tokens) * 100 if self.max_context_tokens > 0 else 0.0
+        percentage = (current_tokens / self.current_model_max_tokens) * 100 if self.current_model_max_tokens > 0 else 0.0
         
         return {
             "current_tokens": current_tokens,
-            "max_tokens": self.max_context_tokens,
+            "max_tokens": self.current_model_max_tokens,
             "percentage": round(percentage, 2),
         }
     
@@ -611,7 +585,7 @@ class LegaleBot:
         if not self.chat_history:
             return {
                 "current_tokens": 0,
-                "max_tokens": self.max_context_tokens,
+                "max_tokens": self.current_model_max_tokens,
                 "percentage": 0.0,
             }
 
@@ -646,7 +620,7 @@ class LegaleBot:
         
         token_usage = self.get_token_usage()
         # можно сбрасывать не по 100%, а, например, по 0.8 * лимита
-        return token_usage["current_tokens"] >= self.max_context_tokens
+        return token_usage["current_tokens"] >= self.current_model_max_tokens
     
     def _reset_context_if_needed(self) -> str:
         """
@@ -663,7 +637,7 @@ class LegaleBot:
         self.reset_context()
         warning = "Контекст был автоматически сброшен из-за достижения лимита токенов.\n\n"
         if self.log_level <= LOG_INFO:
-            syslog2(LOG_WARNING, "auto reset context", token_usage=f"{token_usage['current_tokens']}/{self.max_context_tokens}", had_active_context=had_active_context)
+            syslog2(LOG_WARNING, "auto reset context", token_usage=f"{token_usage['current_tokens']}/{self.current_model_max_tokens}", had_active_context=had_active_context)
         return warning
     
     def _ensure_context_limit(self) -> str:
@@ -906,12 +880,12 @@ class LegaleBot:
         # Dynamic max_tokens adjustment
         try:
             current_model = self.llm_client.model
-            total_model_limit = self.model_max_tokens.get(current_model, 140000)
-            input_tokens = self.llm_client.count_tokens(messages)
+            total_model_limit = self.available_models.get(current_model, 140000)
             
-            # Request max_tokens from kwargs or default to a reasonable large number if not specified
-            # But here we want to clamp it. Default in LLMClient is 5000 if not passed.
-            requested_max_tokens = kwargs.get("max_tokens", 5000)
+            # Count input tokens with safety margin for non-OpenAI tokenizers (e.g. Cyrillic text)
+            raw_input_tokens = self.llm_client.count_tokens(messages)
+            # limit input tokens to 50% of model limit
+            input_tokens = max(total_model_limit * 0.5, int(raw_input_tokens))
             
             # Calculate available space
             # Reserve a small safety buffer (e.g. 100 tokens)
@@ -922,19 +896,16 @@ class LegaleBot:
                 # Let it fail or raise? We'll clamp to 1 effectively, which will fail gracefully or just return empty.
                 available_tokens = 1
             
-            final_max_tokens = min(requested_max_tokens, available_tokens)
-            
             if self.log_level >= LOG_DEBUG:
                 syslog2(LOG_DEBUG, "dynamic token adjustment", 
                         model=current_model,
                         total_limit=total_model_limit, 
                         input_tokens=input_tokens, 
-                        requested_max=requested_max_tokens, 
-                        available=available_tokens, 
-                        final_max=final_max_tokens)
+                        available=available_tokens
+                )
             
             # Update kwargs
-            kwargs["max_tokens"] = final_max_tokens
+            kwargs["max_tokens"] = available_tokens
             
         except Exception as e:
             syslog2(LOG_WARNING, "failed to adjust dynamic tokens", error=str(e))

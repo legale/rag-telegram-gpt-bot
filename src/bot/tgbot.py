@@ -181,13 +181,11 @@ async def handle_tokens_command() -> str:
 async def handle_model_command() -> str:
     """Handle /model command."""
     try:
+        # get_model() now only returns current model info, doesn't switch
         msg = _bot_instance.get_model()
-        # Save new model to config
-        if _admin_manager:
-            _admin_manager.config.current_model = _bot_instance.current_model_name
         return msg
     except Exception as e:
-        return ErrorHandler.handle_error_static(e, "переключении модели", user_message="Ошибка при переключении модели.")
+        return ErrorHandler.handle_error_static(e, "получении информации о модели", user_message="Ошибка при получении информации о модели.")
 
 
 async def handle_admin_set_command(text: str, message) -> str:
@@ -639,7 +637,8 @@ def _create_legale_bot(
         profile=ctx.profile_manager.get_current_profile() if ctx.profile_manager else "unknown", 
         db_url=paths["db_url"], 
         vector=paths["vector_db_path"], 
-        model=model_name
+        model=model_name,
+        model_max_tokens=bot_instance_local.current_model_max_tokens
     )
     return bot_instance_local
 
