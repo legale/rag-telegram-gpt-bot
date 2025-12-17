@@ -363,26 +363,34 @@ class ProfileCommandHandler(AsyncCommandHandler):
                 syslog2(LOG_DEBUG, "profile context gathering started", username=real_username)
             
             # Determine max tokens settings
-            max_context_tokens = 60000
-            llm_max_tokens = 60000
+            config_limit = 0
             
+            # 1. Try to get limit from config
             if hasattr(self.bot, 'config') and self.bot.config:
-                 # Use bot.config if available (preferred)
                  if hasattr(self.bot.config, 'llm_max_tokens'):
-                     val = self.bot.config.llm_max_tokens
-                     max_context_tokens = val
-                     llm_max_tokens = val
+                     config_limit = self.bot.config.llm_max_tokens
             elif hasattr(self.bot, 'profile_dir') and self.bot.profile_dir:
-                # Fallback to loading config from dir
                 try:
                     from src.bot.config import BotConfig
                     config = BotConfig(self.bot.profile_dir)
-                    # Use llm_max_tokens for both
-                    val = config.llm_max_tokens
-                    max_context_tokens = val
-                    llm_max_tokens = val
+                    config_limit = config.llm_max_tokens
                 except Exception as e:
                     syslog2(LOG_ERR, "failed to load profile config", error=str(e))
+
+            # 2. Determine effective limit
+            if config_limit > 0:
+                effective_limit = config_limit
+            else:
+                # Fallback to model's max tokens
+                current_model = getattr(self.bot, 'current_model_name', 'unknown')
+                model_max_tokens = getattr(self.bot, 'model_max_tokens', {})
+                effective_limit = model_max_tokens.get(current_model, 140000)
+                
+                if self.bot.log_level >= LOG_DEBUG:
+                    syslog2(LOG_DEBUG, "profile tokens using model default", model=current_model, limit=effective_limit)
+
+            max_context_tokens = effective_limit
+            llm_max_tokens = effective_limit
 
             full_context = await self._gather_context(real_username, max_tokens=max_context_tokens)
             

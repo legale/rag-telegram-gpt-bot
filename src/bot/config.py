@@ -438,11 +438,11 @@ class BotConfig:
 
     @property
     def llm_max_tokens(self) -> int:
-        return self.data.get("llm_max_tokens", 60000)
+        return self.data.get("llm_max_tokens", 0)
 
     def _validate_llm_max_tokens(self, value: int) -> int:
-        if not isinstance(value, int) or value < 100:
-            raise ValueError("llm_max_tokens must be a positive integer >= 100")
+        if not isinstance(value, int) or value < 0:
+            raise ValueError("llm_max_tokens must be a non-negative integer")
         return value
 
     @llm_max_tokens.setter
