@@ -1,7 +1,7 @@
 
 import pytest
 import asyncio
-from unittest.mock import Mock, patch, AsyncMock, MagicMock
+from unittest.mock import Mock, patch, AsyncMock
 from src.app.main_cli import handle_command_async, handle_command, CommandContext, CommandDispatcher
 from src.bot.admin_router import AdminCommandRouter
 from src.bot.admin import AdminManager
@@ -129,4 +129,3 @@ class TestBotModeIntegration:
         
         assert response == "Handler Result"
         mock_handler.assert_called_once()
-

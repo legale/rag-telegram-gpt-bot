@@ -3,7 +3,8 @@ import unittest
 import os
 import sys
 import json
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
+from types import SimpleNamespace
 from datetime import datetime
 
 # Add project root to path
@@ -23,8 +24,7 @@ class TestAliasDiscovery(unittest.IsolatedAsyncioTestCase):
         self.db_url = f"sqlite:///{self.db_path}"
         self.db = Database(self.db_url)
         
-        self.bot_mock = MagicMock()
-        self.bot_mock.complete = AsyncMock()
+        self.bot_mock = SimpleNamespace(complete=AsyncMock())
         
         self.service = AliasDiscoveryService(self.db, self.bot_mock)
         

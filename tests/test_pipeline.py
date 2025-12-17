@@ -2,7 +2,7 @@
 Tests for ingestion pipeline.
 """
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 from pathlib import Path
 import json
 import tempfile
@@ -534,4 +534,3 @@ class TestIngestionPipeline:
         assert "stage1 chunks:" in info
         assert "stage2 embeddings" in info
         assert "stage3 vector_db" in info
-

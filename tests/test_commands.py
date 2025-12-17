@@ -1,7 +1,7 @@
 """Tests for src/core/commands.py"""
 
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 from src.core.commands import (
     StartCommandHandler,
     HelpCommandHandler,
@@ -413,4 +413,3 @@ class TestFindCommandHandler:
             assert "Ошибка при выполнении поиска" in result.message
             assert result.error == "Search failed"
             mock_syslog.assert_called_once()
-

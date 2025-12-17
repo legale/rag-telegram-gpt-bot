@@ -1,7 +1,7 @@
 """Tests for src/core/message_search.py"""
 
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 from datetime import datetime
 from src.core.message_search import (
     convert_search_results_to_dict,

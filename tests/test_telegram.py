@@ -1,9 +1,16 @@
 """Tests for src/ingestion/telegram.py"""
 
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 from src.ingestion.telegram import TelegramFetcher, json_serial
 from datetime import datetime
+
+
+def _make_context_client_mock() -> Mock:
+    client = Mock()
+    client.__enter__ = Mock(return_value=client)
+    client.__exit__ = Mock(return_value=False)
+    return client
 
 
 class TestJsonSerial:
@@ -39,7 +46,7 @@ class TestTelegramFetcher:
     def test_find_chat_by_id(self):
         """Test finding chat by ID"""
         with patch('src.ingestion.telegram.TelegramClient') as mock_client_class:
-            mock_client = MagicMock()
+            mock_client = _make_context_client_mock()
             mock_client_class.return_value = mock_client
             mock_dialog = Mock()
             mock_dialog.id = 123
@@ -54,7 +61,7 @@ class TestTelegramFetcher:
     def test_find_chat_by_name(self):
         """Test finding chat by name"""
         with patch('src.ingestion.telegram.TelegramClient') as mock_client_class:
-            mock_client = MagicMock()
+            mock_client = _make_context_client_mock()
             mock_client_class.return_value = mock_client
             mock_dialog = Mock()
             mock_dialog.id = 123
@@ -69,7 +76,7 @@ class TestTelegramFetcher:
     def test_find_chat_not_found(self):
         """Test finding chat that doesn't exist"""
         with patch('src.ingestion.telegram.TelegramClient') as mock_client_class:
-            mock_client = MagicMock()
+            mock_client = _make_context_client_mock()
             mock_client_class.return_value = mock_client
             mock_client.iter_dialogs.return_value = []
             
@@ -81,7 +88,7 @@ class TestTelegramFetcher:
     def test_search_chats_by_name(self):
         """Test searching chats by name substring"""
         with patch('src.ingestion.telegram.TelegramClient') as mock_client_class:
-            mock_client = MagicMock()
+            mock_client = _make_context_client_mock()
             mock_client_class.return_value = mock_client
             mock_dialog1 = Mock()
             mock_dialog1.id = 123
@@ -101,7 +108,7 @@ class TestTelegramFetcher:
     def test_list_channels(self):
         """Test listing channels"""
         with patch('src.ingestion.telegram.TelegramClient') as mock_client_class:
-            mock_client = MagicMock()
+            mock_client = _make_context_client_mock()
             mock_client_class.return_value = mock_client
             mock_dialog = Mock()
             mock_dialog.id = 123
@@ -117,7 +124,7 @@ class TestTelegramFetcher:
     def test_list_members_chat_not_found(self):
         """Test listing members when chat not found"""
         with patch('src.ingestion.telegram.TelegramClient') as mock_client_class:
-            mock_client = MagicMock()
+            mock_client = _make_context_client_mock()
             mock_client_class.return_value = mock_client
             mock_client.iter_dialogs.return_value = []
             
@@ -130,7 +137,7 @@ class TestTelegramFetcher:
     def test_list_members_success(self):
         """Test listing members successfully"""
         with patch('src.ingestion.telegram.TelegramClient') as mock_client_class:
-            mock_client = MagicMock()
+            mock_client = _make_context_client_mock()
             mock_client_class.return_value = mock_client
             mock_dialog = Mock()
             mock_dialog.id = 123
@@ -153,7 +160,7 @@ class TestTelegramFetcher:
     def test_dump_chat_chat_not_found(self):
         """Test dumping chat when chat not found"""
         with patch('src.ingestion.telegram.TelegramClient') as mock_client_class:
-            mock_client = MagicMock()
+            mock_client = _make_context_client_mock()
             mock_client_class.return_value = mock_client
             mock_client.iter_dialogs.return_value = []
             
@@ -166,7 +173,7 @@ class TestTelegramFetcher:
     def test_dump_chat_success(self, tmp_path):
         """Test dumping chat successfully"""
         with patch('src.ingestion.telegram.TelegramClient') as mock_client_class:
-            mock_client = MagicMock()
+            mock_client = _make_context_client_mock()
             mock_client_class.return_value = mock_client
             mock_dialog = Mock()
             mock_dialog.id = 123
@@ -193,4 +200,3 @@ class TestTelegramFetcher:
             data = json.loads(output_file.read_text())
             assert len(data) == 1
             assert data[0]["content"] == "Test message"
-

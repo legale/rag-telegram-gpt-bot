@@ -296,15 +296,11 @@ class LegaleBot:
                         continue
                     parts = line.split()
                     model_name = parts[0]
+                    max_tokens = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 140000
                     models.append(model_name)
                     
-                    if len(parts) > 1:
-                        try:
-                            self.model_max_tokens[model_name] = int(parts[1])
-                        except ValueError:
-                             self.model_max_tokens[model_name] = 140000
-                    else:
-                        self.model_max_tokens[model_name] = 140000
+                    syslog2(LOG_WARNING, "models.txt", model=model_name, max_tokens=max_tokens)
+                    self.model_max_tokens[model_name] = max_tokens
             return models
         except FileNotFoundError:
             if self.log_level <= LOG_INFO:

@@ -2,7 +2,7 @@
 Tests for Telegram bot webhook and message handling.
 """
 import pytest
-from unittest.mock import Mock, patch, AsyncMock, MagicMock
+from unittest.mock import Mock, patch, AsyncMock
 from pathlib import Path
 import json
 from telegram import Update, Message, User, Chat
@@ -870,4 +870,3 @@ class TestUtilityFunctions:
             await handle_message(update)
             
             mock_public.assert_called_once()
-

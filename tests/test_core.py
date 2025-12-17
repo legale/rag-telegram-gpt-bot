@@ -4,7 +4,7 @@ import pytest
 import os
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock, mock_open
+from unittest.mock import Mock, patch, mock_open
 from src.bot.core import LegaleBot
 from src.lib.syslog2 import LOG_WARNING, LOG_INFO, LOG_DEBUG
 
@@ -1413,4 +1413,3 @@ class TestRAGContextCache:
             assert bot.active_context_chunks is None
             assert bot.active_context_query is None
             assert bot.active_context_score is None
-

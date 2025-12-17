@@ -2,7 +2,7 @@
 import os
 import sys
 import pytest
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import Mock, patch, AsyncMock
 from datetime import datetime
 
 # Add project root to sys.path
@@ -35,7 +35,7 @@ def mock_pipeline(mock_db_url, tmp_path):
          patch("src.ingestion.pipeline.MessageChunker") as mock_chunker:
         
         # Mock embedding client
-        mock_create_emb.return_value = MagicMock()
+        mock_create_emb.return_value = Mock()
         
         pipeline = IngestionPipeline(
             db_url=mock_db_url,
@@ -49,13 +49,13 @@ def test_ingestion_alias_discovery_flow(mock_pipeline):
     
     # 1. Setup mocks
     # Mock parser to return some dummy messages
-    mock_message = MagicMock()
+    mock_message = Mock()
     mock_message.id = "1"
     mock_message.timestamp = datetime.now()
     mock_message.sender = "Alice"
     mock_message.content = "Hello world"
     
-    mock_pipeline.parser.parse_file = MagicMock(return_value=[mock_message])
+    mock_pipeline.parser.parse_file = Mock(return_value=[mock_message])
     
     # Mock DB methods used in _run_alias_discovery
     # We need real DB interaction for populate_users usually, but here we can mock the higher level calls
@@ -63,8 +63,8 @@ def test_ingestion_alias_discovery_flow(mock_pipeline):
     # Let's rely on the real DB methods of the pipeline instance, but mock the LLM part.
     
     # Mock LLM Client creation
-    mock_llm_client = MagicMock()
-    mock_pipeline._get_llm_client = MagicMock(return_value=mock_llm_client)
+    mock_llm_client = Mock()
+    mock_pipeline._get_llm_client = Mock(return_value=mock_llm_client)
     
     # Mock AliasDiscoveryService
     with patch("src.ingestion.pipeline.AliasDiscoveryService") as MockService:

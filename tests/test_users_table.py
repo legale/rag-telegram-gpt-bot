@@ -77,5 +77,13 @@ class TestUsersTable(unittest.TestCase):
         user = self.db.get_user("user_x")
         self.assertEqual(json.loads(user.aliases), ["alias_x"])
 
+    def test_get_user_by_alias(self):
+        self.db.add_user("Alice", aliases=["Ally", "A L I C E", "Никита spb"])
+
+        self.assertIsNotNone(self.db.get_user_by_alias("Ally"))
+        self.assertEqual(self.db.get_user_by_alias("ally").username, "Alice")
+        self.assertEqual(self.db.get_user_by_alias("  Никита   spb  ").username, "Alice")
+        self.assertIsNone(self.db.get_user_by_alias("Unknown"))
+
 if __name__ == "__main__":
     unittest.main()
