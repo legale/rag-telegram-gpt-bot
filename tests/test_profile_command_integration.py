@@ -57,7 +57,7 @@ class TestProfileCommandIntegration(unittest.TestCase):
         self.bot.complete.return_value = expected_profile
         
         # 2. Execute Command
-        context = CommandContext(command_name="/profile", args=["testuser"])
+        context = CommandContext(command_name="/userprofile", args=["testuser"])
         
         # Run async handle
         result = asyncio.run(self.command_handler.handle(context))
@@ -82,7 +82,7 @@ class TestProfileCommandIntegration(unittest.TestCase):
         self.bot.db.get_user.return_value = None
         self.bot.db.get_user_by_alias.return_value = None
         
-        context = CommandContext(command_name="/profile", args=["unknown"])
+        context = CommandContext(command_name="/userprofile", args=["unknown"])
         result = asyncio.run(self.command_handler.handle(context))
         
         self.assertFalse(result.success)
@@ -93,7 +93,7 @@ class TestProfileCommandIntegration(unittest.TestCase):
         self.bot.db.get_user.return_value = user_mock
         self.bot.db.get_messages_by_user.return_value = []
         
-        context = CommandContext(command_name="/profile", args=["silentuser"])
+        context = CommandContext(command_name="/userprofile", args=["silentuser"])
         result = asyncio.run(self.command_handler.handle(context))
         
         self.assertFalse(result.success)
@@ -105,7 +105,7 @@ class TestProfileCommandIntegration(unittest.TestCase):
         self.bot.db.get_user_by_alias.return_value = user_mock
         self.bot.db.get_messages_by_user.return_value = []
 
-        context = CommandContext(command_name="/profile", args=["James", "Bond"])
+        context = CommandContext(command_name="/userprofile", args=["James", "Bond"])
         result = asyncio.run(self.command_handler.handle(context))
 
         self.bot.db.get_user.assert_called_with("James Bond")

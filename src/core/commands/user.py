@@ -267,7 +267,7 @@ class FindCommandHandler(CommandHandler):
 
 
 class ProfileCommandHandler(AsyncCommandHandler):
-    """Handler for /profile command."""
+    """Handler for /userprofile command."""
 
     SYSTEM_PROMPT = """
 Ты — опытный аналитик и хедхантер, специализирующийся на создании психологических и профессиональных профилей на основе текстовых коммуникаций. Твоя задача — проанализировать предоставленную историю сообщений пользователя и составить максимально объективный, детализированный и полезный профиль.
@@ -326,7 +326,7 @@ class ProfileCommandHandler(AsyncCommandHandler):
         from src.lib.syslog2 import LOG_WARNING, LOG_DEBUG, LOG_ERR, syslog2
         
         if not context.args:
-            return CommandResult(success=False, message="Укажите username или alias: /profile <name>")
+            return CommandResult(success=False, message="Укажите username или alias: /userprofile <name>")
             
         target_name = " ".join(context.args).strip()
         syslog2(LOG_WARNING, "profile command started", target_name=target_name, log_level=self.bot.log_level)

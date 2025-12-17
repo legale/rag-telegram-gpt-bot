@@ -93,7 +93,7 @@ def register_async_handlers(
         command_service.register_async("admin", AdminCommandHandler(admin_router))
 
     if bot:
-        command_service.register_async("profile", ProfileCommandHandler(bot))
+        command_service.register_async("userprofile", ProfileCommandHandler(bot))
 
 
 def parse_command(text: str) -> tuple[Optional[str], str]:
@@ -235,7 +235,7 @@ async def handle_command_async(
     )
 
     # Check if this is an admin command or explicit async command
-    async_commands = ["/admin", "/admin_set", "/admin_get", "/profile"]
+    async_commands = ["/admin", "/admin_set", "/admin_get", "/userprofile"]
     is_async_command = command_name.lower() in [c.lower() for c in async_commands]
 
     if is_async_command:
