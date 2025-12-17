@@ -282,7 +282,7 @@ class ProfileCommandHandler(AsyncCommandHandler):
 Представь результат строго в формате обычного текста. Используй только переносы строк и нумерация пунктов, без md, html или asterisk *. Каждый пункт должен содержать конкретику и примеры. Если данных недостаточно, пиши "недостаточно данных".
 
 0. Общая оценка и рекомендации:
-   Потенциал для хантинга: Высокий / Средний / Низкий. Краткое обоснование (на основе суммы сильных сторон и особенностей).
+   Потенциал для вербовки: Высокий / Средний / Низкий. Обоснование выбранного потенциала.
    Рекомендуемый подход к взаимодействию: Например, "через общие профессиональные интересы", "через предложение сотрудничества в сфере хобби", "через профессиональные возможности".
    Темы для установления контакта: Конкретные темы, которые, судя по истории, его глубоко интересуют или затрагивают эмоционально.
 
@@ -354,7 +354,17 @@ class ProfileCommandHandler(AsyncCommandHandler):
             if self.bot.log_level >= LOG_DEBUG:
                 syslog2(LOG_DEBUG, "profile context gathering started", username=real_username)
             
-            full_context = await self._gather_context(real_username)
+            # Determine max tokens for context
+            max_context_tokens = 60000
+            if hasattr(self.bot, 'profile_dir') and self.bot.profile_dir:
+                try:
+                    from src.bot.config import BotConfig
+                    config = BotConfig(self.bot.profile_dir)
+                    max_context_tokens = config.profile_context_tokens
+                except Exception as e:
+                    syslog2(LOG_ERR, "failed to load profile config", error=str(e))
+
+            full_context = await self._gather_context(real_username, max_tokens=max_context_tokens)
             
             if not full_context:
                 return CommandResult(success=False, message=f"Нет сообщений для анализа пользователя '{real_username}'.")
@@ -399,7 +409,7 @@ class ProfileCommandHandler(AsyncCommandHandler):
             syslog2(LOG_ERR, "profile command failed", error=str(e))
             return CommandResult(success=False, message=f"Ошибка при создании профиля: {e}", error=str(e))
 
-    async def _gather_context(self, username: str, max_tokens: int = 15000) -> str:
+    async def _gather_context(self, username: str, max_tokens: int = 60000) -> str:
         """Gather messages and neighbors for the user."""
         from src.lib.syslog2 import LOG_DEBUG, syslog2
         

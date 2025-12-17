@@ -47,8 +47,9 @@ class BotConfig:
             "chunk_token_max": 1024,
             "chunk_overlap_ratio": 0.30,
             "cosine_distance_thr": 4,
-            "rag_ntop": 20,
-            "fts5_score_thr": 0.2
+            "rag_ntop": 40,
+            "fts5_score_thr": 0.2,
+            "profile_context_tokens": 60000
         }
 
     def _create_default_config(self) -> Dict:
@@ -417,4 +418,19 @@ class BotConfig:
     def fts5_score_thr(self, value: float):
         value = self._validate_fts5_score_thr(value)
         self.data["fts5_score_thr"] = value
+        self.save()
+
+    @property
+    def profile_context_tokens(self) -> int:
+        return self.data.get("profile_context_tokens", 60000)
+    
+    def _validate_profile_context_tokens(self, value: int) -> int:
+        if not isinstance(value, int) or value < 1000:
+            raise ValueError("profile_context_tokens must be a positive integer >= 1000")
+        return value
+        
+    @profile_context_tokens.setter
+    def profile_context_tokens(self, value: int):
+        value = self._validate_profile_context_tokens(value)
+        self.data["profile_context_tokens"] = value
         self.save()
