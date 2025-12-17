@@ -64,6 +64,7 @@ Command: `legale ingest all -file dump.json`
 2. **Stage 1 - Chunking** (`src/ingestion/chunker.py`): Groups messages into semantic chunks (token-based), saves to SQLite (`chunks` table).
 3. **Stage 2 - Embedding** (`src/ingestion/pipeline.py`): Computes vectors for chunks using `sentence-transformers` (Local) or OpenAI API. Saves JSON embeddings to SQLite.
 4. **Stage 3 - Indexing** (`src/ingestion/pipeline.py`): Syncs embeddings from SQLite to ChromaDB for fast similarity search.
+5. **Stage 4 - Alias Discovery** (`src/ingestion/pipeline.py`): Identifies unique users and uses LLM to discover/save aliases for improved user profile matching.
 
 ---
 

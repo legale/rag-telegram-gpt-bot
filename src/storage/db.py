@@ -882,6 +882,33 @@ class Database:
         finally:
             session.close()
 
+    def populate_users_from_messages(self) -> int:
+        """
+        Populate users table from messages table unique senders.
+        
+        Returns:
+            Number of new users added
+        """
+        from sqlalchemy import text
+        session = self.get_session()
+        try:
+            # SQLite specific INSERT OR IGNORE
+            # We select distinct from_id where it's not null and not empty
+            sql = """
+                INSERT OR IGNORE INTO users (username)
+                SELECT DISTINCT from_id 
+                FROM messages 
+                WHERE from_id IS NOT NULL AND from_id != ''
+            """
+            result = session.execute(text(sql))
+            session.commit()
+            return result.rowcount
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
+
     def get_messages_by_user(self, username: str, limit: Optional[int] = None, date_filter: Optional[datetime] = None) -> List[MessageModel]:
         """
         Get messages for a specific user, including aliases.

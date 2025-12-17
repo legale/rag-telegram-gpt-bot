@@ -336,6 +336,7 @@ def cmd_ingest(argv: list[str], profile_manager: ProfileManager) -> None:
         "stage1": {"desc": "Create and store chunks"},
         "stage2": {"desc": "Generate embeddings"},
         "stage3": {"desc": "Sync to vector DB"},
+        "stage4": {"desc": "Run alias discovery"},
         "clear": {"desc": "Clear stages"},
         "info": {"desc": "Show ingest info"},
     }
@@ -439,6 +440,22 @@ def cmd_ingest(argv: list[str], profile_manager: ProfileManager) -> None:
         syslog2(LOG_NOTICE, "running stage3: sync chunks to vector database")
         pipeline.run_stage3()
         syslog2(LOG_NOTICE, "stage3 complete")
+        return
+        
+    if subcmd == "stage4":
+        from src.app.bootstrap import create_app
+        app = create_app(
+             db_url=paths["db_url"],
+            vector_db_path=str(paths["vector_db_path"]),
+            profile_dir=str(paths["profile_dir"]),
+        )
+        # Check if we have users (populated by stage0)
+        db = app.get_database()
+        # Not strictly required to check msg count if we just want to run discovery, 
+        # but stage0 populates messages which populates users.
+        syslog2(LOG_NOTICE, "running stage4: alias discovery")
+        pipeline.run_stage4()
+        syslog2(LOG_NOTICE, "stage4 complete")
         return
 
     if subcmd == "clear":

@@ -21,6 +21,9 @@ from pathlib import Path
 import uuid
 import json
 from src.lib.syslog2 import *
+import asyncio
+
+from src.core.profiling import AliasDiscoveryService
 
 # Optional import to allow tests to patch BotConfig directly on this module
 try:
@@ -46,6 +49,19 @@ except ImportError:
         if iterable is None:
             return range(total) if total else []
         return iterable
+
+
+class IngestionBotAdapter:
+    """Adapter to make LLMClient compatible with bot interface expected by AliasDiscoveryService."""
+    def __init__(self, llm_client):
+        self.llm_client = llm_client
+
+    async def complete(self, prompt: str, system_prompt: Optional[str] = None, **kwargs) -> str:
+        """Async wrapper for LLM completion."""
+        # Using to_thread to avoid blocking event loop if we were in a real async env,
+        # but here we are in asyncio.run, so it's fine.
+        # LLMClient is synchronous, so we just wrap it.
+        return self.llm_client.complete(prompt, system=system_prompt, **kwargs)
 
 
 class IngestionPipeline:
@@ -400,6 +416,53 @@ class IngestionPipeline:
         
         syslog2(LOG_NOTICE, "stage3 complete")
 
+    def run_alias_discovery(self):
+        """Run alias discovery for users (Stage 4)."""
+        syslog2(LOG_NOTICE, "starting alias discovery")
+        
+        # 1. Populate users
+        new_users = self.db.populate_users_from_messages()
+        syslog2(LOG_NOTICE, "users populated", new_count=new_users)
+        
+        # 2. Get all users
+        users = self.db.get_all_users()
+        syslog2(LOG_NOTICE, "checking users for missing aliases", total_users=len(users))
+        
+        # 3. Setup service
+        try:
+            llm_client = self._get_llm_client()
+            bot_adapter = IngestionBotAdapter(llm_client)
+            service = AliasDiscoveryService(self.db, bot_adapter)
+            
+            async def process_users():
+                processed_count = 0
+                for user in users:
+                    # Discover only if aliases are missing
+                    if not user.aliases or user.aliases == "[]" or user.aliases == "null":
+                         syslog2(LOG_NOTICE, f"discovering aliases for user", username=user.username)
+                         try:
+                             aliases = await service.discover_aliases(user.username)
+                             if aliases:
+                                 service.save_aliases(user.username, aliases)
+                                 syslog2(LOG_NOTICE, f"aliases found", username=user.username, aliases=aliases)
+                                 processed_count += 1
+                             else:
+                                 syslog2(LOG_INFO, f"no aliases found", username=user.username)
+                         except Exception as e:
+                             syslog2(LOG_ERR, f"alias discovery failed for {user.username}", error=str(e))
+                return processed_count
+
+            # Run async loop
+            count = asyncio.run(process_users())
+            syslog2(LOG_NOTICE, "alias discovery complete", users_updated=count)
+            
+        except Exception as e:
+            syslog2(LOG_ERR, "alias discovery failed", error=str(e))
+            
+    def run_stage4(self):
+        """Run stage4: user alias discovery."""
+        self.run_alias_discovery()
+
     def _get_model_from_config(self) -> str:
         """
         Get model name from profile config.
@@ -487,6 +550,12 @@ class IngestionPipeline:
                 "func": self.run_stage3,
                 "args": (),
                 "kwargs": {}
+            },
+            {
+                "name": "stage4: run alias discovery",
+                "func": self.run_alias_discovery,
+                "args": (),
+                "kwargs": {}
             }
         ]
         
@@ -494,7 +563,7 @@ class IngestionPipeline:
             syslog2(LOG_NOTICE, "running", stage_name=stage["name"])
             stage["func"](*stage["args"], **stage["kwargs"])
         
-        syslog2(LOG_NOTICE, "all stages complete (stages 0-3: messages, chunks, embeddings, vector sync)")
+        syslog2(LOG_NOTICE, "all stages complete (stages 0-4: messages, chunks, embeddings, vector sync, alias discovery)")
 
     def parse_and_store_messages(self, file_path: str):
         """

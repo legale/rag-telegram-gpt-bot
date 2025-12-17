@@ -890,6 +890,16 @@ class LegaleBot:
 
         return auto_reset_warning + response
 
+    async def complete(self, prompt: str, system_prompt: Optional[str] = None, **kwargs) -> str:
+        """
+        Async wrapper for LLM completion.
+        Used by ProfileCommandHandler and AliasDiscoveryService.
+        """
+        # We run the synchronous LLM call directly.
+        # Ideally this should be run_in_executor to avoid blocking the loop, 
+        # but for now we keep it simple as the underlying HTTP client might be blocking anyway.
+        return self.llm_client.complete(prompt, system=system_prompt, **kwargs)
+
     def get_rag_debug_info(self, user_input: str, n_results: int = 3) -> Dict:
         """
         Get debug information about RAG retrieval without actually calling the model.
