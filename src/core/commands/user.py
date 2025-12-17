@@ -336,7 +336,9 @@ class ProfileCommandHandler(AsyncCommandHandler):
             return CommandResult(success=False, message="Укажите username или alias: /userprofile <name>")
             
         target_name = " ".join(context.args).strip()
-        syslog2(LOG_WARNING, "profile command started", target_name=target_name, log_level=self.bot.log_level)
+        
+        if self.bot.log_level >= LOG_DEBUG:
+            syslog2(LOG_DEBUG, "profile command started", target_name=target_name)
         
         try:
             # 1. Resolve User

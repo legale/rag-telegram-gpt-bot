@@ -544,13 +544,22 @@ def _map_log_level_to_constant(log_level: Union[str, int]) -> int:
     Map log level string or number to syslog2 constant.
     
     Args:
-        log_level: Log level as string (e.g., "INFO", "LOG_DEBUG") or int constant
+        log_level: Log level as string (e.g., "INFO", "LOG_DEBUG", "7") or int constant
         
     Returns:
         syslog2 log level constant (LOG_ALERT, LOG_CRIT, LOG_ERR, etc.)
     """
     if isinstance(log_level, int):
         return log_level
+    
+    # Try to parse as integer string first (e.g., "7" -> LOG_DEBUG)
+    try:
+        log_level_int = int(log_level)
+        # Validate it's a valid syslog2 level (1-7)
+        if 1 <= log_level_int <= 7:
+            return log_level_int
+    except (ValueError, TypeError):
+        pass
     
     log_level_upper = str(log_level).upper()
     log_level_map = {

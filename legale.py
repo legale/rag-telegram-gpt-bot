@@ -71,6 +71,15 @@ def _parse_log_level(s: Optional[str]) -> int:
         except Exception:
             return LOG_WARNING
 
+    # Try to parse as integer string first (e.g., "7" -> LOG_DEBUG)
+    try:
+        log_level_int = int(s)
+        # Validate it's a valid syslog2 level (1-7)
+        if 1 <= log_level_int <= 7:
+            return log_level_int
+    except (ValueError, TypeError):
+        pass
+
     m = {
         "LOG_ALERT": LOG_ALERT,
         "LOG_CRIT": LOG_CRIT,
@@ -768,7 +777,9 @@ def cmd_bot(argv: list[str], profile_manager: ProfileManager, global_log_level: 
         syslog2(LOG_NOTICE, "vector store", path=str(paths["vector_db_path"]))
 
         ll = global_log_level
-        run_server(host, port, log_level=ll, debug_rag=debug_rag, args=DotDict({"log_level": ll, "debug_rag": debug_rag, "profile": profile_name}))
+        # Convert log_level to int if it's a numeric string, so it's properly passed through
+        ll_int = _parse_log_level(ll) if ll else LOG_WARNING
+        run_server(host, port, log_level=ll, debug_rag=debug_rag, args=DotDict({"log_level": ll_int, "debug_rag": debug_rag, "profile": profile_name}))
         return
 
     if subcmd == "daemon":
