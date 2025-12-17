@@ -221,6 +221,9 @@ class LegaleBot:
             log_level=self.log_level
         )
         
+        # Expose profile dir
+        self.profile_dir = profile_dir
+        
         # Token limit configuration
         # Use value from models.txt if available, otherwise fallback to 140000
         self.max_context_tokens = self.model_max_tokens.get(model_name, 140000)
