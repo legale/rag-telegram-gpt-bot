@@ -817,7 +817,7 @@ def _create_command_service(
     
     command_service = CommandService()
     register_sync_handlers(command_service, bot_instance_local, admin_manager_local, debug_rag)
-    register_async_handlers(command_service, admin_manager_local, admin_router_local)
+    register_async_handlers(command_service, bot_instance_local, admin_manager_local, admin_router_local)
     
     syslog2(LOG_NOTICE, "command service initialized with admin handlers")
     return command_service

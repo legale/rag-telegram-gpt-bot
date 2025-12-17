@@ -864,6 +864,37 @@ class Database:
         finally:
             session.close()
 
+    @staticmethod
+    def _normalize_user_key(value: Any) -> str:
+        if value is None:
+            return ""
+        return " ".join(str(value).strip().split()).lower()
+
+    def get_user_by_alias(self, alias: str) -> Optional[UserModel]:
+        """
+        Get user by one of their aliases (case-insensitive, normalized whitespace).
+        """
+        alias_key = self._normalize_user_key(alias)
+        if not alias_key:
+            return None
+
+        session = self.get_session()
+        try:
+            users = session.query(UserModel).filter(UserModel.aliases.isnot(None)).all()
+            for user in users:
+                if not user.aliases:
+                    continue
+                try:
+                    aliases = json.loads(user.aliases)
+                except Exception:
+                    continue
+                for candidate in aliases or []:
+                    if self._normalize_user_key(candidate) == alias_key:
+                        return user
+            return None
+        finally:
+            session.close()
+
     def update_user_aliases(self, username: str, aliases: List[str]) -> None:
         """
         Update aliases for a user.

@@ -146,7 +146,7 @@ def handle_command(
     result = dispatcher.dispatch(context)
 
     # Return message (or None if command not found and not handled)
-    if result.success or result.error:
+    if result.success or result.error or result.message:
         return result.message
     return None
 
@@ -246,6 +246,6 @@ async def handle_command_async(
         result = dispatcher.dispatch(context)
 
     # Return message and data if command was handled
-    if result.success or result.error:
+    if result.success or result.error or result.message:
         return result.message, result.data
     return None, None

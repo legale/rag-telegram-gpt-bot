@@ -2,7 +2,8 @@
 import sys
 import os
 import unittest
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import Mock, AsyncMock
+from types import SimpleNamespace
 
 # Add project root to path
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -17,36 +18,37 @@ from datetime import datetime
 
 class TestProfileCommandIntegration(unittest.TestCase):
     def setUp(self):
-        self.bot = MagicMock()
-        self.bot.complete = AsyncMock()
+        self.bot = SimpleNamespace(db=Mock(), complete=AsyncMock(), log_level=6) # 6=INFO
         self.command_handler = ProfileCommandHandler(self.bot)
 
     def test_profile_flow_success(self):
         # 1. Setup User and Messages
-        user_mock = MagicMock()
-        user_mock.username = "testuser"
+        user_mock = SimpleNamespace(username="testuser")
         self.bot.db.get_user.return_value = user_mock
-        
-        msg1 = MagicMock()
-        msg1.msg_id = 1
-        msg1.ts = datetime(2023, 1, 1, 10, 0)
-        msg1.from_id = "testuser"
-        msg1.text = "Hello world"
+
+        msg1 = SimpleNamespace(
+            msg_id=1,
+            ts=datetime(2023, 1, 1, 10, 0),
+            from_id="testuser",
+            text="Hello world",
+        )
         
         self.bot.db.get_messages_by_user.return_value = [msg1]
         
         # Neighbor messages (context)
-        neighbor1 = MagicMock()
-        neighbor1.msg_id = 1
-        neighbor1.ts = msg1.ts
-        neighbor1.from_id = "testuser"
-        neighbor1.text = "Hello world"
-        
-        neighbor_ctx = MagicMock()
-        neighbor_ctx.msg_id = 2
-        neighbor_ctx.ts = msg1.ts
-        neighbor_ctx.from_id = "other"
-        neighbor_ctx.text = "Hi there"
+        neighbor1 = SimpleNamespace(
+            msg_id=1,
+            ts=msg1.ts,
+            from_id="testuser",
+            text="Hello world",
+        )
+
+        neighbor_ctx = SimpleNamespace(
+            msg_id=2,
+            ts=msg1.ts,
+            from_id="other",
+            text="Hi there",
+        )
         
         self.bot.db.get_neighbor_messages.return_value = [neighbor1, neighbor_ctx]
         
@@ -72,7 +74,7 @@ class TestProfileCommandIntegration(unittest.TestCase):
         # Verify LLM prompt contains context
         call_args = self.bot.complete.call_args
         prompt = call_args[0][0]
-        self.assertIn("Target User: testuser", prompt)
+        self.assertIn("Целевой пользователь: testuser", prompt)
         self.assertIn("[user: testuser] Hello world", prompt)
         self.assertIn("[user: other] Hi there", prompt)
 
@@ -87,14 +89,27 @@ class TestProfileCommandIntegration(unittest.TestCase):
         self.assertIn("не найден", result.message)
 
     def test_profile_no_messages(self):
-        user_mock = MagicMock()
-        user_mock.username = "silentuser"
+        user_mock = SimpleNamespace(username="silentuser")
         self.bot.db.get_user.return_value = user_mock
         self.bot.db.get_messages_by_user.return_value = []
         
         context = CommandContext(command_name="/profile", args=["silentuser"])
         result = asyncio.run(self.command_handler.handle(context))
         
+        self.assertFalse(result.success)
+        self.assertIn("Нет сообщений", result.message)
+
+    def test_profile_joins_multiword_alias(self):
+        user_mock = SimpleNamespace(username="testuser")
+        self.bot.db.get_user.return_value = None
+        self.bot.db.get_user_by_alias.return_value = user_mock
+        self.bot.db.get_messages_by_user.return_value = []
+
+        context = CommandContext(command_name="/profile", args=["James", "Bond"])
+        result = asyncio.run(self.command_handler.handle(context))
+
+        self.bot.db.get_user.assert_called_with("James Bond")
+        self.bot.db.get_user_by_alias.assert_called_with("James Bond")
         self.assertFalse(result.success)
         self.assertIn("Нет сообщений", result.message)
 
