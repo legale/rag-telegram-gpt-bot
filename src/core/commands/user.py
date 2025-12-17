@@ -384,7 +384,9 @@ class ProfileCommandHandler(AsyncCommandHandler):
                 # Fallback to model's max tokens
                 current_model = getattr(self.bot, 'current_model_name', 'unknown')
                 model_max_tokens = getattr(self.bot, 'model_max_tokens', {})
-                effective_limit = model_max_tokens.get(current_model, 140000)
+                raw_limit = model_max_tokens.get(current_model, 140000)
+                # Apply 0.8 coefficient to avoid context overflow
+                effective_limit = int(raw_limit * 0.8)
                 
                 if self.bot.log_level >= LOG_DEBUG:
                     syslog2(LOG_DEBUG, "profile tokens using model default", model=current_model, limit=effective_limit)
