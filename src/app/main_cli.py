@@ -15,7 +15,9 @@ from src.core.commands import (
     ResetCommandHandler,
     TokensCommandHandler,
     ModelCommandHandler,
+    ModelCommandHandler,
     FindCommandHandler,
+    ProfileCommandHandler,
 )
 from src.bot.core import LegaleBot
 from src.bot.admin import AdminManager
@@ -36,8 +38,8 @@ def create_dispatcher(
     """
     command_service = CommandService()
     register_sync_handlers(command_service, bot, admin_manager=admin_manager, debug_rag=debug_rag)
-    if admin_manager is not None or admin_router is not None:
-        register_async_handlers(command_service, admin_manager=admin_manager, admin_router=admin_router)
+    if admin_manager is not None or admin_router is not None or bot is not None:
+        register_async_handlers(command_service, bot=bot, admin_manager=admin_manager, admin_router=admin_router)
     return command_service.dispatcher
 
 
@@ -65,6 +67,7 @@ def register_sync_handlers(
 
 def register_async_handlers(
     command_service: CommandService,
+    bot: Optional[LegaleBot] = None,
     admin_manager: Optional[AdminManager] = None,
     admin_router: Optional[AdminCommandRouter] = None
 ) -> None:
@@ -88,6 +91,9 @@ def register_async_handlers(
     
     if admin_router:
         command_service.register_async("admin", AdminCommandHandler(admin_router))
+
+    if bot:
+        command_service.register_async("profile", ProfileCommandHandler(bot))
 
 
 def parse_command(text: str) -> tuple[Optional[str], str]:
@@ -228,12 +234,12 @@ async def handle_command_async(
         metadata=metadata or {},
     )
 
-    # Check if this is an admin command (async handler)
-    admin_commands = ["/admin", "/admin_set", "/admin_get"]
-    is_admin_command = command_name.lower() in [c.lower() for c in admin_commands]
+    # Check if this is an admin command or explicit async command
+    async_commands = ["/admin", "/admin_set", "/admin_get", "/profile"]
+    is_async_command = command_name.lower() in [c.lower() for c in async_commands]
 
-    if is_admin_command:
-        # Use async dispatcher for admin commands
+    if is_async_command:
+        # Use async dispatcher for admin/async commands
         result = await dispatcher.dispatch_async(context)
     else:
         # Use sync dispatcher for regular commands

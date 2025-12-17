@@ -10,6 +10,7 @@ from .user import (
     ResetCommandHandler,
     StartCommandHandler,
     TokensCommandHandler,
+    ProfileCommandHandler,
 )
 
 __all__ = [
@@ -19,5 +20,6 @@ __all__ = [
     "TokensCommandHandler",
     "ModelCommandHandler",
     "FindCommandHandler",
+    "ProfileCommandHandler",
 ]
 

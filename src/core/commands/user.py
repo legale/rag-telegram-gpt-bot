@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from src.core.dispatcher import CommandContext, CommandHandler, CommandResult
+from src.core.dispatcher import CommandContext, CommandHandler, AsyncCommandHandler, CommandResult
 
 
 class StartCommandHandler(CommandHandler):
@@ -264,3 +264,140 @@ class FindCommandHandler(CommandHandler):
                 "needs_formatting": True,
             },
         )
+
+
+class ProfileCommandHandler(AsyncCommandHandler):
+    """Handler for /profile command."""
+
+    SYSTEM_PROMPT = """
+Ты — опытный аналитик разведки, специализирующийся на создании психологических и профессиональных профилей (профайлов) на основе текстовых коммуникаций. Твоя задача — проанализировать предоставленную историю сообщений пользователя и составить максимально объективный, детализированный и полезный профайл для оценки его как потенциального актива (агента).
+
+**КРИТИЧЕСКИ ВАЖНЫЕ ПРИНЦИПЫ АНАЛИЗА:**
+1.  **Выводы только из текста:** Все пункты профиля должны быть напрямую подтверждены цитатами или четкими паттернами из истории переписки. Избегай домыслов и общих фраз.
+2.  **Контекстуализация:** Учитывай контекст каждого сообщения (к кому обращено, в рамках какой темы, эмоциональный фон дискуссии).
+3.  **Иерархия доказательств:** Прямое утверждение пользователя о себе > повторяющиеся паттерны поведения > единичные, но яркие примеры > косвенные указания.
+4.  **Баланс:** Отмечай как сильные, так и слабые стороны. Профиль должен быть сбалансированным и реалистичным.
+
+**СТРУКТУРА ПРОФАЙЛА:**
+(Представь результат строго в следующем формате. Каждый пункт должен содержать конкретику и примеры.)
+
+**1. Роль в команде (на основе наблюдаемого поведения):**
+*   *Лидер, Инициатор, Исполнитель, Критик/«Дьявольский адвокат», Медиатор/Миротворец, Эксперт/Наставник, Наблюдатель.*
+*   *Обоснование:* Какие сообщения демонстрируют эту роль? (приведи 1-2 ключевых примера).
+
+**2. Навыки (выведенные из контекста и самоописаний):**
+*   **Hard Skills (профессиональные):** Упоминание технологий, методик, языков, инструментов. Оценка уровня (дилетант, компетентный, эксперт) на основе глубины суждений.
+*   **Soft Skills (коммуникативные и социальные):** Убеждение, аргументация, эмпатия, работа с конфликтами, юмор, ясность изложения, адаптивность. Подтверди примерами.
+
+**3. Сильные стороны (для вербовки):**
+*   *Что делает его ценным?* (Например: доступ к информации, уникальные технические навыки, аналитический склад ума, высокая мотивация по теме, влиятельные связи, стрессоустойчивость, обучаемость).
+*   *Подтверждение из текста.*
+
+**4. Слабые стороны / Уязвимости (для вербовки и управления):**
+*   *Что можно использовать как «рычаг» или что представляет операционный риск?* (Например: тщеславие, склонность к риску или, наоборот, излишняя осторожность, финансовые трудности, обиды на работодателя/коллег, потребность в признании, радикальные убеждения, конфиденциальность).
+*   *Подтверждение из текста.*
+
+**5. Особенности темперамента и эмоционального интеллекта:**
+*   *Поведение под давлением:* Агрессия, уход в себя, сарказм, хладнокровие.
+*   *Доминирующий эмоциональный фон:* Нейтрально-аналитический, циничный, энтузиастичный, тревожный, нестабильный.
+*   *Реакция на критику:* Конструктивная, оборонительная, игнорирующая.
+*   *Примеры, иллюстрирующие эти черты.*
+
+**6. Прочие особенности (важные для составления полного досье):**
+*   **Ценности и убеждения:** Политические, социальные, профессиональные взгляды.
+*   **Мотиваторы:** Что им движет? (Деньги, статус, идеология, азарт, познание, принадлежность к группе).
+*   **Демографические и биографические данные:** (Только если прямо указано или однозначно следует из контекста): примерный возраст, род деятельности, географические упоминания, язык общения.
+*   **Паттерны общения:** Формальный/неформальный стиль, использование жаргона, грамматические особенности, активность.
+
+**7. Характерные сообщения (прямые цитаты-ключи):**
+*   Приведи 3-5 самых показательных, коротких цитат пользователя, которые ярко иллюстрируют его личность, мотивацию или уязвимости. Каждую цитату сопроводи пояснением, *почему* она значима.
+
+**8. Оценка операционного потенциала и рекомендации по вербовке:**
+*   **Потенциал:** Высокий / Средний / Низкий. Краткое обоснование (на основе суммы сильных сторон и уязвимостей).
+*   **Рекомендуемый подход (метод вербовки):** Например, "через идеологическую совместимость", "через предложение сотрудничества в сфере хобби", "через компрометирующую информацию (шантаж)", "через финансовые Incentives".
+*   **Рекомендуемая "легенда" (роль вербовщика):** Например, "HR из престижной IT-компании", "коллега-энтузиаст по открытому ПО", "представитель общественного движения".
+*   **Темы для установления контакта (Hook):** Конкретные темы, которые, судя по истории, его глубоко интересуют или затрагивают эмоционально.
+"""
+
+    def __init__(self, bot):
+        self.bot = bot
+
+    async def handle(self, context: CommandContext) -> CommandResult:
+        from src.lib.syslog2 import LOG_ERR, syslog2
+        
+        if not context.args:
+            return CommandResult(success=False, message="Укажите username или alias: /profile <name>")
+            
+        target_name = context.args[0]
+        
+        try:
+            # 1. Resolve User
+            user = self.bot.db.get_user(target_name)
+            if not user:
+                user = self.bot.db.get_user_by_alias(target_name)
+            
+            if not user:
+                return CommandResult(success=False, message=f"Пользователь '{target_name}' не найден.")
+            
+            real_username = user.username
+            
+            # 2. Gather Context
+            # Send initial message as this might take time
+            # Note: We rely on caller to show "typing" or wait
+            
+            full_context = await self._gather_context(real_username)
+            
+            if not full_context:
+                return CommandResult(success=False, message=f"Нет сообщений для анализа пользователя '{real_username}'.")
+                
+            # 3. Call LLM
+            prompt = f"Target User: {real_username}\n\nChat Log:\n{full_context}"
+            
+            response = await self.bot.complete(
+                prompt,
+                system_prompt=self.SYSTEM_PROMPT,
+                temperature=0.3 # Balanced
+            )
+            
+            return CommandResult(success=True, message=response)
+            
+        except Exception as e:
+            syslog2(LOG_ERR, "profile command failed", error=str(e))
+            return CommandResult(success=False, message=f"Ошибка при создании профиля: {e}", error=str(e))
+
+    async def _gather_context(self, username: str, max_tokens: int = 15000) -> str:
+        """Gather messages and neighbors for the user."""
+        # Get recent messages. Start with 30.
+        messages = self.bot.db.get_messages_by_user(username, limit=30)
+        
+        if not messages:
+            return ""
+            
+        context_lines = []
+        seen_ids = set()
+        current_tokens = 0
+        
+        # Chronological order
+        for msg in messages:
+            # Get neighbors (window=5)
+            neighbors = self.bot.db.get_neighbor_messages(msg, window_count=5, max_tokens=2000)
+            
+            block_lines = []
+            for m in neighbors:
+                if m.msg_id not in seen_ids:
+                    line = f"[{m.ts.strftime('%Y-%m-%d %H:%M')}] [user: {m.from_id}] {m.text}"
+                    block_lines.append(line)
+                    seen_ids.add(m.msg_id)
+            
+            if block_lines:
+                block_lines.append("---")
+                block_text = "\n".join(block_lines)
+                tokens = len(block_text) // 3 # Rough estimate
+                
+                if current_tokens + tokens > max_tokens:
+                    break
+                    
+                context_lines.append(block_text)
+                current_tokens += tokens
+                
+        return "\n".join(context_lines)

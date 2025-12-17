@@ -262,8 +262,8 @@ def create_app(
 
     command_service = CommandService()
     register_sync_handlers(command_service, bot, admin_manager=admin_manager, debug_rag=debug_rag)
-    if admin_manager is not None or admin_router is not None:
-        register_async_handlers(command_service, admin_manager=admin_manager, admin_router=admin_router)
+    if admin_manager is not None or admin_router is not None or bot is not None:
+        register_async_handlers(command_service, bot=bot, admin_manager=admin_manager, admin_router=admin_router)
     
     # Create App with unified entry points
     app = App(
