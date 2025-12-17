@@ -925,6 +925,99 @@ class Database:
         finally:
             session.close()
 
+    def get_neighbor_messages(self, target_msg: MessageModel, window_count: int = 20, max_tokens: int = 1000) -> List[MessageModel]:
+        """
+        Get neighbor messages around a target message within the same day.
+        
+        Args:
+            target_msg: Target message object
+            window_count: Max messages to fetch (before + after)
+            max_tokens: Max total tokens allowed (approximate)
+            
+        Returns:
+            List of MessageModel objects including target, sorted by time
+        """
+        session = self.get_session()
+        try:
+            # Defines start and end of the day for the target message
+            day_start = target_msg.ts.replace(hour=0, minute=0, second=0, microsecond=0)
+            day_end = target_msg.ts.replace(hour=23, minute=59, second=59, microsecond=999999)
+            
+            # Fetch surrounding messages from the same chat on the same day
+            # Context before
+            before = session.query(MessageModel).filter(
+                MessageModel.chat_id == target_msg.chat_id,
+                MessageModel.ts >= day_start,
+                MessageModel.ts < target_msg.ts
+            ).order_by(MessageModel.ts.desc()).limit(window_count).all()
+            
+            # Context after
+            after = session.query(MessageModel).filter(
+                MessageModel.chat_id == target_msg.chat_id,
+                MessageModel.ts > target_msg.ts,
+                MessageModel.ts <= day_end
+            ).order_by(MessageModel.ts.asc()).limit(window_count).all()
+            
+            # Combine and sort (before is desc, so reverse it)
+            context = sorted(before, key=lambda x: x.ts) + [target_msg] + sorted(after, key=lambda x: x.ts)
+            
+            # Simple token limit enforcement (approx 4 chars per token)
+            current_tokens = 0
+            final_context = []
+            
+            # Find index of target in full list
+            target_idx = -1
+            for i, m in enumerate(context):
+                if m.msg_id == target_msg.msg_id:
+                    target_idx = i
+                    break
+            
+            if target_idx == -1:
+                return [target_msg]
+
+            # Expand from center
+            final_context.append(context[target_idx])
+            current_tokens += len(context[target_idx].text) // 4
+            
+            left = target_idx - 1
+            right = target_idx + 1
+            
+            expand_left = True
+            expand_right = True
+            
+            while (expand_left or expand_right) and current_tokens < max_tokens:
+                # Try adding left neighbor
+                if expand_left:
+                    if left >= 0:
+                        msg = context[left]
+                        tokens = len(msg.text) // 4
+                        if current_tokens + tokens <= max_tokens:
+                            final_context.insert(0, msg)
+                            current_tokens += tokens
+                            left -= 1
+                        else:
+                            expand_left = False
+                    else:
+                        expand_left = False
+                
+                # Try adding right neighbor
+                if expand_right:
+                    if right < len(context):
+                        msg = context[right]
+                        tokens = len(msg.text) // 4
+                        if current_tokens + tokens <= max_tokens:
+                            final_context.append(msg)
+                            current_tokens += tokens
+                            right += 1
+                        else:
+                            expand_right = False
+                    else:
+                        expand_right = False
+                    
+            return final_context
+        finally:
+            session.close()
+
     def get_database_info(self) -> dict:
         """
         Get statistics for all tables in the database.
