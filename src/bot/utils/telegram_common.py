@@ -58,6 +58,50 @@ def _needs_splitting(full_content: str, max_len: int) -> bool:
     return len(full_content) > max_len
 
 
+def _find_split_pos(text: str, max_len: int) -> int:
+    """Find smart split position for text."""
+    if len(text) <= max_len:
+        return len(text)
+    
+    # Try to find newline near the split point
+    newline_pos = text.rfind('\n', 0, max_len)
+    if newline_pos > max_len * 0.8:  # If newline is in last 20%, use it
+        return newline_pos + 1
+    
+    # Try to find space
+    space_pos = text.rfind(' ', 0, max_len)
+    if space_pos > max_len * 0.8:
+        return space_pos + 1
+        
+    return max_len
+
+def split_text_smartly(text: str, max_len: int = MAX_TG_CONTENT_LEN) -> List[str]:
+    """
+    Split plain text smartly into chunks respecting max length.
+    
+    Args:
+        text: Text to split
+        max_len: Maximum length of each chunk
+        
+    Returns:
+        List of text chunks
+    """
+    if len(text) <= max_len:
+        return [text]
+        
+    parts = []
+    remaining = text
+    while remaining:
+        if len(remaining) <= max_len:
+            parts.append(remaining)
+            break
+            
+        split_pos = _find_split_pos(remaining, max_len)
+        parts.append(remaining[:split_pos])
+        remaining = remaining[split_pos:]
+        
+    return parts
+
 def _split_message(
     msg_data: Dict,
     message_id: int,
@@ -69,59 +113,22 @@ def _split_message(
 ) -> List[Dict]:
     """
     Split message text into multiple parts.
-    
-    Args:
-        msg_data: Dictionary with keys: text, date, sender, sender_id (optional)
-        message_id: Message ID
-        escaped_text: HTML-escaped text content
-        base_prefix: Base prefix HTML for each part
-        part_prefix_template: Template for part number prefix
-        available_content_len: Available length for content in each part
-        max_len: Maximum content length
-        
-    Returns:
-        List of dictionaries representing message parts
     """
-    parts = []
-    part_num = 1
-    text_pos = 0
+    # Use shared splitting logic
+    text_chunks = split_text_smartly(escaped_text, available_content_len)
     
-    while text_pos < len(escaped_text):
-        # Calculate how much text we can fit in this part
-        remaining_text = escaped_text[text_pos:]
-        
-        if len(remaining_text) <= available_content_len:
-            # Last part
-            part_content = remaining_text
-            text_pos = len(escaped_text)
-        else:
-            # Find a good split point (prefer newline or space)
-            split_pos = available_content_len
-            # Try to find newline near the split point
-            newline_pos = remaining_text.rfind('\n', 0, available_content_len)
-            if newline_pos > available_content_len * 0.8:  # If newline is in last 20%, use it
-                split_pos = newline_pos + 1
-            else:
-                # Try to find space
-                space_pos = remaining_text.rfind(' ', 0, available_content_len)
-                if space_pos > available_content_len * 0.8:
-                    split_pos = space_pos + 1
-            
-            part_content = remaining_text[:split_pos]
-            text_pos += split_pos
-        
+    parts = []
+    for i, chunk in enumerate(text_chunks, 1):
         # Build part HTML
-        part_html = base_prefix + part_prefix_template.format(part_num) + f"<pre>{part_content}</pre>"
+        part_html = base_prefix + part_prefix_template.format(i) + f"<pre>{chunk}</pre>"
         
         parts.append({
             "id": message_id,
             "date": msg_data.get("date", ""),
             "sender": msg_data.get("sender", "Unknown"),
-            "part": part_num,
+            "part": i,
             "content": part_html
         })
-        
-        part_num += 1
     
     return parts
 

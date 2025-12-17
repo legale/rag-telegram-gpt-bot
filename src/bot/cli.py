@@ -179,6 +179,8 @@ def main():
         admin_router = AdminCommandRouter()
 
     dispatcher = create_dispatcher(bot, admin_manager=admin_manager, admin_router=admin_router)
+    
+    _handle_user_input(bot, dispatcher, chunks, debug_rag)
 
 
 

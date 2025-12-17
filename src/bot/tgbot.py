@@ -1952,7 +1952,19 @@ async def _send_response_if_available(response: Optional[str], chat_id: int, is_
     if response:
         try:
             ctx = get_runtime_context()
-            await ctx.telegram_app.bot.send_message(chat_id=chat_id, text=response)
+            
+            # Send message, splitting if needed
+            MAX_LENGTH = 4096
+            
+            if len(response) <= MAX_LENGTH:
+                await ctx.telegram_app.bot.send_message(chat_id=chat_id, text=response)
+            else:
+                # Split message
+                from src.bot.utils.telegram_common import split_text_smartly
+                parts = split_text_smartly(response, MAX_LENGTH)
+                for part in parts:
+                    await ctx.telegram_app.bot.send_message(chat_id=chat_id, text=part)
+                    
             syslog2(LOG_NOTICE, "response sent", chat_id=chat_id, response_length=len(response))
         except Exception as e:
             syslog2(LOG_ERR, "failed to send response", chat_id=chat_id, error=str(e))
@@ -2311,7 +2323,8 @@ def _parse_cli_arguments():
             port = int(parsed_opts.get("port", 8000)) if parsed_opts.get("port") else 8000
             token = parsed_opts.get("token")
             debug_rag = parsed_opts.get("debug-rag", False)
-            parsed_args = SimpleNamespace(host=host, port=port, token=token, debug_rag=debug_rag, bot_command="run")
+            log_level = opts.get("V")
+            parsed_args = SimpleNamespace(host=host, port=port, token=token, debug_rag=debug_rag, log_level=log_level, bot_command="run")
         
         elif cmd == "daemon":
             host = parsed_opts.get("host", "127.0.0.1")
