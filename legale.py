@@ -649,7 +649,7 @@ def cmd_telegram(argv: list[str], profile_manager: ProfileManager) -> None:
     raise ValueError(f"unknown telegram subcommand: {subcmd}")
 
 
-def cmd_chat(argv: list[str], profile_manager: ProfileManager, global_log_level: Optional[str]) -> None:
+def cmd_chat(argv: list[str], profile_manager: ProfileManager, log_level: Optional[str]) -> None:
     opt_table = {
         "h": {"desc": "Show help"},
         "help": {"desc": "Show help"},
@@ -689,8 +689,8 @@ def cmd_chat(argv: list[str], profile_manager: ProfileManager, global_log_level:
     os.environ["PROFILE_DIR"] = str(paths["profile_dir"])
 
     cli_args = []
-    if global_log_level:
-        cli_args.extend(["-V", global_log_level])
+    if log_level:
+        cli_args.extend(["-V", log_level])
 
     chunks = opts.get("chunks")
     if chunks:
@@ -714,7 +714,7 @@ def cmd_chat(argv: list[str], profile_manager: ProfileManager, global_log_level:
         sys.argv = original_argv
 
 
-def cmd_bot(argv: list[str], profile_manager: ProfileManager, global_log_level: Optional[str]) -> None:
+def cmd_bot(argv: list[str], profile_manager: ProfileManager, log_level: Optional[str]) -> None:
     opt_table = {
         "h": {"desc": "Show help"},
         "help": {"desc": "Show help"},
@@ -778,11 +778,10 @@ def cmd_bot(argv: list[str], profile_manager: ProfileManager, global_log_level: 
         syslog2(LOG_NOTICE, "database", path=str(paths["db_path"]))
         syslog2(LOG_NOTICE, "vector store", path=str(paths["vector_db_path"]))
 
-        # Use parsed log_level from command options, or fall back to global_log_level
-        ll = opts.get("-V") or opts.get("--log-level") or global_log_level
+        # Use parsed log_level from command options, or fall back to log_level parameter
+        ll = opts.get("-V") or opts.get("--log-level") or log_level
         # Convert log_level to int if it's a numeric string, so it's properly passed through
         ll_int = _parse_log_level(ll) if ll else LOG_WARNING
-        syslog2(LOG_WARNING, "[DEBUG] legale.py cmd_bot: passing log_level", global_log_level=ll, parsed_log_level=ll_int, type_global=type(ll).__name__, type_parsed=type(ll_int).__name__)
         run_server(host, port, log_level=ll, debug_rag=debug_rag, args=DotDict({"log_level": ll_int, "debug_rag": debug_rag, "profile": profile_name}))
         return
 
@@ -1036,7 +1035,6 @@ def main() -> None:
     global_opt_table = {
         "-V": {"arg": True, "desc": "Set log level", "meta": "LEVEL"},
         "--log-level": {"arg": True, "desc": "Set log level", "meta": "LEVEL"},
-        "log-level": {"arg": True, "desc": "Set log level", "meta": "LEVEL"},
         "h": {"desc": "Show help"},
         "help": {"desc": "Show help"},
         "v": {"desc": "Show version"},
@@ -1058,48 +1056,17 @@ def main() -> None:
         if not argv:
             _print_help_and_exit("legale", global_opt_table, global_cmd_table, 0)
 
-        # Manually split global options (before command) and command + its args
-        g_opts_raw: dict[str, object] = {}
-        cmd: str | None = None
-        cmd_args: list[str] = []
+        opts, cmd, cmd_args = cmd_parse(argv, global_opt_table)
 
-        i = 0
-        while i < len(argv):
-            tok = argv[i]
-            if tok in global_opt_table and cmd is None:
-                spec = global_opt_table[tok]
-                if spec.get("arg"):
-                    if i + 1 >= len(argv):
-                        raise ValueError(f"missing arg for {tok}")
-                    g_opts_raw[tok] = argv[i + 1]
-                    i += 2
-                else:
-                    g_opts_raw[tok] = True
-                    i += 1
-                continue
-
-            # First non-global option token is the command
-            if cmd is None:
-                cmd = tok
-                cmd_args = argv[i + 1 :]
-                break
-
-        if cmd is None:
-            raise ValueError("no command specified")
-
-        g_opts = DotDict(g_opts_raw)
-        syslog2(LOG_WARNING, "[DEBUG] legale.py main: parsed global opts", g_opts_raw=g_opts_raw, cmd=cmd)
-
-        if _need_help(g_opts, cmd):
+        if _need_help(opts, cmd):
             _print_help_and_exit("legale", global_opt_table, global_cmd_table, 0)
 
-        if _bool_opt(g_opts, "v") or _bool_opt(g_opts, "version"):
+        if _bool_opt(opts, "v") or _bool_opt(opts, "version"):
             print("legale-bot version 1.0")
             sys.exit(0)
 
-        global_log_level = g_opts.get("-V") or g_opts.get("--log-level") or g_opts.get("log-level")
-        syslog2(LOG_WARNING, "[DEBUG] legale.py main: extracted global_log_level", global_log_level=global_log_level, from_V=g_opts.get("-V"), from_log_level=g_opts.get("--log-level"))
-        setup_log(_parse_log_level(global_log_level))
+        log_level = opts.get("-V") or opts.get("--log-level")
+        setup_log(_parse_log_level(log_level))
 
         profile_manager = ProfileManager(project_root)
         _ensure_default_profile(profile_manager, cmd)
@@ -1121,11 +1088,11 @@ def main() -> None:
             return
 
         if cmd == "chat":
-            cmd_chat(cmd_args, profile_manager, global_log_level)
+            cmd_chat(cmd_args, profile_manager, log_level)
             return
 
         if cmd == "bot":
-            cmd_bot(cmd_args, profile_manager, global_log_level)
+            cmd_bot(cmd_args, profile_manager, log_level)
             return
 
         if cmd == "config":

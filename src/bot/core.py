@@ -335,6 +335,13 @@ class LegaleBot:
         # Recreate LLM client with new model
         self.llm_client = LLMClient(model=model_name, log_level=self.log_level)
         
+        # Update references in other components
+        if hasattr(self, 'llm_gateway'):
+            self.llm_gateway.llm_client = self.llm_client
+            
+        if hasattr(self, 'retrieval_service') and hasattr(self.retrieval_service, 'query_rewriter'):
+            self.retrieval_service.query_rewriter.llm = self.llm_client
+        
         # Update current_model_max_tokens from available_models dictionary
         self.current_model_max_tokens = self.available_models[model_name]
         
